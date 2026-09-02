@@ -1,0 +1,197 @@
+# 取件码助手（PickupCodeGrabber）
+
+> 一个 **LSPosed 模块**：自动捕获快递取件短信 → 提取取件码 → 写入小米笔记「待办」
+> （一码一条、新码堆栈置顶）→ 弹出通知（点击复制 / 一键标记已取件）。
+>
+> 适用于 **小米 / 红米（MIUI·HyperOS）+ Root + LSPosed** 环境。
+
+**[English summary]** An LSPosed module for Xiaomi/HyperOS that automatically extracts parcel
+pickup codes from SMS and writes each code as a to-do item in Xiaomi Notes, with copy-on-tap
+notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android 17.
+
+---
+
+## ✨ 特性
+
+- **100% 覆盖短信来源**：在短信数据库的写入必经点（`SmsProvider.insert`）捕获，
+  普通短信与小米网络短信都逃不掉；
+- **智能提取**：支持「取件码为 16-4-9626, 15-3-2194」「凭22-2-3579到…取件」等多种真实短信格式，
+  支持一条短信内多码簇提取；来源识别（菜鸟/丰巢/京东/顺丰/中通/圆通/韵达/申通/邮政）；
+- **去重**：按「取件码 + 地点」指纹去重，同一地点的同一码不会重复写入；
+- **一码一条待办**：写入小米笔记待办，`custom_sort_id = MAX + 0x100000` 新码堆栈置顶；
+- **通知交互**：通知正文显示取件码，点击 → 复制到剪贴板 + 打开笔记待办；每条码带「已取件」动作按钮；
+- **三种模板**：极简（仅码）/ 完整（码+来源+地点+时间，默认）/ 自定义占位符模板；
+- **黑名单关键词**：过滤 12306 / 验证码 / 银行 / 广告等误报短信（设置页可预览、修改）；
+- **一键自测**：设置页一键注入测试短信（随机取件码，永不去重撞车），验证链路，不消耗真实短信；
+- **隐私友好**：**零网络、零短信权限**（模块本体不申请 READ_SMS/RECEIVE_SMS，Hook 层直接取数），
+  全程本地处理，不收集任何数据。
+
+## 📷 截图
+
+> 设置页 / 待办列表 / 通知截图即将由作者补充（放置于 `docs/screenshots/`）。
+
+## 🔄 工作原理
+
+```
+短信（普通 / 小米网络短信）
+   ↓ ① 捕获：Hook SmsProvider.insert / bulkInsert（短信库写入必经点，100% 覆盖）
+   ↓ ② 拼接与转发：ContentResolver.call → 模块 App（Provider 唤醒，不受后台冻结限制）
+   ↓ ③ 提取：正则引擎（关键词锚定 / 凭…到 / 快递特征词，支持多码簇）
+   ↓ ④ 去重：码 + 地点指纹（模块自有 SharedPreferences）
+   ↓ ⑤ 写入：su -M sqlite3 直写 小米笔记 todo.db（custom_sort_id=MAX+0x100000 堆栈置顶）
+   ↓ ⑥ 通知：点击复制取件码 + 打开待办；动作按钮「已取件」
+```
+
+多点冗余 Hook（S1–S8，详见 [docs/14-hooks.md](docs/14-hooks.md)）保证不同 ROM 版本都能兜底，
+`S8`（短信库写入点）是主通道。
+
+## 📋 环境要求
+
+| 项目 | 要求 |
+|---|---|
+| 设备 | 小米 / 红米，MIUI / HyperOS（Android 12+；实测见兼容矩阵） |
+| Root | Magisk（需要 `su -M`，即全局挂载命名空间） |
+| 框架 | LSPosed（Zygisk 或原版均可） |
+| 手机端工具 | `sqlite3` 可执行文件（见「部署准备」） |
+| 备注 | 待办写入依赖小米笔记 App（`com.miui.notes`），**非小米设备不适用** |
+
+## 🚀 安装
+
+1. **下载 APK**：GitHub Releases 页面下载最新版；
+2. **安装** APK（首次安装后请在权限弹窗授予「通知」权限，Android 13+）；
+3. **LSPosed 激活**：LSPosed 管理器 → 模块 → 取件码助手 → 勾选启用，作用域勾选：
+   `system`（系统框架）、`com.android.phone`、`com.android.mms`、`com.miui.notes`；
+4. **重启手机**；
+5. **授权 Root**：触发一次后，Magisk 弹窗授权（一次性，永久生效）。
+
+### 部署准备（必需步骤）
+
+模块通过 root 直写数据库时需要 `sqlite3`，请确认手机上有可用的二进制：
+
+```bash
+# 方法 1：多数 ROM 自带（先测试）
+adb shell su -c 'ls -l /system/bin/sqlite3'
+# 方法 2：Magisk 模块/系统分区内的 sqlite3
+adb shell su -c 'which sqlite3'
+
+# 若都没有：在 Termux 中安装并拷贝到模块约定目录
+pkg install sqlite3 openssl
+adb shell su -c 'mkdir -p /data/local/tmp/pickup_sqlite/lib'
+adb push $PREFIX/lib/libsqlite3.so /data/local/tmp/pickup_sqlite/lib/
+adb push $PREFIX/bin/sqlite3     /data/local/tmp/pickup_sqlite/
+adb shell su -c 'chmod 755 /data/local/tmp/pickup_sqlite/sqlite3'
+```
+
+> 模块约定的 sqlite3 路径：`/data/local/tmp/pickup_sqlite/sqlite3`，
+> 依赖库目录：`/data/local/tmp/pickup_sqlite/lib`（`LD_LIBRARY_PATH` 指向该目录）。
+
+## 🧪 使用说明
+
+- **一键测试**：打开「取件码助手」App → 「🧪 一键测试（不消耗短信）」→ 查看待办是否出现测试条目；
+- **模板设置**：极简 / 完整 / 自定义（支持 `{code}` `{source}` `{place}` `{time}` 占位符）；
+- **黑名单**：预览当前关键词 → 修改 → 保存；命中关键词的短信直接跳过（默认含 12306/验证码/银行等）；
+- **通知操作**：点击通知 = 复制取件码 + 打开待办；「已取件」按钮 = 勾选对应待办。
+
+## 🛠 构建
+
+### 方式一：Android Studio / Gradle（推荐给贡献者）
+
+```bash
+# Android Studio 直接 Open 项目目录；或命令行：
+./gradlew assembleDebug
+# 产物：app/build/outputs/apk/debug/app-debug.apk
+```
+
+要求：JDK 17+；首次构建自动下载依赖与 Android SDK（或在 `local.properties` 指定 SDK 路径）。
+签名密钥请使用自己的 keystore（**切勿提交密钥到仓库**）。
+
+### 方式二：Termux 手机本地构建（无需电脑）
+
+```bash
+# 将仓库推送到手机 /sdcard/Download/pickup-code-grabber/ 后：
+su -c 'bash /sdcard/Download/pickup-code-grabber/build/build_termux.sh'
+# 产物：/sdcard/Download/pickup-code-grabber/pickup-code-grabber.apk
+```
+
+构建参数（android.jar / xposed jar / 签名）均可用环境变量覆盖，详见脚本头部注释。
+
+依赖说明见 [docs/12-build-setup.md](docs/12-build-setup.md)。
+
+## 🖥 兼容矩阵
+
+| 设备 / 系统 | 结果 |
+|---|---|
+| REDMI K90 Pro Max / HyperOS 4.0 / Android 17 / Magisk + LSPosed | ✅ **实测通过**（2026-09-03 端到端，真实短信 → 待办可见） |
+| MIUI / HyperOS 12–17（其他设备） | ⚠️ 设计上兼容，**未逐一实测**，欢迎反馈 |
+
+- 若你的 ROM 上「短信 App / 笔记 App」表结构或类名有差异，可能表现为：Hook 点 NOT FOUND（自动跳过，无害）、
+  待办写入失败（可在模块日志 `PICKUPDEBUG` 中看到 `TODO FAIL`）；
+- 待办表结构自检降级（写入前校验 → 自动降级为仅通知+模块内列表）为计划项，当前版本未实现（见「已知限制」）。
+
+## ❓ 常见问题（FAQ）
+
+**Q1：模块已启用但毫无反应？**
+按顺序排查：① LSPosed 作用域是否勾选（system / com.android.phone / com.android.mms / com.miui.notes）；
+② 是否已重启手机；③ Magisk 是否授权过 su；④ sqlite3 是否部署到 `/data/local/tmp/pickup_sqlite/`；
+⑤ 看 LSPosed 模块日志（`/data/adb/lspd/log/`）与 `adb logcat -s PICKUPDEBUG`。
+
+**Q2：收到短信但没写入待办？**
+先看是否被黑名单命中（短信含「验证码/银行…」关键词会跳过）；再确认短信里是否含取件码特征
+（菜鸟/驿站/取件/丰巢/快递柜等）。特征无法识别时会静默跳过。
+
+**Q3：提示 `TODO FAIL` / su 报错？**
+`sqlite3: inaccessible or not found` → sqlite3 未部署（见「部署准备」）；
+`unable to open database file` → 通常需要 `su -M`（全局挂载命名空间），确认 Magisk 正常。
+
+**Q4：升级安装报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`？**
+签名的 keystore 与旧版不一致，先卸载旧版再安装（会丢失旧记录）。
+
+**Q5：取件码没同步到小米云？**
+直写数据库绕过了小米笔记的云同步管道，**不保证云端一致**（多数情况下同步服务会自行察觉并同步，
+但不要依赖这一点）。重要待办请自行确认。
+
+**Q6：为什么要求 root + LSPosed？**
+方案运行在 Hook 层 + 直写数据库层，是为了「零短信权限 + 100% 覆盖所有短信来源」；
+不使用通知监听的折中方案（无 Root 但只能覆盖 App 推送）。
+
+## ⚠️ 已知限制与风险（请阅读）
+
+1. **针对小米笔记私有数据库**：模块直接写入 `com.miui.notes` 的 `todo.db`（私人表结构），
+   不同 HyperOS 版本的字段可能变化；当前仅实测一台设备。**写入前无表结构自检 / 自动降级**（计划中），
+   若表结构不匹配，写入会失败但**不会破坏已有数据**（只增行 + 定点标记完成，绝不删改用户数据）；
+2. **不承诺云同步**（见 FAQ5）；
+3. **Root 风险自担**：直写其他应用数据库属于系统权限操作，请自行权衡；
+4. 需要**小米 / 红米设备**：非小米设备没有 `com.miui.notes`，模块核心功能不可用.
+
+## 🔐 隐私与安全
+
+- **零网络权限**：模块 APK 不申请 INTERNET，任何数据都不出设备；
+- **零短信权限**：不申请 READ_SMS / RECEIVE_SMS，Hook 层直接取 PDU / 数据库写入值；
+- **本地处理**：短信文本仅在设备本地内存与模块私有存储中流转；
+- 唯一写出去的内容 = 你手机上的小米笔记待办（你本地的）；
+- 日志只输出到 logcat 与 LSPosed 模块日志（均为本机）。
+
+## 📖 文档
+
+| 文档 | 内容 |
+|---|---|
+| [docs/07-assessment.md](docs/07-assessment.md) | 架构评估与决策记录 |
+| [docs/08-recon.md](docs/08-recon.md) | 实机侦察（包名 / Provider / 数据库结构 / APK 逆向） |
+| [docs/09-write-path-verification.md](docs/09-write-path-verification.md) | 待办写入路径验证报告（直写可行性） |
+| [docs/10-security-reliability.md](docs/10-security-reliability.md) | 安全与可靠性盘查（24 项） |
+| [docs/12-build-setup.md](docs/12-build-setup.md) | Termux 构建环境与流程 |
+| [docs/13-pipeline-log.md](docs/13-pipeline-log.md) | 关键日志与踩坑归档（含 su -M / 冻结 / 网络短信等） |
+| [docs/14-hooks.md](docs/14-hooks.md) | Hook 点清单与捕获链路 |
+| [docs/HISTORY.md](docs/HISTORY.md) | **完整生命周期演进史**（v1 时代 → v2 重构 → v2.1 增强） |
+
+## 📜 许可与免责
+
+- 本项目基于 **MIT 许可**开源（见 [LICENSE](LICENSE)）；
+- 本项目**与小米公司无任何关联**，非官方作品；「小米」「HyperOS」等为相关方商标；
+- 模块使用 `de.robv.android.xposed:api:82`（Apache-2.0）仅编译期引用，运行时由 LSPosed 提供；
+- 请勿将本项目用于任何违反当地法规的用途；使用本模块造成的任何数据问题由使用者自行承担。
+
+## 🙏 致谢
+
+[Xposed Framework](https://github.com/rovo89/XposedBridge) 作者、[LSPosed](https://github.com/LSPosed/LSPosed) 社区、
+SQLite 项目，以及所有提供反馈的测试用户。
