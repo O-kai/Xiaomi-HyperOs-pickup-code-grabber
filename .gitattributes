@@ -1,0 +1,12 @@
+# 统一换行：文本文件尽量 LF（Android/Windows 上检出时自适应）
+* text=auto
+*.sh text eol=lf
+*.java text
+*.md text
+*.xml text
+*.gradle text
+*.properties text
+*.bat text eol=crlf
+*.jar binary
+*.png binary
+*.apk binary
