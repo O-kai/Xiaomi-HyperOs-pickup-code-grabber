@@ -26,9 +26,23 @@ notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android
 - **隐私友好**：**零网络、零短信权限**（模块本体不申请 READ_SMS/RECEIVE_SMS，Hook 层直接取数），
   全程本地处理，不收集任何数据。
 
-## 📷 截图
+## 📷 效果截图
 
-> 设置页 / 待办列表 / 通知截图即将由作者补充（放置于 `docs/screenshots/`）。
+**设置页**（模块激活状态 · 模板三档 · 一键测试 · 黑名单 · 使用说明）
+
+![设置页](docs/screenshots/settings.jpg)
+
+**小米笔记待办列表**（一码一条、新码置顶；测试用随机码已验证，真实记录已脱敏）
+
+![待办列表](docs/screenshots/todo-list.jpg)
+
+**取件通知**（点击复制并打开待办）
+
+![通知](docs/screenshots/notification.jpg)
+
+**桌面演示**（系统原生「待办」桌面组件，直接展示模块写入的取件码 —— 无需打开笔记即可查看）
+
+![桌面组件效果](docs/screenshots/home-widget.jpg)
 
 ## 🔄 工作原理
 
@@ -183,10 +197,12 @@ su -c 'bash /sdcard/Download/pickup-code-grabber/build/build_termux.sh'
 | [docs/13-pipeline-log.md](docs/13-pipeline-log.md) | 关键日志与踩坑归档（含 su -M / 冻结 / 网络短信等） |
 | [docs/14-hooks.md](docs/14-hooks.md) | Hook 点清单与捕获链路 |
 | [docs/HISTORY.md](docs/HISTORY.md) | **完整生命周期演进史**（v1 时代 → v2 重构 → v2.1 增强） |
+| [docs/15-journey.md](docs/15-journey.md) | 开发历程展示稿（面向社区阅读，已被 README/宣传引用） |
 
 ## 📜 许可与免责
 
 - 本项目基于 **MIT 许可**开源（见 [LICENSE](LICENSE)）；
+- 作者 / 维护者：[O-kai](https://github.com/O-kai)；
 - 本项目**与小米公司无任何关联**，非官方作品；「小米」「HyperOS」等为相关方商标；
 - 模块使用 `de.robv.android.xposed:api:82`（Apache-2.0）仅编译期引用，运行时由 LSPosed 提供；
 - 请勿将本项目用于任何违反当地法规的用途；使用本模块造成的任何数据问题由使用者自行承担。
