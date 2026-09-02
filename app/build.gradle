@@ -1,0 +1,44 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.pickupcode.grabber'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.pickupcode.grabber'
+        minSdk 28
+        targetSdk 34
+        versionCode 211
+        versionName '2.1.1'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // 发布 APK 请使用你自己的签署配置（签名密钥不要提交到仓库！）：
+            // signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    // 非标准源码布局，与 Termux 手工构建脚本保持一致
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['src']
+            res.srcDirs = ['res']
+            assets.srcDirs = ['assets']
+        }
+    }
+}
+
+dependencies {
+    // 官方 Xposed API（仅编译期；运行时由 LSPosed 提供，不打包进 APK）
+    compileOnly 'de.robv.android.xposed:api:82'
+}

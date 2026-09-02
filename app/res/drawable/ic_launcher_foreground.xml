@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 简单的包裹图标前景：白色纸箱 + 封条 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M32,40 L76,40 L76,72 Q76,74 74,74 L34,74 Q32,74 32,72 Z" />
+    <path
+        android:fillColor="#FF3FA0F5"
+        android:pathData="M32,44 L76,44 L76,50 L32,50 Z" />
+    <path
+        android:fillColor="#FFEAF3FF"
+        android:pathData="M32,62 L76,62 L76,68 L32,68 Z" />
+</vector>

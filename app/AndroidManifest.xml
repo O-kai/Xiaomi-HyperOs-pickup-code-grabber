@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.pickupcode.grabber"
+    android:versionCode="211"
+    android:versionName="2.1.1">
+
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:label="取件码助手"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:supportsRtl="true">
+
+        <!-- Xposed/LSPosed 模块声明 -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="自动提取快递取件码，写入小米笔记待办" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposed_scope" />
+
+        <!-- 跨进程事实入口：Hook 进程通过 ContentResolver.call 唤醒模块 App -->
+        <provider
+            android:name=".TodoProvider"
+            android:authorities="com.pickupcode.grabber.provider"
+            android:exported="true" />
+
+        <!-- 短信事件接收器（Hook 进程广播 → 模块自身进程处理，兜底通道） -->
+        <receiver
+            android:name=".SmsEventReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.pickupcode.grabber.action.ON_SMS" />
+            </intent-filter>
+        </receiver>
+
+        <activity
+            android:name=".LauncherActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

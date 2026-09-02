@@ -1,0 +1,40 @@
+# ---------- Gradle ----------
+.gradle/
+# Gradle 构建输出（根目录的 build/ 是构建脚本源码，必须保留）
+app/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---------- Android Studio / IntelliJ ----------
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ---------- 本地环境（含机器路径，禁止提交） ----------
+local.properties
+
+# ---------- 签名密钥（红线：永远不要提交！） ----------
+*.keystore
+*.jks
+*.p12
+*.pk8
+*.pem
+
+# ---------- 数据库/备份（含用户隐私数据，禁止提交） ----------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+backup/
+
+# ---------- 构建产物 ----------
+*.apk
+*.aab
+*.apks
+
+# ---------- 临时/日志 ----------
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
