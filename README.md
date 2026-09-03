@@ -201,6 +201,8 @@ su -c 'bash /sdcard/Download/pickup-code-grabber/build/build_termux.sh'
 | [docs/14-hooks.md](docs/14-hooks.md) | Hook 点清单与捕获链路 |
 | [docs/HISTORY.md](docs/HISTORY.md) | **完整生命周期演进史**（v1 时代 → v2 重构 → v2.1 增强） |
 | [docs/15-journey.md](docs/15-journey.md) | 开发历程展示稿（面向社区阅读，已被 README/宣传引用） |
+| [docs/RELEASE-PROCESS.md](docs/RELEASE-PROCESS.md) | 维护者标准发布流程（本地更新 → 自动化归纳发版） |
+| [docs/PUBLISHING.md](docs/PUBLISHING.md) | 对外发布指南（GitHub / LSPosed 仓库 / 酷安 / Telegram / Gitee） |
 
 ## 📜 许可与免责
 
