@@ -1,5 +1,8 @@
 # 取件码助手（PickupCodeGrabber）
 
+![license](https://img.shields.io/badge/license-MIT-blue.svg)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/O-kai/Xiaomi-HyperOs-pickup-code-grabber?style=flat-square)](https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases)
+
 > 一个 **LSPosed 模块**：自动捕获快递取件短信 → 提取取件码 → 写入小米笔记「待办」
 > （一码一条、新码堆栈置顶）→ 弹出通知（点击复制 / 一键标记已取件）。
 >
