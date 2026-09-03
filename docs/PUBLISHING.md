@@ -10,13 +10,13 @@
 
 | # | 渠道 | 用途 | 状态 |
 |---|---|---|---|
-| 1 | GitHub Releases | 主分发（APK + 更新说明） | 已启用（CI 自动或手动） |
-| 2 | modules.lsposed.org（LSPosed 官方模块仓库） | 官方收录，LSPosed 管理器可浏览 | 待提交（见 §2） |
-| 3 | 酷安 | 国内社区曝光主渠道 | 文案已备（见 §3） |
-| 4 | Telegram（LSPosed 相关群） | 海外/资讯分发 | 文案已备（见 §4） |
-| 5 | Gitee 镜像 | GitHub 访问不便的用户 | 指南已备（见 §5） |
+| 1 | GitHub Releases | 主分发（APK + 更新说明） | 已启用（标准流程，见 RELEASE-PROCESS.md） |
+| 2 | modules.lsposed.org（LSPosed 官方模块仓库） | 官方收录，LSPosed 管理器可浏览 | ✅ 已提交（2026-09-03） |
+| 3 | 酷安 | 国内社区曝光主渠道 | ✅ 已发布（[链接](https://www.coolapk.com/feed/73558591)） |
+| 4 | Telegram（LSPosed 相关群） | 海外/资讯分发 | 暂缓（文案已备，见 §4） |
+| 5 | Gitee 镜像 | GitHub 访问不便的用户 | 指南已备（见 §5，未执行） |
 
-**发布节奏建议**：每版本 = GitHub 打 tag → CI 构建并出 Release → 酷安动态（简版）+ TG 消息（一行）→ LSPosed 仓库自动同步。Gitee 走镜像自动同步，无需手动。
+**发布节奏建议**：每版本 = GitHub 打 tag → 正式签名 APK 出 Release →（可选）酷安更新动态 + TG 消息（一行）→ LSPosed 仓库自动同步。Gitee 走镜像自动同步，无需手动。
 
 ---
 
