@@ -45,5 +45,5 @@
 - **教训**：手工 stub 构建的模块入口从未被真正调用（签名错误），
   遗留经验即可，代码不再维护（详见 [docs/HISTORY.md](docs/HISTORY.md)）。
 
-[2.1.1]: https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases/tag/2.1.1
-[2.1.0]: https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases/tag/2.1.0
+[2.1.1]: https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases/tag/v2.1.1
+[2.1.0]: https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases/tag/v2.1.0
