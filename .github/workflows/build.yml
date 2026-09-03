@@ -1,6 +1,8 @@
 name: Build APK
 
-# 触发：推送 v* 标签（自动发布）或手动运行
+# 触发：推送 v* 标签 或 手动运行
+# 职责：构建验证 + 产出（debug 签名）测试 APK 供下载体验；
+#       正式分发 APK 由维护者用生产 keystore 签名后经标准发布流程挂载（见 docs/RELEASE-PROCESS.md）
 on:
   push:
     tags:
@@ -8,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -35,19 +37,8 @@ jobs:
       - name: 重命名产物
         run: mv app/build/outputs/apk/debug/app-debug.apk pickup-code-grabber-debug.apk
 
-      - name: 上传构建产物
+      - name: 上传构建产物（仅测试用）
         uses: actions/upload-artifact@v4
         with:
           name: pickup-code-grabber-debug
           path: pickup-code-grabber-debug.apk
-
-      - name: 发布到 GitHub Release（仅 tag 触发）
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: pickup-code-grabber-debug.apk
-          generate_release_notes: true
-          body: |
-            由 GitHub Actions 自动构建（tag: ${{ github.ref_name }}）。
-
-            > 注意：此 APK 为 debug 签名，正式分发建议由维护者使用生产 keystore 签名后替换。

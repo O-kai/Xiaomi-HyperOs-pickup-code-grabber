@@ -22,34 +22,46 @@
 
 ## 1. GitHub Releases（主分发）
 
-**手动流程**：
-1. `git tag v2.1.1 && git push origin v2.1.1` → CI 自动构建 APK 并创建 Release；
-2. 或手动：Releases → Draft a new release → 选择 tag → 上传 `pickup-code-grabber-2.1.1-debug.apk`（正式版请用生产 keystore 签名后替换）；
-3. Release 说明模板：接下方代码块。
+> **现行标准流程见 [RELEASE-PROCESS.md](RELEASE-PROCESS.md)**（本地更新 → 归纳 → 推送 → tag →
+> 正式签名 APK → Release，已实测）。本节保留要点与踩坑记录。
 
-> ⚠️ **CI 触发注意事项（实测踩坑）**：
-> - `gradlew` 必须带可执行位（Windows 上 `git update-index --chmod=+x gradlew` 后提交），
->   否则 Linux runner 报 `Permission denied`；
-> - **删除标签后重推同一提交，GitHub 会去重不再触发 CI**；需要重发时请：改提交（或
->   `git commit --allow-empty`）让 SHA 变化后再打标签；也可以直接在 GitHub 网页
->   「Releases → Edit」里手动补附件；
-> - 推送 `.github/workflows/` 需要 token 具备 **Workflows: Read and write** 权限；
-> - 手动触发需要 **Actions: Read and write** 权限（`workflow_dispatch`），当前 token 未开，
->   如需手动触发请在 token 设置中补充。```
-## 取件码助手 v2.1.1
+**流程**：正式分发 APK 由维护者用生产 keystore 本地签名（`artifact/pickup-code-grabber-vX.Y.Z-release.apk`），
+由自动化助手验签后挂到 Release；CI（Build APK）只做构建验证并产出 debug 测试包（Actions 产物，不发布）。
+Release 说明模板（v2.1.1 已采用）：
+
+```
+## 取件码助手 vX.Y.Z（PickupCodeGrabber）
 
 LSPosed 模块：自动提取快递取件短信取件码，写入小米笔记待办（一码一条、新码置顶）。
 
 ### 本次更新
-- 黑名单「预览 + 修改/保存」二段式 UI
-- 一键测试改为随机取件码（永不撞去重，可反复自测）
-- 移除桌面小组件（回归精简）
+（逐条列出：用户可见变更 + 修复 + 行为变化）
 
 ### 环境要求
 小米/红米 + Root(Magisk) + LSPosed；Android 12+；需要设备内可用 sqlite3（见 README 部署准备）。
 
-> 安装：卸载旧签名版本后安装本 APK。
+### 文件校验
+- 文件名：pickup-code-grabber-vX.Y.Z.apk
+- SHA-256：<校验和，发布时自动写入>
+
+### 文档
+使用 / FAQ / 风险说明：<README 链接>
+完整开发历程：<docs/15-journey.md 链接>
+更新日志：<CHANGELOG.md 链接>
+
+### 声明
+- 仅实测 <设备矩阵>；其他版本兼容性欢迎反馈
+- 直写小米笔记数据库：不承诺云同步；只增行/定点标记，不删改用户已有数据
+- 非小米官方作品，MIT 许可，使用风险自担
 ```
+
+> ⚠️ **CI/推送踩坑记录（实测）**：
+> - `gradlew` 必须带可执行位（Windows 上 `git update-index --chmod=+x gradlew` 后提交），
+>   否则 Linux runner 报 `Permission denied`；
+> - **删除标签后重推同一提交，GitHub 会去重不再触发 CI**；需要重发时请：改提交（或
+>   `git commit --allow-empty`）让 SHA 变化后再打标签；
+> - 推送 `.github/workflows/` 需要 token 具备 **Workflows: Read and write** 权限；
+> - 手动触发 CI（`workflow_dispatch`）需要 **Actions: Read and write** 权限（当前未开，可选）。
 
 ---
 
