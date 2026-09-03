@@ -76,3 +76,14 @@ CI 内部使用 GitHub 自动提供的仓库级 GITHUB_TOKEN，与本地 token �
 - **CI 挂了**：不影响发布（CI 只产测试包）；本地 `assembleDebug` 可独立验证；
 - **token 失效**：重新生成 fine-grained PAT（Contents RW + Workflows RW）放到
   `D:\project\_credentials\gh-token.txt`，告诉我一声即可。
+
+## 七、⚠️ 已踩过的坑（务必遵守）
+
+1. **API 传中文必须是 UTF-8 字节**：`Invoke-RestMethod -Body ([Text.Encoding]::UTF8.GetBytes($json))`
+   且 `-ContentType 'application/json; charset=utf-8'`。
+   直接用字符串 Body 会被 ASCII 编码 → 所有中文变成 `?`（v2.1.1 Release 曾中招，已修复）。
+   发布脚本里一律用字节流；
+2. `gradlew` 提交前 `git update-index --chmod=+x gradlew`（CI Linux 需要）；
+3. 删除标签重推同一提交 = GitHub 去重不触发 CI，必须用新提交/SHA；
+4. 推送 `.github/workflows/` 需要 token 有 Workflows: Read and write；
+5. 建 Release 后必须回读 API 校验正文（写文件 + 数 `?` 字符），通过才算完成。
