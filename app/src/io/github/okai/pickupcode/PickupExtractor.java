@@ -1,4 +1,4 @@
-package com.pickupcode.grabber;
+package io.github.okai.pickupcode;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;

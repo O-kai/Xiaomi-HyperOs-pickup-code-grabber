@@ -1,4 +1,4 @@
-package com.pickupcode.grabber;
+package io.github.okai.pickupcode;
 
 import android.content.Intent;
 import android.telephony.SmsMessage;
@@ -270,7 +270,7 @@ public class SmsBridge {
                 extras.putString("body", body);
                 extras.putLong("ts", System.currentTimeMillis());
                 android.os.Bundle result = ctx.getContentResolver().call(
-                        android.net.Uri.parse("content://com.pickupcode.grabber.provider"),
+                        android.net.Uri.parse("content://io.github.okai.pickupcode.provider"),
                         "onSms", null, extras);
                 XposedEntry.log("EVENT dispatched (provider), result=" + result);
             } else {
@@ -281,8 +281,8 @@ public class SmsBridge {
             try {
                 android.content.Context ctx = obtainContext();
                 if (ctx != null) {
-                    android.content.Intent i = new android.content.Intent("com.pickupcode.grabber.action.ON_SMS");
-                    i.setPackage("com.pickupcode.grabber");
+                    android.content.Intent i = new android.content.Intent("io.github.okai.pickupcode.action.ON_SMS");
+                    i.setPackage("io.github.okai.pickupcode");
                     i.putExtra("sender", sender);
                     i.putExtra("body", body);
                     i.putExtra("ts", System.currentTimeMillis());

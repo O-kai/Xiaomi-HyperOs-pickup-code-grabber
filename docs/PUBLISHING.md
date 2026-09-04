@@ -71,19 +71,20 @@ LSPosed 模块：自动提取快递取件短信取件码，写入小米笔记待
 内容/版本同步自**你仓库的 GitHub Releases**（区分 stable / beta / snapshot，
 即 Release 是否标记 *Pre-release*）。
 
-**提交步骤**：
-1. 确保 GitHub 上已有：带完整 README 的源码仓库 + 至少一个公开 Release（含 APK）；
-2. 打开 **https://modules.lsposed.org/submission/** （或模块仓库首页 "Submit Module"）；
-3. 填写：
-   - 模块包名：`com.pickupcode.grabber`
+**提交步骤**（v2.3.0 起按官方 issue 流程）：
+1. 官方流程：在 **Xposed-Modules-Repo/submission** 仓库发 issue，
+   标题 `[submission] <包名>`，机器人自动建镜像仓库并邀请你为管理员；
+2. **包名所有权规则（首次提交踩坑记录）**：`com.*` 前缀需要 TXT 记录验证域名
+   （首次提交 `com.pickupcode.grabber` 因未拥有 pickupcode.com 被拒，见 issue #1725）；
+   无域名用 `io.github.<GitHub用户名>` 前缀免验证 → 应用 ID 已改为 **`io.github.okai.pickupcode`**；
+3. 提交后在 issue 页关注机器人回复；镜像仓库建成后需要在里面放 `SUMMARY`（首页摘要）与
+   `README.md`（完整说明），Release Tag 格式 `<versionCode>-<versionName>`（如 `230-2.3.0`）
+   并附 APK 资产，机器人自动同步展示到 modules.lsposed.org；
+4. 模块信息：
+   - 模块包名：`io.github.okai.pickupcode`
    - 源码仓库：`https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber`
-   - 首页/项目页：`https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber`
-   - 简介（提交页会展示，建议与 README 首段一致）：
+   - 简介（提交页展示，与 README 首段一致）：
      *"自动提取快递取件短信取件码，一条一码写入小米笔记待办（堆栈置顶），通知可复制/一键已取件；仅支持小米 MIUI/HyperOS + Root + LSPosed，零网络零短信权限。"*
-4. 提交后观察 `modules.lsposed.org` 是否出现本模块；通常以 Release 为触发点同步。
-
-**注意**：若提交页要求先创建 `Xposed-Modules-Repo/com.pickupcode.grabber` 镜像仓库，
-按页面指引一键创建即可（该组织仓库由系统管理）。
 
 ---
 

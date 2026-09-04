@@ -1,4 +1,4 @@
-package com.pickupcode.grabber;
+package io.github.okai.pickupcode;
 
 import android.content.ContentValues;
 import android.content.Context;
@@ -247,7 +247,7 @@ public class Diagnostics {
             sb.append("(未统计到——日志为空)");
         } else {
             for (String p : injected) sb.append("  ").append(p).append("\n");
-            boolean self = injected.contains("com.pickupcode.grabber");
+            boolean self = injected.contains("io.github.okai.pickupcode");
             boolean anyTarget = injected.contains("com.android.mms")
                     || injected.contains("com.android.phone")
                     || injected.contains("com.android.providers.telephony")

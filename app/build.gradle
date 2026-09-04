@@ -3,15 +3,15 @@ plugins {
 }
 
 android {
-    namespace 'com.pickupcode.grabber'
+    namespace 'io.github.okai.pickupcode'
     compileSdk 34
 
     defaultConfig {
-        applicationId 'com.pickupcode.grabber'
+        applicationId 'io.github.okai.pickupcode'
         minSdk 28
         targetSdk 34
-        versionCode 220
-        versionName '2.2.0'
+        versionCode 230
+        versionName '2.3.0'
     }
 
     // 正式签名（v2.2.0）：仅当传入 -PPICKUP_KEYSTORE=... 时启用；CI / 无参数构建不受影响

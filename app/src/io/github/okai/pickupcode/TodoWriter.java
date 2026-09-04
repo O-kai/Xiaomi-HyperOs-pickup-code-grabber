@@ -1,4 +1,4 @@
-package com.pickupcode.grabber;
+package io.github.okai.pickupcode;
 
 import android.content.Context;
 import android.content.SharedPreferences;

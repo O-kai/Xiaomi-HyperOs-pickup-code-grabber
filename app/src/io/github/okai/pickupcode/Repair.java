@@ -1,4 +1,4 @@
-package com.pickupcode.grabber;
+package io.github.okai.pickupcode;
 
 import android.content.Context;
 import android.content.res.AssetManager;
@@ -26,7 +26,7 @@ public class Repair {
     public static final String SQLITE = TARGET_DIR + "/sqlite3";
     public static final String DB = "/data/user/0/com.miui.notes/databases/todo.db";
     private static final String LSP_DB = "/data/adb/lspd/config/modules_config.db";
-    private static final String SELF = "com.pickupcode.grabber";
+    private static final String SELF = "io.github.okai.pickupcode";
 
     /** 作用域必需目标（实测 HyperOS 将 providers.telephony 合并进 phone 进程，故列为可选） */
     public static final String[] SCOPE_REQUIRED = {

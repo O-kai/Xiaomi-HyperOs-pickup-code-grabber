@@ -1,4 +1,4 @@
-package com.pickupcode.grabber;
+package io.github.okai.pickupcode;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -13,7 +13,7 @@ import java.util.List;
  */
 public class SmsEventReceiver extends BroadcastReceiver {
 
-    public static final String ACTION = "com.pickupcode.grabber.action.ON_SMS";
+    public static final String ACTION = "io.github.okai.pickupcode.action.ON_SMS";
     private static final String TAG = "PICKUPDEBUG";
 
     @Override

@@ -2,6 +2,18 @@
 
 > 版本策略：对外发布延续内部版本号。完整生命周期故事见 [docs/HISTORY.md](docs/HISTORY.md)。
 
+## [2.3.0] - 2026-09-05 · 更换应用 ID（为进入 LSPosed 官方模块仓库）
+
+- **应用 ID 变更：`com.pickupcode.grabber` → `io.github.okai.pickupcode`**；
+- 原因：LSPosed 官方模块仓库要求包名符合反向域名所有权（自有域名或
+  `io.github.<GitHub用户名>` 免验证，见 [submission #1725](https://github.com/Xposed-Modules-Repo/submission/issues/1725)
+  官方审核意见）。`O-kai` 含连字符不符合 Java 包名规范，转为 `okai`；
+- **⚠️ 老用户升级须知：本次必须卸载重装**（应用 ID 变更无法覆盖安装）：
+  1. 备份：小米笔记待办数据在小米笔记应用内，不受卸载影响；
+  2. 卸载旧版 → 安装 v2.3.0 → LSPosed 重新启用模块 → 重新勾选 5 项作用域 → **重启手机**；
+  3. Magisk 重新授权一次 → 打开 App 跑「部署体检」→「一键部署 sqlite3」（如需要）→「一键测试」；
+- 功能与 v2.2.0 完全一致（无新增功能，纯身份变更）。
+
 ## [2.2.0] - 2026-09-05 · 一键部署版
 
 - **内置 sqlite3（重磅）**：APK 自带经实机验证的 sqlite3 3.53.4（arm64）+ 依赖库；
