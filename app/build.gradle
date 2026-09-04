@@ -14,11 +14,27 @@ android {
         versionName '2.2.0'
     }
 
+    // 正式签名（v2.2.0）：仅当传入 -PPICKUP_KEYSTORE=... 时启用；CI / 无参数构建不受影响
+    // 用法（密码走本地文件读入，勿提交、勿打印）：
+    //   gradlew assembleRelease -PPICKUP_KEYSTORE=<path> -PPICKUP_KEYSTORE_PASS=<pass> -PPICKUP_KEY_ALIAS=pickupcode
+    signingConfigs {
+        if (project.hasProperty('PICKUP_KEYSTORE')) {
+            release {
+                storeFile file(PICKUP_KEYSTORE)
+                storePassword PICKUP_KEYSTORE_PASS
+                keyAlias PICKUP_KEY_ALIAS
+                keyPassword PICKUP_KEYSTORE_PASS
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            if (project.hasProperty('PICKUP_KEYSTORE')) {
+                signingConfig signingConfigs.release
+            }
             // 发布 APK 请使用你自己的签署配置（签名密钥不要提交到仓库！）：
-            // signingConfig signingConfigs.release
         }
     }
 
