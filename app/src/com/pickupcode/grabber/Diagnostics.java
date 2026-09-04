@@ -57,12 +57,14 @@ public class Diagnostics {
 
     // ==================== 体检 ====================
 
-    /** 四项体检（含 su 执行，调用方需放到线程里） */
+    /** 六项体检（含 su 执行，调用方需放到线程里）；v2.2.0 加入作用域与通知检测 */
     public static List<Check> healthCheck(Context ctx) {
         List<Check> out = new ArrayList<>();
         out.add(checkLsposedInject(ctx));
         Check su = checkRoot();
         out.add(su);
+        out.add(checkScope(ctx, su.ok));                    // v2.2.0：作用域精确比对
+        out.add(checkNotification(ctx));                    // v2.2.0：通知权限
         if (su.ok) {
             out.add(checkSqlite3());
             out.add(checkNotesDb());
@@ -71,6 +73,18 @@ public class Diagnostics {
             out.add(new Check("笔记库访问", false, "需要先有 root 才能检测（见上一项）"));
         }
         return out;
+    }
+
+    /** 供 Repair 调用的 su 执行器（多路径：HyperOS 的 su 常不在应用 PATH） */
+    public static String[] suExecPublic(String cmd, int timeoutSec) {
+        String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"};
+        String[] last = null;
+        for (String suBin : suBins) {
+            String[] r = suExec(suBin, cmd, timeoutSec);
+            if (r != null && r[0] != null && !r[0].trim().isEmpty()) return r;
+            if (r != null) last = r;
+        }
+        return last;
     }
 
     /** 1) LSPosed 是否把模块加载进了模块自身（scope 勾选 + 重启的标志） */
@@ -85,6 +99,43 @@ public class Diagnostics {
         return new Check("LSPosed 注入", false,
                 "未检测到注入标记 → 到 LSPosed 勾选本模块并【重启手机】；"
                         + "重启后打开本 App 一次再复检");
+    }
+
+    /** 3.5) 作用域精确比对（v2.2.0）：root 读 LSPosed 配置库，缺哪项说哪项 */
+    private static Check checkScope(Context ctx, boolean rootOk) {
+        if (!rootOk) {
+            return new Check("LSPosed 作用域", false, "需要 root 才能自动核对（见上一项）");
+        }
+        Repair.LsposedStatus st = Repair.lsposedStatus(ctx);
+        if (!st.dbReadable) {
+            return new Check("LSPosed 作用域", false,
+                    "无法读取 LSPosed 配置（" + st.detail + "）；请手动在 LSPosed → 模块 →"
+                            + " 取件码助手 勾选 5 项作用域");
+        }
+        if (!st.moduleEnabled) {
+            return new Check("LSPosed 作用域", false,
+                    "模块在 LSPosed 中未启用 → LSPosed 管理器 → 模块 → 勾选「取件码助手」，然后重启手机");
+        }
+        if (st.missingScope == null) {
+            String extra = st.hasStaleSystem ? "（发现无效的 system 残留项，可顺手删掉）" : "";
+            return new Check("LSPosed 作用域", true,
+                    "4 项必需目标齐全 ✓ " + st.scopeList + extra);
+        }
+        return new Check("LSPosed 作用域", false,
+                "缺少必需作用域：" + st.missingScope + " → LSPosed 管理器 → 模块 → 取件码助手 →"
+                        + " 作用域补勾后【重启手机】；当前：" + (st.scopeList.isEmpty() ? "(空)" : st.scopeList));
+    }
+
+    /** 3.6) 通知权限（v2.2.0）：Android 13+ POST_NOTIFICATIONS */
+    private static Check checkNotification(Context ctx) {
+        if (android.os.Build.VERSION.SDK_INT < 33) {
+            return new Check("通知权限", true, "Android 12 及以下默认允许");
+        }
+        boolean granted = ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        if (granted) return new Check("通知权限", true, "已授权 ✓");
+        return new Check("通知权限", false,
+                "未授权 → 系统设置 → 应用 → 取件码助手 → 通知，允许（否则收不到取件码弹窗）");
     }
 
     /** 2) root：任一 su 路径可拿到 uid=0 */
@@ -108,8 +159,7 @@ public class Diagnostics {
         String all = (r == null ? "" : nz(r[0]) + nz(r[1]));
         if (all.contains("No such file")) {
             return new Check("sqlite3 部署", false,
-                    SQLITE + " 不存在 → 按仓库 README「部署准备」推入 sqlite3 与依赖库"
-                            + "（adb push 或文件管理器 + su 移动）");
+                    SQLITE + " 不存在 → 点下方「🚀 一键部署 sqlite3」自动完成（无需 adb/Termux）");
         }
         if (all.contains("sqlite3")) {
             return new Check("sqlite3 部署", true, SQLITE + " 存在 ✓");
@@ -143,8 +193,14 @@ public class Diagnostics {
 
     /** 一步生成完整诊断报告（脱敏后纯文本） */
     public static String collectReport(Context ctx) {
+        String ver = "unknown";
+        try {
+            android.content.pm.PackageInfo pi = ctx.getPackageManager()
+                    .getPackageInfo(ctx.getPackageName(), 0);
+            ver = pi.versionName + " (code " + pi.versionCode + ")";
+        } catch (Throwable ignored) { }
         StringBuilder sb = new StringBuilder();
-        sb.append("===== 取件码助手 诊断报告 v2.1.2 =====\n");
+        sb.append("===== 取件码助手 诊断报告 ").append(ver).append(" =====\n");
         sb.append("生成时间: ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(new Date())).append("\n\n");
 
         sb.append("---- 基本信息 ----\n");

@@ -29,9 +29,11 @@ notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android
 - **三种模板**：极简（仅码）/ 完整（码+来源+地点+时间，默认）/ 自定义占位符模板；
 - **黑名单关键词**：过滤 12306 / 验证码 / 银行 / 广告等误报短信（设置页可预览、修改）；
 - **一键自测**：设置页一键注入测试短信（随机取件码，永不去重撞车），验证链路，不消耗真实短信；
-- **部署体检 + 诊断报告**（v2.1.2）：App 内四项体检（LSPosed 注入 / root / sqlite3 / 笔记库），
-  一键导出自动脱敏的诊断报告（含 PICKUPDEBUG 日志、LSPosed 模块日志、注入进程清单），
-  出问题一步收集，发给作者即可；
+- **部署体检 + 诊断报告**（v2.1.2+）：App 内六项体检（LSPosed 注入 / root / **LSPosed 作用域自动比对** /
+  **通知权限** / sqlite3 / 笔记库），一键导出自动脱敏的诊断报告（含 PICKUPDEBUG 日志、LSPosed 模块日志、
+  注入进程清单），出问题一步收集，发给作者即可；
+- **一键部署 sqlite3**（v2.2.0）：APK 内置经实机验证的 sqlite3（arm64），体检发现缺失时一键自动部署，
+  告别 adb/Termux 手工操作；
 - **隐私友好**：**零网络、零短信权限**（模块本体不申请 READ_SMS/RECEIVE_SMS，Hook 层直接取数），
   全程本地处理，不收集任何数据。
 
@@ -93,23 +95,26 @@ notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android
 5. **打开 App 跑「部署体检」**：4 项全 ✅ 后点「一键测试」验证；
 6. **授权 Root**：触发一次后，Magisk 弹窗授权（一次性，永久生效）。
 
-### 部署准备（必需步骤）
+### 部署准备（v2.2.0 起通常无需手动）
 
-模块通过 root 直写数据库时需要 `sqlite3`，请确认手机上有可用的二进制：
+v2.2.0 起 APK **内置 sqlite3**：打开 App → 体检发现缺失时会出现「🚀 一键部署 sqlite3」按钮，
+点一下自动完成（需要 root 授权），无需任何手工操作。
 
-```bash
-# 方法 1：多数 ROM 自带（先测试）
-adb shell su -c 'ls -l /system/bin/sqlite3'
-# 方法 2：Magisk 模块/系统分区内的 sqlite3
-adb shell su -c 'which sqlite3'
-
-# 若都没有：在 Termux 中安装并拷贝到模块约定目录
-pkg install sqlite3 openssl
-adb shell su -c 'mkdir -p /data/local/tmp/pickup_sqlite/lib'
-adb push $PREFIX/lib/libsqlite3.so /data/local/tmp/pickup_sqlite/lib/
-adb push $PREFIX/bin/sqlite3     /data/local/tmp/pickup_sqlite/
-adb shell su -c 'chmod 755 /data/local/tmp/pickup_sqlite/sqlite3'
-```
+> 以下手动方式仅作备用（例如内置版不兼容的特殊架构设备）：
+>
+> ```bash
+> # 方法 1：多数 ROM 自带（先测试）
+> adb shell su -c 'ls -l /system/bin/sqlite3'
+> # 方法 2：Magisk 模块/系统分区内的 sqlite3
+> adb shell su -c 'which sqlite3'
+>
+> # 若都没有：在 Termux 中安装并拷贝到模块约定目录
+> pkg install sqlite3 openssl
+> adb shell su -c 'mkdir -p /data/local/tmp/pickup_sqlite/lib'
+> adb push $PREFIX/lib/libsqlite3.so /data/local/tmp/pickup_sqlite/lib/
+> adb push $PREFIX/bin/sqlite3     /data/local/tmp/pickup_sqlite/
+> adb shell su -c 'chmod 755 /data/local/tmp/pickup_sqlite/sqlite3'
+> ```
 
 > 模块约定的 sqlite3 路径：`/data/local/tmp/pickup_sqlite/sqlite3`，
 > 依赖库目录：`/data/local/tmp/pickup_sqlite/lib`（`LD_LIBRARY_PATH` 指向该目录）。

@@ -32,6 +32,7 @@ public class LauncherActivity extends Activity {
     private static final String PREFS = "dedup";
     private int currentMode = TodoWriter.MODE_FULL;
     private TextView statusCard;
+    private TextView deployBtn;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,7 +58,7 @@ public class LauncherActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.1.2 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
+        sub.setText("v2.2.0 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         root.addView(sub);
@@ -69,6 +70,41 @@ public class LauncherActivity extends Activity {
         statusCard.setBackgroundColor(Color.parseColor("#F5F6FA"));
         statusCard.setText("⏳ 正在体检（root 检测约需 2-5 秒）…");
         root.addView(statusCard);
+
+        // 一键部署 sqlite3（v2.2.0）：仅当体检发现 sqlite3 缺失且 root 可用时出现
+        deployBtn = new TextView(this);
+        deployBtn.setText("🚀 一键部署 sqlite3（自动完成，无需 adb/Termux）");
+        deployBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        deployBtn.setTextColor(Color.WHITE);
+        deployBtn.setBackgroundColor(Color.parseColor("#0FA968"));
+        deployBtn.setPadding(dp(16), dp(10), dp(16), dp(10));
+        deployBtn.setGravity(Gravity.CENTER);
+        deployBtn.setVisibility(View.GONE);
+        deployBtn.setOnClickListener(v -> {
+            deployBtn.setEnabled(false);
+            deployBtn.setText("⏳ 部署中…（如弹出 Magisk 授权请允许）");
+            Toast.makeText(this, "正在部署 sqlite3…", Toast.LENGTH_SHORT).show();
+            new Thread(() -> {
+                String res;
+                try {
+                    res = Repair.deploySqlite3(this);
+                } catch (Throwable t) {
+                    res = "部署异常：" + t.getMessage();
+                }
+                final String r2 = res;
+                runOnUiThread(() -> {
+                    deployBtn.setEnabled(true);
+                    deployBtn.setText("🚀 一键部署 sqlite3（自动完成，无需 adb/Termux）");
+                    Toast.makeText(this, r2, Toast.LENGTH_LONG).show();
+                    refreshHealth();
+                });
+            }).start();
+        });
+        LinearLayout.LayoutParams depLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        depLp.setMargins(dp(0), dp(8), dp(0), dp(0));
+        deployBtn.setLayoutParams(depLp);
+        root.addView(deployBtn);
 
         // 诊断报告导出按钮（体检下方，随时可点）
         TextView diagBtn = new TextView(this);
@@ -276,16 +312,22 @@ public class LauncherActivity extends Activity {
         }
     }
 
-    /** 部署体检：异步跑四项检查并刷新状态卡 */
+    /** 部署体检：异步跑六项检查并刷新状态卡 + 按需显示一键部署按钮 */
     private void refreshHealth() {
         statusCard.setText("⏳ 正在体检…");
+        deployBtn.setVisibility(View.GONE);
         new Thread(() -> {
             String text;
+            boolean needDeploy = false;
             try {
-                StringBuilder sb = new StringBuilder("🩺 部署体检（v2.1.2）\n");
+                StringBuilder sb = new StringBuilder("🩺 部署体检（v2.2.0）\n");
                 for (Diagnostics.Check c : Diagnostics.healthCheck(this)) {
                     sb.append(c.ok ? "✅ " : "❌ ").append(c.title)
                       .append("：").append(c.detail).append("\n");
+                    if ("sqlite3 部署".equals(c.title) && !c.ok
+                            && c.detail != null && c.detail.contains("一键部署")) {
+                        needDeploy = true;
+                    }
                 }
                 sb.append("模板模式：").append(modeName(currentMode))
                   .append(" ｜ 写入：小米笔记待办");
@@ -294,7 +336,11 @@ public class LauncherActivity extends Activity {
                 text = "体检异常：" + t.getMessage();
             }
             final String t2 = text;
-            runOnUiThread(() -> statusCard.setText(t2));
+            final boolean show = needDeploy;
+            runOnUiThread(() -> {
+                statusCard.setText(t2);
+                deployBtn.setVisibility(show ? View.VISIBLE : View.GONE);
+            });
         }).start();
     }
 
