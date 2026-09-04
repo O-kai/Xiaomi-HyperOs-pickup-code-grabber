@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- LSPosed 推荐作用域（v2.1.2 修正）：
+         android = 系统框架（S1）；com.android.phone = 电话进程（S1 兜底）；
+         com.android.mms = 短信应用（S2-S7）；com.android.providers.telephony = 短信库（S8 主通道）；
+         com.miui.notes = 小米笔记（唤醒目标）。
+         注意：系统框架的包名是 android（不是 system）；S8 所在的 providers.telephony 必勾。 -->
     <string-array name="xposed_scope">
-        <item>system</item>
+        <item>android</item>
         <item>com.android.phone</item>
         <item>com.android.mms</item>
+        <item>com.android.providers.telephony</item>
         <item>com.miui.notes</item>
     </string-array>
 </resources>

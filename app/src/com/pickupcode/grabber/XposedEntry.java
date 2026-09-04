@@ -23,8 +23,11 @@ public class XposedEntry implements IXposedHookLoadPackage {
         String pkg = lpparam.packageName;
         log("handleLoadPackage: pkg=" + pkg + " process=" + lpparam.processName);
         if (pkg == null) return;
-        // 跳过模块自身进程
-        if (pkg.equals("com.pickupcode.grabber")) return;
+        // 模块自身进程：写入"已被 LSPosed 注入"标记（诊断报告用），然后返回
+        if (pkg.equals("com.pickupcode.grabber")) {
+            writeSelfInjectMarker(lpparam);
+            return;
+        }
 
         try {
             if (pkg.equals("com.android.mms")) {
@@ -35,11 +38,33 @@ public class XposedEntry implements IXposedHookLoadPackage {
                 hookTelephony(lpparam);
             } else if (pkg.equals("com.android.providers.telephony")) {
                 hookSmsProvider(lpparam);             // S8：短信库写入兜底（网络短信也走这里）
+            } else if (unexpectedLogCount < 20) {
+                // 用户勾选了非目标应用：明确记录，方便诊断报告看出"作用域勾错"
+                unexpectedLogCount++;
+                log("SCOPE-NOT-TARGET: pkg=" + pkg + "（该应用不在 Hook 目标内，"
+                        + "若大量出现说明作用域勾错）");
             }
         } catch (Throwable t) {
             log("hook setup err [" + pkg + "]: " + t);
         }
     }
+
+    /** 在模块自身 dataDir 写标记文件（v2.1.2）：诊断报告据此判断模块是否真的被 LSPosed 加载 */
+    private void writeSelfInjectMarker(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            if (lpparam.appInfo == null || lpparam.appInfo.dataDir == null) return;
+            java.io.File f = new java.io.File(lpparam.appInfo.dataDir, "files/pickup_injected.flag");
+            if (!f.getParentFile().exists()) return; // files 目录未建则跳过（onCreate 时 App 自己会建）
+            java.io.FileWriter w = new java.io.FileWriter(f, false);
+            w.write(String.valueOf(System.currentTimeMillis()));
+            w.close();
+            log("self-inject marker written: " + f.getAbsolutePath());
+        } catch (Throwable t) {
+            log("self-inject marker err: " + t);
+        }
+    }
+
+    private static int unexpectedLogCount = 0;
 
     /**
      * 短信 Provider 进程：Hook insert/bulkInsert（唯一必经的入库点，兜底所有来源）

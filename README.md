@@ -29,6 +29,9 @@ notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android
 - **三种模板**：极简（仅码）/ 完整（码+来源+地点+时间，默认）/ 自定义占位符模板；
 - **黑名单关键词**：过滤 12306 / 验证码 / 银行 / 广告等误报短信（设置页可预览、修改）；
 - **一键自测**：设置页一键注入测试短信（随机取件码，永不去重撞车），验证链路，不消耗真实短信；
+- **部署体检 + 诊断报告**（v2.1.2）：App 内四项体检（LSPosed 注入 / root / sqlite3 / 笔记库），
+  一键导出自动脱敏的诊断报告（含 PICKUPDEBUG 日志、LSPosed 模块日志、注入进程清单），
+  出问题一步收集，发给作者即可；
 - **隐私友好**：**零网络、零短信权限**（模块本体不申请 READ_SMS/RECEIVE_SMS，Hook 层直接取数），
   全程本地处理，不收集任何数据。
 
@@ -79,10 +82,16 @@ notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android
 
 1. **下载 APK**：GitHub Releases 页面下载最新版；
 2. **安装** APK（首次安装后请在权限弹窗授予「通知」权限，Android 13+）；
-3. **LSPosed 激活**：LSPosed 管理器 → 模块 → 取件码助手 → 勾选启用，作用域勾选：
-   `system`（系统框架）、`com.android.phone`、`com.android.mms`、`com.miui.notes`；
+3. **LSPosed 激活**：LSPosed 管理器 → 模块 → 取件码助手 → 勾选启用，作用域勾选 **5 项**
+   （v2.1.2 起会自动显示推荐勾选；从旧版升级请**重新核对**）：
+   - `android`（系统框架，搜索 "android" 即可找到）
+   - `com.android.phone`（电话）
+   - `com.android.mms`（短信）
+   - `com.android.providers.telephony`（短信库 —— **必勾！100% 捕获主通道**）
+   - `com.miui.notes`（小米笔记）
 4. **重启手机**；
-5. **授权 Root**：触发一次后，Magisk 弹窗授权（一次性，永久生效）。
+5. **打开 App 跑「部署体检」**：4 项全 ✅ 后点「一键测试」验证；
+6. **授权 Root**：触发一次后，Magisk 弹窗授权（一次性，永久生效）。
 
 ### 部署准备（必需步骤）
 
@@ -150,10 +159,12 @@ su -c 'bash /sdcard/Download/pickup-code-grabber/build/build_termux.sh'
 
 ## ❓ 常见问题（FAQ）
 
-**Q1：模块已启用但毫无反应？**
-按顺序排查：① LSPosed 作用域是否勾选（system / com.android.phone / com.android.mms / com.miui.notes）；
-② 是否已重启手机；③ Magisk 是否授权过 su；④ sqlite3 是否部署到 `/data/local/tmp/pickup_sqlite/`；
-⑤ 看 LSPosed 模块日志（`/data/adb/lspd/log/`）与 `adb logcat -s PICKUPDEBUG`。
+**Q1：模块已启用但毫无反应？（v2.1.2 起：先跑 App 内「部署体检」）**
+最常见原因是**作用域勾错**——LSPosed 会提示"此模块会被加载到自己的应用中"。
+正确作用域 **5 项**：`android`（系统框架）、`com.android.phone`、`com.android.mms`、
+`com.android.providers.telephony`（必勾，主通道）、`com.miui.notes`；勾完**必须重启手机**。
+其余顺序：② 重启；③ Magisk 授权过 su；④ sqlite3 部署到 `/data/local/tmp/pickup_sqlite/`；
+⑤ App「导出诊断报告」或 `adb logcat -s PICKUPDEBUG`。
 
 **Q2：收到短信但没写入待办？**
 先看是否被黑名单命中（短信含「验证码/银行…」关键词会跳过）；再确认短信里是否含取件码特征
@@ -162,6 +173,7 @@ su -c 'bash /sdcard/Download/pickup-code-grabber/build/build_termux.sh'
 **Q3：提示 `TODO FAIL` / su 报错？**
 `sqlite3: inaccessible or not found` → sqlite3 未部署（见「部署准备」）；
 `unable to open database file` → 通常需要 `su -M`（全局挂载命名空间），确认 Magisk 正常。
+v2.1.2 起「一键测试」失败时会直接显示断在哪一步，也可「导出诊断报告」发作者。
 
 **Q4：升级安装报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`？**
 签名的 keystore 与旧版不一致，先卸载旧版再安装（会丢失旧记录）。

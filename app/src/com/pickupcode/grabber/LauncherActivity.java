@@ -57,7 +57,7 @@ public class LauncherActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.1.1 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
+        sub.setText("v2.1.2 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         root.addView(sub);
@@ -67,7 +67,39 @@ public class LauncherActivity extends Activity {
         statusCard.setTextColor(Color.parseColor("#333333"));
         statusCard.setPadding(dp(14), dp(10), dp(14), dp(10));
         statusCard.setBackgroundColor(Color.parseColor("#F5F6FA"));
+        statusCard.setText("⏳ 正在体检（root 检测约需 2-5 秒）…");
         root.addView(statusCard);
+
+        // 诊断报告导出按钮（体检下方，随时可点）
+        TextView diagBtn = new TextView(this);
+        diagBtn.setText("📤 导出诊断报告（发反馈请附上此文件）");
+        diagBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        diagBtn.setTextColor(Color.WHITE);
+        diagBtn.setBackgroundColor(Color.parseColor("#7A5AF8"));
+        diagBtn.setPadding(dp(16), dp(10), dp(16), dp(10));
+        diagBtn.setGravity(Gravity.CENTER);
+        diagBtn.setOnClickListener(v -> {
+            Toast.makeText(this, "正在生成诊断报告…（含日志提取，约 5-10 秒）", Toast.LENGTH_SHORT).show();
+            new Thread(() -> {
+                try {
+                    String report = Diagnostics.collectReport(this);
+                    String where = Diagnostics.exportAndShare(this, report);
+                    runOnUiThread(() -> Toast.makeText(this,
+                            "报告已生成：" + where + "（已自动脱敏，可直接发给作者）",
+                            Toast.LENGTH_LONG).show());
+                } catch (Throwable t) {
+                    runOnUiThread(() -> Toast.makeText(this,
+                            "报告生成失败：" + t.getMessage(), Toast.LENGTH_LONG).show());
+                }
+            }).start();
+        });
+        LinearLayout.LayoutParams diagLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        diagLp.setMargins(dp(0), dp(8), dp(0), dp(0));
+        diagBtn.setLayoutParams(diagLp);
+        root.addView(diagBtn);
+
+        refreshHealth();
 
         root.addView(spacer(18));
 
@@ -198,10 +230,12 @@ public class LauncherActivity extends Activity {
 
         TextView help = new TextView(this);
         help.setText("📖 使用说明\n"
-                + "1. LSPosed 激活模块；作用域：系统框架/电话/短信/笔记\n"
+                + "1. LSPosed 激活模块；作用域勾选 5 项：android(系统框架)、电话、短信、"
+                + "com.android.providers.telephony、笔记（v2.1.2 起会自动推荐，升级后请重新核对）\n"
                 + "2. 收到取件短信后自动写入待办（一码一条，新码置顶）\n"
                 + "3. 通知可点击：复制取件码；通知上「已取件」：一键勾选\n"
-                + "4. 需要 root（Magisk）授权一次");
+                + "4. 需要 root（Magisk）授权一次；sqlite3 按 README 部署\n"
+                + "5. 遇到问题：先看上方体检❌项 → 点「导出诊断报告」发给作者");
         help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         help.setTextColor(Color.parseColor("#888888"));
         help.setLineSpacing(dp(3), 1.0f);
@@ -227,13 +261,41 @@ public class LauncherActivity extends Activity {
             String[] msg = r == null ? new String[]{"未响应"} : r.replace("[", "").replace("]", "").split(",");
             String wrote = msg.length == 0 || msg[0].isEmpty() ? "无" : String.join(",", msg);
             if (wrote.equals("无") || wrote.equals("未响应")) {
-                Toast.makeText(this, "测试失败：" + wrote + "（查看 PICKUPDEBUG 日志）", Toast.LENGTH_LONG).show();
+                // v2.1.2：失败时直接给出断在哪一步（TodoWriter 记录的具体原因）
+                String diag = TodoWriter.getLastWriteDiag();
+                if (diag.length() > 140) diag = diag.substring(0, 140) + "…";
+                Toast.makeText(this, "测试失败：" + wrote + "\n原因：" + diag
+                        + "\n（详查：导出诊断报告）", Toast.LENGTH_LONG).show();
+                refreshHealth();
             } else {
                 Toast.makeText(this, "测试成功：已写入待办 " + wrote + "（可删除）", Toast.LENGTH_LONG).show();
+                refreshHealth();
             }
         } catch (Throwable t) {
             Toast.makeText(this, "测试异常：" + t.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** 部署体检：异步跑四项检查并刷新状态卡 */
+    private void refreshHealth() {
+        statusCard.setText("⏳ 正在体检…");
+        new Thread(() -> {
+            String text;
+            try {
+                StringBuilder sb = new StringBuilder("🩺 部署体检（v2.1.2）\n");
+                for (Diagnostics.Check c : Diagnostics.healthCheck(this)) {
+                    sb.append(c.ok ? "✅ " : "❌ ").append(c.title)
+                      .append("：").append(c.detail).append("\n");
+                }
+                sb.append("模板模式：").append(modeName(currentMode))
+                  .append(" ｜ 写入：小米笔记待办");
+                text = sb.toString();
+            } catch (Throwable t) {
+                text = "体检异常：" + t.getMessage();
+            }
+            final String t2 = text;
+            runOnUiThread(() -> statusCard.setText(t2));
+        }).start();
     }
 
     @Override
@@ -291,9 +353,8 @@ public class LauncherActivity extends Activity {
     }
 
     private void updateStatus() {
-        statusCard.setText("✅ 模块已激活（v2.1.1）\n"
-                + "待办模板模式：" + modeName(currentMode)
-                + "\n写入位置：小米笔记 → 待办");
+        // v2.1.2：状态卡 = 动态体检结果（不再静态宣称"已激活"）
+        refreshHealth();
     }
 
     private TextView modeButton(String label, int mode) {

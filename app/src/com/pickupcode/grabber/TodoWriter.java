@@ -38,6 +38,12 @@ public class TodoWriter {
 
     private static String lastSqlFile;
 
+    /** 最近一次 su/sqlite 执行记录（诊断报告用）：含失败原因与命令输出 */
+    private static volatile String lastWriteDiag =
+            "尚未执行过写库操作（还没有收到取件短信/跑过一键测试）";
+
+    public static String getLastWriteDiag() { return lastWriteDiag; }
+
     /** 模板模式：0=极简（仅取件码） 1=完整（默认） 2=自定义模板 */
     public static final int MODE_MIN = 0;
     public static final int MODE_FULL = 1;
@@ -122,39 +128,13 @@ public class TodoWriter {
         return false;
     }
 
-    /** 统一 SQL 执行器（一键测试 / 已取件 / 小组件共用） */
+    /** 统一 SQL 执行器（一键测试 / 已取件 共用） */
     public static int runSql(Context ctx, String sql) {
-        try {
-            File dir = ctx.getFilesDir();
-            File sqlFile = new File(dir, "todo_sql.sql");
-            try (FileOutputStream fos = new FileOutputStream(sqlFile)) {
-                fos.write(sql.getBytes("UTF-8"));
-            }
-            String[] suCmds = {
-                    "su -M -c \"" + buildSuCmd(sqlFile) + "\"",
-                    "su -c \"" + buildSuCmd(sqlFile) + "\""
-            };
-            int lastCode = -1;
-            for (String cmd : suCmds) {
-                Log.i(TAG, "su attempt: " + cmd.substring(0, Math.min(cmd.length(), 140)));
-                Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd});
-                StringBuilder out = new StringBuilder();
-                StringBuilder err = new StringBuilder();
-                drain(p.getInputStream(), out);
-                drain(p.getErrorStream(), err);
-                lastCode = p.waitFor();
-                Log.i(TAG, "sqlite exit=" + lastCode + " out=" + out.toString().trim()
-                        + " err=" + err.toString().trim());
-                if (lastCode == 0) return 0;
-            }
-            return lastCode;
-        } catch (Throwable t) {
-            Log.e(TAG, "runSql err: " + t);
-            return -1;
-        }
+        String out = runSqlForOutput(ctx, sql);
+        return out == null ? -1 : 0;
     }
 
-    /** 统一 SQL 执行器（返回输出；一键测试 / 已取件 / 小组件共用） */
+    /** 统一 SQL 执行器（返回输出；多路径 su 尝试） */
     public static String runSqlForOutput(Context ctx, String sql) {
         try {
             File dir = ctx.getFilesDir();
@@ -162,21 +142,42 @@ public class TodoWriter {
             try (FileOutputStream fos = new FileOutputStream(sqlFile)) {
                 fos.write(sql.getBytes("UTF-8"));
             }
-            String cmd = "su -M -c \"" + buildSuCmd(sqlFile) + "\"";
-            Log.i(TAG, "su attempt: " + cmd.substring(0, Math.min(cmd.length(), 140)));
-            Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd});
-            StringBuilder out = new StringBuilder();
-            StringBuilder err = new StringBuilder();
-            drain(p.getInputStream(), out);
-            drain(p.getErrorStream(), err);
-            int code = p.waitFor();
-            Log.i(TAG, "sqlite exit=" + code + " out=" + out.toString().trim()
-                    + " err=" + err.toString().trim());
-            return code == 0 ? out.toString() : null;
+            // HyperOS 的 Magisk su 位于 /product/bin/su（应用 PATH 不含该目录）→ 多路径尝试
+            String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"};
+            String trace = "";
+            for (String suBin : suBins) {
+                String cmd = suBin + " -M -c \"id; " + buildSuCmd(sqlFile) + "\"";
+                Log.i(TAG, "su attempt(" + suBin + ")");
+                Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd});
+                StringBuilder out = new StringBuilder();
+                StringBuilder err = new StringBuilder();
+                drain(p.getInputStream(), out);
+                drain(p.getErrorStream(), err);
+                int code = p.waitFor();
+                Log.i(TAG, "sqlite exit=" + code + " out=" + out.toString().trim()
+                        + " err=" + err.toString().trim());
+                if (code == 0) {
+                    lastWriteDiag = "OK（su=" + suBin + "）" + (err.length() > 0
+                            ? " stderr=" + tail(err.toString(), 160) : "");
+                    return out.toString();
+                }
+                trace += "su=" + suBin + " exit=" + code
+                        + " err=" + tail(err.toString(), 160) + "；";
+                // 未授权的 su 会输出 "not found"/"Permission denied" —— 记录下来便于诊断
+                lastWriteDiag = "全部 su 路径失败 → " + trace;
+            }
+            return null;
         } catch (Throwable t) {
+            lastWriteDiag = "runSqlForOutput 异常: " + t;
             Log.e(TAG, "runSqlForOutput err: " + t);
             return null;
         }
+    }
+
+    private static String tail(String s, int max) {
+        if (s == null) return "";
+        s = s.trim();
+        return s.length() <= max ? s : s.substring(s.length() - max);
     }
 
     /** 简单 SQL 单引号转义 */
