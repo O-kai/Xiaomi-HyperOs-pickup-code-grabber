@@ -149,8 +149,7 @@ public class Repair {
         }
         st.dbReadable = true;
 
-        StringBuilder scopeSb = new StringBuilder();
-        java.util.List<String> missing = new java.util.ArrayList<>();
+        java.util.List<String> scopePkgs = new java.util.ArrayList<>();
         boolean stale = false;
         for (String line : r[0].split("\n")) {
             line = line.trim();
@@ -159,25 +158,26 @@ public class Repair {
             } else if (line.startsWith("SC=")) {
                 String pkg = line.substring(3).trim();
                 if (pkg.isEmpty()) continue;
-                if (scopeSb.length() > 0) scopeSb.append(", ");
-                scopeSb.append(pkg);
+                scopePkgs.add(pkg);
                 if ("system".equals(pkg)) stale = true;
             }
         }
-        st.scopeList = scopeSb.toString();
+        st.scopeList = join(scopePkgs, ", ");
         st.hasStaleSystem = stale;
-        if (st.moduleEnabled && !st.scopeList.isEmpty()) {
+        if (st.moduleEnabled) {
+            // 精确集合比对（不能用子串：com.android.phone 会误匹配 android）
+            java.util.List<String> missing = new java.util.ArrayList<>();
             for (String need : SCOPE_REQUIRED) {
-                if (!st.scopeList.contains(need)) missing.add(need);
+                if (!scopePkgs.contains(need)) missing.add(need);
             }
-            st.missingScope = missing.isEmpty() ? null : join(missing);
+            st.missingScope = missing.isEmpty() ? null : join(missing, "、");
         }
         return st;
     }
 
-    private static String join(java.util.List<String> l) {
+    private static String join(java.util.List<String> l, String sep) {
         StringBuilder sb = new StringBuilder();
-        for (String s : l) { if (sb.length() > 0) sb.append("、"); sb.append(s); }
+        for (String s : l) { if (sb.length() > 0) sb.append(sep); sb.append(s); }
         return sb.toString();
     }
 
