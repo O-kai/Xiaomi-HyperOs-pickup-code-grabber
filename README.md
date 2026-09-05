@@ -6,6 +6,10 @@
 📱 **酷安发布帖**：[取件码助手 · 自动提取快递取件码写入小米笔记待办](https://www.coolapk.com/feed/73558591?s=ZTFhMTFhMDMxMmE4ZjhnNmE5OGQxYjV6a1661)
 （更新动态会在酷安同步；欢迎 ⭐ Star）
 
+🧩 **LSPosed 官方模块仓库已上架**：LSPosed 管理器内即可搜索安装/更新「取件码助手」，
+仓库页：[Xposed-Modules-Repo/io.github.okaidev.pickupcode](https://github.com/Xposed-Modules-Repo/io.github.okaidev.pickupcode)
+（模块页：[modules.lsposed.org](https://modules.lsposed.org)，Release 与本仓库自动同步）
+
 > 一个 **LSPosed 模块**：自动捕获快递取件短信 → 提取取件码 → 写入小米笔记「待办」
 > （一码一条、新码堆栈置顶）→ 弹出通知（点击复制 / 一键标记已取件）。
 >

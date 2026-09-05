@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.okaidev.pickupcode"
-    android:versionCode="240"
-    android:versionName="2.4.0">
+    android:versionCode="250"
+    android:versionName="2.5.0">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
 
@@ -51,5 +51,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 打赏页（v2.5.0）：右上角菜单进入，不对外暴露 -->
+        <activity
+            android:name=".DonateActivity"
+            android:exported="false" />
     </application>
 </manifest>

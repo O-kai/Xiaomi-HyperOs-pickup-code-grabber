@@ -1,12 +1,14 @@
 package io.github.okaidev.pickupcode;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
 import android.util.TypedValue;
@@ -14,10 +16,12 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.List;
 import java.util.Random;
 
 /**
@@ -30,6 +34,9 @@ import java.util.Random;
 public class LauncherActivity extends Activity {
 
     private static final String PREFS = "dedup";
+    private static final String REPO_URL = "https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber";
+    private static final String ISSUES_URL = REPO_URL + "/issues";
+    private static final String COOLAPK_URL = "https://www.coolapk.com/feed/73558591";
     private int currentMode = TodoWriter.MODE_FULL;
     private TextView statusCard;
     private TextView deployBtn;
@@ -55,10 +62,25 @@ public class LauncherActivity extends Activity {
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
         title.setTextColor(Color.parseColor("#1A1A1A"));
         title.setTypeface(null, Typeface.BOLD);
-        root.addView(title);
+
+        // 右上角「⋮」菜单（v2.5.0）：项目仓库 / 打赏作者
+        TextView menuBtn = new TextView(this);
+        menuBtn.setText("⋮");
+        menuBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        menuBtn.setTextColor(Color.parseColor("#444444"));
+        menuBtn.setPadding(dp(10), 0, dp(10), 0);
+        menuBtn.setOnClickListener(v -> showMainMenu(v));
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        titleRow.addView(menuBtn);
+        root.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.2.0 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
+        sub.setText("v2.5.0 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         root.addView(sub);
@@ -70,6 +92,21 @@ public class LauncherActivity extends Activity {
         statusCard.setBackgroundColor(Color.parseColor("#F5F6FA"));
         statusCard.setText("⏳ 正在体检（root 检测约需 2-5 秒）…");
         root.addView(statusCard);
+
+        // 排查问题（v2.5.0）：按「未注入 → root 未授权 → 作用域 → 组件」分层定位并给出动作
+        TextView troubleshootBtn = new TextView(this);
+        troubleshootBtn.setText("🔍 排查问题（点不了 / 收不到？点这里）");
+        troubleshootBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        troubleshootBtn.setTextColor(Color.WHITE);
+        troubleshootBtn.setBackgroundColor(Color.parseColor("#F0A020"));
+        troubleshootBtn.setPadding(dp(16), dp(10), dp(16), dp(10));
+        troubleshootBtn.setGravity(Gravity.CENTER);
+        troubleshootBtn.setOnClickListener(v -> runTroubleshoot());
+        LinearLayout.LayoutParams tsLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tsLp.setMargins(dp(0), dp(8), dp(0), dp(0));
+        troubleshootBtn.setLayoutParams(tsLp);
+        root.addView(troubleshootBtn);
 
         // 一键部署 sqlite3（v2.2.0）：仅当体检发现 sqlite3 缺失且 root 可用时出现
         deployBtn = new TextView(this);
@@ -114,21 +151,7 @@ public class LauncherActivity extends Activity {
         diagBtn.setBackgroundColor(Color.parseColor("#7A5AF8"));
         diagBtn.setPadding(dp(16), dp(10), dp(16), dp(10));
         diagBtn.setGravity(Gravity.CENTER);
-        diagBtn.setOnClickListener(v -> {
-            Toast.makeText(this, "正在生成诊断报告…（含日志提取，约 5-10 秒）", Toast.LENGTH_SHORT).show();
-            new Thread(() -> {
-                try {
-                    String report = Diagnostics.collectReport(this);
-                    String where = Diagnostics.exportAndShare(this, report);
-                    runOnUiThread(() -> Toast.makeText(this,
-                            "报告已生成：" + where + "（已自动脱敏，可直接发给作者）",
-                            Toast.LENGTH_LONG).show());
-                } catch (Throwable t) {
-                    runOnUiThread(() -> Toast.makeText(this,
-                            "报告生成失败：" + t.getMessage(), Toast.LENGTH_LONG).show());
-                }
-            }).start();
-        });
+        diagBtn.setOnClickListener(v -> exportDiag());
         LinearLayout.LayoutParams diagLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         diagLp.setMargins(dp(0), dp(8), dp(0), dp(0));
@@ -266,12 +289,14 @@ public class LauncherActivity extends Activity {
 
         TextView help = new TextView(this);
         help.setText("📖 使用说明\n"
-                + "1. LSPosed 激活模块；作用域勾选 5 项：android(系统框架)、电话、短信、"
-                + "com.android.providers.telephony、笔记（v2.1.2 起会自动推荐，升级后请重新核对）\n"
+                + "1. LSPosed 激活模块；作用域勾选 5 项：⚠️ 必须勾「Android 系统」"
+                + "（android）——注意不是「系统框架」（system）！再加 电话、短信、"
+                + "com.android.providers.telephony、笔记\n"
                 + "2. 收到取件短信后自动写入待办（一码一条，新码置顶）\n"
                 + "3. 通知可点击：复制取件码；通知上「已取件」：一键勾选\n"
-                + "4. 需要 root（Magisk）授权一次；sqlite3 按 README 部署\n"
-                + "5. 遇到问题：先看上方体检❌项 → 点「导出诊断报告」发给作者");
+                + "4. 需要 root（Magisk）授权一次；sqlite3 缺失时点「一键部署」\n"
+                + "5. 遇到问题：点上方「🔍 排查问题」逐步定位；仍不行再「导出诊断报告」"
+                + "发给作者（GitHub Issues / 酷安帖子留言均可）");
         help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         help.setTextColor(Color.parseColor("#888888"));
         help.setLineSpacing(dp(3), 1.0f);
@@ -281,6 +306,179 @@ public class LauncherActivity extends Activity {
         scroll.addView(root);
         setContentView(scroll);
     }
+
+    /** 右上角菜单（v2.5.0）：项目仓库 / 打赏作者 */
+    private void showMainMenu(View anchor) {
+        PopupMenu pm = new PopupMenu(this, anchor);
+        pm.getMenu().add(0, 1, 0, "🏠 项目仓库（GitHub）");
+        pm.getMenu().add(0, 2, 1, "💰 打赏作者");
+        pm.setOnMenuItemClickListener(item -> {
+            int id = item.getItemId();
+            if (id == 1) openUrl(REPO_URL);
+            else if (id == 2) startActivity(new Intent(this, DonateActivity.class));
+            return true;
+        });
+        pm.show();
+    }
+
+    /**
+     * 排查问题（v2.5.0）：按「未注入 → root 未授权 → 作用域缺失 → 通知权限 →
+     * sqlite3 组件缺失（自动修复）→ 笔记库异常 → 一切 OK」的决策树逐层定位。
+     */
+    private void runTroubleshoot() {
+        Toast.makeText(this, "正在排查…（约 2-5 秒）", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            List<Diagnostics.Check> checks;
+            try {
+                checks = Diagnostics.healthCheck(this);
+            } catch (Throwable t) {
+                showTroubleshootDialog("排查异常：" + t.getMessage(), null, null);
+                return;
+            }
+            Diagnostics.Check inject = findCheck(checks, "LSPosed 注入");
+            Diagnostics.Check root = findCheck(checks, "root 授权");
+            Diagnostics.Check scope = findCheck(checks, "LSPosed 作用域");
+            Diagnostics.Check notif = findCheck(checks, "通知权限");
+            Diagnostics.Check sqlite = findCheck(checks, "sqlite3 部署");
+            Diagnostics.Check notes = findCheck(checks, "笔记库访问");
+
+            if (inject == null || !inject.ok) {
+                showTroubleshootDialog(
+                        "【第 1 步：让模块生效】\n\n"
+                        + "1. 打开 LSPosed 管理器 → 模块 → 取件码助手\n"
+                        + "2. 打开「启用模块」开关\n"
+                        + "3. 勾选作用域，共 5 项（⚠️ 必须包含「Android 系统」，"
+                        + "不是「系统框架」）\n"
+                        + "4. 重启手机（必须）\n"
+                        + "5. 重启后打开本 App，再点一次「🔍 排查问题」", null, null);
+                return;
+            }
+            if (root == null || !root.ok) {
+                showTroubleshootDialog(
+                        "【第 2 步：把 root 授权给本模块】\n\n"
+                        + "注入已成功 ✓，但 root 授权还没通过（体检红色叉的原因）。\n\n"
+                        + "1. 打开 Magisk → 超级用户 → 找到「取件码助手」→ 打开开关\n"
+                        + "   （列表里没有的话：点一次本页任意按钮触发授权弹窗，"
+                        + "弹窗选【允许】并勾选\"不再询问\"）\n"
+                        + "2. 授权后关掉本弹窗，页面会自动重新核查 → 再点「排查问题」继续",
+                        "打开 Magisk", "com.topjohnwu.magisk");
+                return;
+            }
+            if (scope != null && !scope.ok) {
+                showTroubleshootDialog(
+                        "【第 3 步：补齐作用域】\n\n" + nz(scope.detail)
+                        + "\n\n⚠️ 特别提醒：要勾的是【Android 系统（android）】"
+                        + "（带\"推荐应用\"角标），不是字面很像的「系统框架（system）」"
+                        + "——勾 system 无效！\n补勾后务必【重启手机】", null, null);
+                return;
+            }
+            if (notif != null && !notif.ok) {
+                showTroubleshootDialog(
+                        "【第 4 步：打开通知权限】\n\n" + nz(notif.detail)
+                        + "\n\n（不处理不影响写待办，但收不到取件码弹窗）", null, null);
+                return;
+            }
+            if (sqlite != null && !sqlite.ok
+                    && sqlite.detail != null && sqlite.detail.contains("一键部署")) {
+                runOnUiThread(() -> Toast.makeText(this,
+                        "检测到 sqlite3 未部署 → 自动安装中（如弹出授权请允许）…",
+                        Toast.LENGTH_SHORT).show());
+                new Thread(() -> {
+                    String res;
+                    try {
+                        res = Repair.deploySqlite3(this);
+                    } catch (Throwable t) {
+                        res = "部署异常：" + t.getMessage();
+                    }
+                    final String r2 = res;
+                    runOnUiThread(() -> {
+                        Toast.makeText(this, r2, Toast.LENGTH_LONG).show();
+                        refreshHealth();
+                    });
+                }).start();
+                return;
+            }
+            if (notes != null && !notes.ok) {
+                showTroubleshootDialog(
+                        "【第 5 步：笔记库访问异常】\n\n" + nz(notes.detail)
+                        + "\n\n先点「🧪 一键测试」触发一次自动修复；仍失败 → "
+                        + "导出诊断报告反馈给作者", null, null);
+                return;
+            }
+            runOnUiThread(() -> new AlertDialog.Builder(this)
+                    .setTitle("✅ 排查完成")
+                    .setMessage("一切 OK！六项检查全部通过。\n\n"
+                            + "如果还是收不到取件码：\n"
+                            + "1. 点「🧪 一键测试」验证写入链路\n"
+                            + "2. 确认短信含取件码（黑名单可能误过滤）\n"
+                            + "3. 仍异常 → 导出诊断报告反馈给作者")
+                    .setPositiveButton("知道了", null)
+                    .setNeutralButton("📤 导出诊断报告", (d, w) -> exportDiag())
+                    .show());
+        }).start();
+    }
+
+    /** 排查结果弹窗：带「导出诊断报告」与（可选）「打开指定 App」动作，关闭时自动复查 */
+    private void showTroubleshootDialog(String msg, String actionLabel, String actionPkg) {
+        runOnUiThread(() -> {
+            AlertDialog.Builder b = new AlertDialog.Builder(this)
+                    .setTitle("🔍 排查结果")
+                    .setMessage(msg)
+                    .setPositiveButton("知道了", null)
+                    .setNegativeButton("📤 导出诊断报告", (d, w) -> exportDiag());
+            if (actionPkg != null && actionLabel != null) {
+                b.setNeutralButton(actionLabel, (d, w) -> {
+                    try {
+                        Intent li = getPackageManager().getLaunchIntentForPackage(actionPkg);
+                        if (li != null) startActivity(li);
+                        else openUrl(REPO_URL);
+                    } catch (Throwable t) {
+                        openUrl(REPO_URL);
+                    }
+                });
+            } else {
+                b.setNeutralButton("🐛 反馈给作者", (d, w) -> openUrl(ISSUES_URL));
+            }
+            AlertDialog dlg = b.create();
+            dlg.setOnDismissListener(d -> refreshHealth());
+            dlg.show();
+        });
+    }
+
+    /** 生成并导出诊断报告（自动脱敏），提示反馈渠道 */
+    private void exportDiag() {
+        Toast.makeText(this, "正在生成诊断报告…（含日志提取，约 5-10 秒）", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                String report = Diagnostics.collectReport(this);
+                String where = Diagnostics.exportAndShare(this, report);
+                runOnUiThread(() -> Toast.makeText(this,
+                        "报告已生成：" + where + "（已自动脱敏）\n"
+                                + "反馈渠道：GitHub Issues / 酷安帖子留言或私信作者",
+                        Toast.LENGTH_LONG).show());
+            } catch (Throwable t) {
+                runOnUiThread(() -> Toast.makeText(this,
+                        "报告生成失败：" + t.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }).start();
+    }
+
+    private void openUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Throwable t) {
+            Toast.makeText(this, "未找到可用的浏览器", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private Diagnostics.Check findCheck(List<Diagnostics.Check> checks, String titlePrefix) {
+        for (Diagnostics.Check c : checks) {
+            if (c != null && c.title != null && c.title.startsWith(titlePrefix)) return c;
+        }
+        return null;
+    }
+
+    private static String nz(String s) { return s == null ? "" : s; }
 
     /** 一键测试：随机取件码（永不撞去重）→ 走完整链路 */
     private void runSelfTest() {
@@ -320,7 +518,7 @@ public class LauncherActivity extends Activity {
             String text;
             boolean needDeploy = false;
             try {
-                StringBuilder sb = new StringBuilder("🩺 部署体检（v2.2.0）\n");
+                StringBuilder sb = new StringBuilder("🩺 部署体检\n");
                 for (Diagnostics.Check c : Diagnostics.healthCheck(this)) {
                     sb.append(c.ok ? "✅ " : "❌ ").append(c.title)
                       .append("：").append(c.detail).append("\n");

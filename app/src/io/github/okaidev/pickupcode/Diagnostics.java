@@ -110,20 +110,25 @@ public class Diagnostics {
         if (!st.dbReadable) {
             return new Check("LSPosed 作用域", false,
                     "无法读取 LSPosed 配置（" + st.detail + "）；请手动在 LSPosed → 模块 →"
-                            + " 取件码助手 勾选 5 项作用域");
+                            + " 取件码助手 勾选 5 项作用域（⚠️ 必含「Android 系统/android」）");
         }
         if (!st.moduleEnabled) {
             return new Check("LSPosed 作用域", false,
                     "模块在 LSPosed 中未启用 → LSPosed 管理器 → 模块 → 勾选「取件码助手」，然后重启手机");
         }
         if (st.missingScope == null) {
-            String extra = st.hasStaleSystem ? "（发现无效的 system 残留项，可顺手删掉）" : "";
+            String extra = st.hasStaleSystem
+                    ? "（发现勾了「系统框架/system」——它无效，请删除并确认已勾「Android 系统/android」）"
+                    : "";
             return new Check("LSPosed 作用域", true,
-                    "4 项必需目标齐全 ✓ " + st.scopeList + extra);
+                    "必需目标齐全 ✓ " + st.scopeList + extra);
         }
         return new Check("LSPosed 作用域", false,
-                "缺少必需作用域：" + st.missingScope + " → LSPosed 管理器 → 模块 → 取件码助手 →"
-                        + " 作用域补勾后【重启手机】；当前：" + (st.scopeList.isEmpty() ? "(空)" : st.scopeList));
+                "缺少必需作用域：" + st.missingScope
+                        + " → LSPosed 管理器 → 模块 → 取件码助手 → 作用域补勾后【重启手机】；"
+                        + "⚠️ 缺的若是 android，请勾「Android 系统」（带推荐角标），"
+                        + "不是「系统框架」（system，勾了无效）；当前："
+                        + (st.scopeList.isEmpty() ? "(空)" : st.scopeList));
     }
 
     /** 3.6) 通知权限（v2.2.0）：Android 13+ POST_NOTIFICATIONS */
