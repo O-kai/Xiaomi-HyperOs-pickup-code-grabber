@@ -11,7 +11,7 @@
 | # | 渠道 | 用途 | 状态 |
 |---|---|---|---|
 | 1 | GitHub Releases | 主分发（APK + 更新说明） | 已启用（标准流程，见 RELEASE-PROCESS.md） |
-| 2 | modules.lsposed.org（LSPosed 官方模块仓库） | 官方收录，LSPosed 管理器可浏览 | ✅ 已提交（2026-09-03） |
+| 2 | modules.lsposed.org（LSPosed 官方模块仓库） | 官方收录，LSPosed 管理器可浏览 | ✅ **已上架**（2026-09-05，审核 #1751，镜像仓库 `io.github.okaidev.pickupcode`） |
 | 3 | 酷安 | 国内社区曝光主渠道 | ✅ 已发布（[链接](https://www.coolapk.com/feed/73558591)） |
 | 4 | Telegram（LSPosed 相关群） | 海外/资讯分发 | 暂缓（文案已备，见 §4） |
 | 5 | Gitee 镜像 | GitHub 访问不便的用户 | 指南已备（见 §5，未执行） |
@@ -78,8 +78,7 @@ LSPosed 模块：自动提取快递取件短信取件码，写入小米笔记待
    （首次提交 `com.pickupcode.grabber` 因未拥有 pickupcode.com 被拒，见 issue #1725）；
    无域名用 `io.github.<GitHub用户名>` 前缀免验证 → 但用户名 `o-kai` 含连字符不可用作包名，
    `okai` 又被占用（appeal #1748 官方结论）→ **按官方选项创建组织 `okaidev`（成员公开）**，
-   应用 ID 最终定为 **`io.github.okaidev.pickupcode`**（组织前缀走 bot 的 checkOrg 自动验证）；
-3. 提交后在 issue 页关注机器人回复；镜像仓库建成后需要在里面放 `SUMMARY`（首页摘要）与
+   应用 ID 最终定为 **`io.github.okaidev.pickupcode`**（组织前缀走 bot 的 checkOrg 自动验证）；3. 提交后在 issue 页关注机器人回复；镜像仓库建成后需要在里面放 `SUMMARY`（首页摘要）与
    `README.md`（完整说明），Release Tag 格式 `<versionCode>-<versionName>`（如 `240-2.4.0`）
    并附 APK 资产，机器人自动同步展示到 modules.lsposed.org；
 4. 模块信息：
