@@ -1,4 +1,4 @@
-package io.github.okai.pickupcode;
+package io.github.okaidev.pickupcode;
 
 import android.util.Log;
 
@@ -24,7 +24,7 @@ public class XposedEntry implements IXposedHookLoadPackage {
         log("handleLoadPackage: pkg=" + pkg + " process=" + lpparam.processName);
         if (pkg == null) return;
         // 模块自身进程：写入"已被 LSPosed 注入"标记（诊断报告用），然后返回
-        if (pkg.equals("io.github.okai.pickupcode")) {
+        if (pkg.equals("io.github.okaidev.pickupcode")) {
             writeSelfInjectMarker(lpparam);
             return;
         }

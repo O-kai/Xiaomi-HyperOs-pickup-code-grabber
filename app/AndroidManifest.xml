@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="io.github.okai.pickupcode"
-    android:versionCode="230"
-    android:versionName="2.3.0">
+    package="io.github.okaidev.pickupcode"
+    android:versionCode="240"
+    android:versionName="2.4.0">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
 
@@ -31,7 +31,7 @@
         <!-- 跨进程事实入口：Hook 进程通过 ContentResolver.call 唤醒模块 App -->
         <provider
             android:name=".TodoProvider"
-            android:authorities="io.github.okai.pickupcode.provider"
+            android:authorities="io.github.okaidev.pickupcode.provider"
             android:exported="true" />
 
         <!-- 短信事件接收器（Hook 进程广播 → 模块自身进程处理，兜底通道） -->
@@ -39,7 +39,7 @@
             android:name=".SmsEventReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="io.github.okai.pickupcode.action.ON_SMS" />
+                <action android:name="io.github.okaidev.pickupcode.action.ON_SMS" />
             </intent-filter>
         </receiver>
 

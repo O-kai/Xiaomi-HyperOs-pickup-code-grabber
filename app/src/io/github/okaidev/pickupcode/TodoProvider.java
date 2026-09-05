@@ -1,4 +1,4 @@
-package io.github.okai.pickupcode;
+package io.github.okaidev.pickupcode;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;

@@ -2,6 +2,16 @@
 
 > 版本策略：对外发布延续内部版本号。完整生命周期故事见 [docs/HISTORY.md](docs/HISTORY.md)。
 
+## [2.4.0] - 2026-09-05 · 应用 ID 迁移第二跳（组织前缀，最终包名）
+
+- **应用 ID 变更：`io.github.okai.pickupcode` → `io.github.okaidev.pickupcode`**；
+- 原因：官方申诉结论（[appeal #1748](https://github.com/Xposed-Modules-Repo/submission/issues/1748)）——
+  GitHub 用户名 `o-kai` 含连字符无法用作 Android 包名，`okai` 用户名又已被他人注册；
+  按官方给出的选项**创建组织 `okaidev`（成员公开）**，前缀 `io.github.okaidev.`
+  可被官方机器人自动验证通过，无需再依赖人工特批；
+- **⚠️ 老用户升级须知：本次仍需卸载重装**（迁移步骤同 v2.3.0，小米笔记数据不受影响）；
+- 功能与 v2.3.0 / v2.2.0 完全一致（纯身份变更，此为最终包名）。
+
 ## [2.3.0] - 2026-09-05 · 更换应用 ID（为进入 LSPosed 官方模块仓库）
 
 - **应用 ID 变更：`com.pickupcode.grabber` → `io.github.okai.pickupcode`**；

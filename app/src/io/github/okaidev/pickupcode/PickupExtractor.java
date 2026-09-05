@@ -1,4 +1,4 @@
-package io.github.okai.pickupcode;
+package io.github.okaidev.pickupcode;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;

@@ -1,4 +1,4 @@
-package io.github.okai.pickupcode;
+package io.github.okaidev.pickupcode;
 
 import android.app.Activity;
 import android.content.ClipData;
@@ -291,7 +291,7 @@ public class LauncherActivity extends Activity {
             extras.putString("body", "【菜鸟驿站】测试包裹：取件码为" + code + "（测试条目，可删除）");
             extras.putLong("ts", System.currentTimeMillis());
             android.os.Bundle res = getContentResolver().call(
-                    android.net.Uri.parse("content://io.github.okai.pickupcode.provider"),
+                    android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
                     "onSms", null, extras);
             String r = res == null ? "未响应" : res.getString("result");
             String[] msg = r == null ? new String[]{"未响应"} : r.replace("[", "").replace("]", "").split(",");
