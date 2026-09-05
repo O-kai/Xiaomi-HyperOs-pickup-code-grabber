@@ -38,6 +38,11 @@ notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android
   注入进程清单），出问题一步收集，发给作者即可；
 - **一键部署 sqlite3**（v2.2.0）：APK 内置经实机验证的 sqlite3（arm64），体检发现缺失时一键自动部署，
   告别 adb/Termux 手工操作；
+- **🔍 排查问题向导**（v2.5.0）：按「未注入 → root 授权 → 作用域 → 通知 → sqlite3（自动修复）→ 笔记库」
+  六层决策树逐层定位，每层给出可执行动作（一键直达 LSPosed / Magisk），能自动修的自动修；
+  顺路导出诊断报告 / GitHub Issues / 酷安反馈；
+- **检查更新**（v2.5.1）：默认每 3 天最多 1 次访问 GitHub Releases API，发现新版本弹窗直达下载页；
+  右上角「⋮」菜单可手动检查，另含项目仓库 / 打赏作者入口；
 - **隐私友好**：**零短信权限**（不申请 READ_SMS/RECEIVE_SMS，Hook 层直接取数），全程本地处理，
   不收集任何数据；应用仅有的联网行为是「检查更新」（默认每 3 天最多 1 次访问 GitHub
   Releases API，v2.5.1 起，可在系统设置禁用网络后无影响）。
@@ -87,17 +92,18 @@ notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android
 
 ## 🚀 安装
 
-1. **下载 APK**：GitHub Releases 页面下载最新版；
+1. **下载 APK**：GitHub Releases 页面下载最新版，或在 **LSPosed 管理器内搜索「取件码助手」
+   直接安装/更新**（官方模块仓库已上架）；
 2. **安装** APK（首次安装后请在权限弹窗授予「通知」权限，Android 13+）；
 3. **LSPosed 激活**：LSPosed 管理器 → 模块 → 取件码助手 → 勾选启用，作用域勾选 **5 项**
    （v2.1.2 起会自动显示推荐勾选；从旧版升级请**重新核对**）：
-   - `android`（系统框架，搜索 "android" 即可找到）
+   - `android`（**「Android 系统」**，带"推荐应用"角标；⚠️ **不是**「系统框架」——勾 system 无效！）
    - `com.android.phone`（电话）
    - `com.android.mms`（短信）
    - `com.android.providers.telephony`（短信库 —— **必勾！100% 捕获主通道**）
    - `com.miui.notes`（小米笔记）
 4. **重启手机**；
-5. **打开 App 跑「部署体检」**：4 项全 ✅ 后点「一键测试」验证；
+5. **打开 App 跑「部署体检」**：六项全 ✅ 后点「一键测试」验证；体检有 ❌ 时点「🔍 排查问题」按向导处理；
 6. **授权 Root**：触发一次后，Magisk 弹窗授权（一次性，永久生效）。
 
 ### 部署准备（v2.2.0 起通常无需手动）
@@ -169,9 +175,10 @@ su -c 'bash /sdcard/Download/pickup-code-grabber/build/build_termux.sh'
 
 ## ❓ 常见问题（FAQ）
 
-**Q1：模块已启用但毫无反应？（v2.1.2 起：先跑 App 内「部署体检」）**
-最常见原因是**作用域勾错**——LSPosed 会提示"此模块会被加载到自己的应用中"。
-正确作用域 **5 项**：`android`（系统框架）、`com.android.phone`、`com.android.mms`、
+**Q1：模块已启用但毫无反应？（v2.1.2 起：先跑 App 内「部署体检」；v2.5.0 起直接点「🔍 排查问题」）**
+最常见原因是**作用域勾错**——尤其注意：要勾的是 **「Android 系统」（android，带"推荐应用"角标）**，
+**不是**字面很像的「系统框架」（system）——勾 system 无效（旧版文档误导项，v2.5.0 起体检会点名提示）。
+正确作用域 **5 项**：`android`（Android 系统）、`com.android.phone`、`com.android.mms`、
 `com.android.providers.telephony`（必勾，主通道）、`com.miui.notes`；勾完**必须重启手机**。
 其余顺序：② 重启；③ Magisk 授权过 su；④ sqlite3 部署到 `/data/local/tmp/pickup_sqlite/`；
 ⑤ App「导出诊断报告」或 `adb logcat -s PICKUPDEBUG`。

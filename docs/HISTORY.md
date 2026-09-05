@@ -110,3 +110,23 @@ v2.1.1 打磨设置页交互（黑名单预览/修改、随机测试码、布局
 - 计划中的演进：待办表结构自检与自动降级、通知监听副通道（无通知依赖场景）、
   免打扰时段、备份恢复、自定义正则、历史统计（详见 `docs/11-release-plan.md`）；
 - 欢迎在 GitHub 提 Issue / PR 反馈实机兼容情况（请注明设备型号、MIUI/HyperOS 版本）。
+
+## 七、上架与发布里程碑（2026-09-05）
+
+- **v2.2.0「一键部署版」**：内置 sqlite3 + 部署体检 + LSPosed 作用域自动比对，酷安发布后项目进入正轨；
+- **LSPosed 官方仓库三轮过审记**（踩坑价值最高的一段）：
+  1. \com.pickupcode.grabber\ → 拒（#1725：com.* 前缀要求域名所有权 TXT 验证，我们不拥有 pickupcode.com）；
+  2. \io.github.okai.pickupcode\ → 拒（#1747/#1748：GitHub 用户名 o-kai 含连字符，无法作为 Android 包名；
+     而 okai 用户名已被 2012 年注册的休眠账号占用；官方建议改用组织或 o_kai 下划线方案）；
+  3. **创建组织 \okaidev\（成员可见性 Public）→ \io.github.okaidev.pickupcode\ 自动过审**（#1751），
+     走的是官方 README 明文支持的 io.github.{org} 免验证路线（bot 的 checkOrg 查公开组织成员）；
+- **镜像仓库自动化运营**：SUMMARY / README / Release（官方 tag 规范 <versionCode>-<versionName>）
+  已实现发版即自动同步；官方 bot 轮询到"带 APK 的 Release"后自动跑 Tag 工作流同步官网；
+- **v2.5.0 / v2.5.1**：排查问题向导（六层决策树 + 自动修复）+ 打赏页（双码合成图）+
+  检查更新（唯一联网行为，3 天一次，INTERNET 权限透明化说明）；
+- **发布管线经验**：
+  - uploads.github.com 对含点号/连字符的长文件名查询串会 404 → 先以短名 apk.bin 上传，
+    再 PATCH /releases/assets/{id} 改名为正式文件名（稳定可复现）；
+  - Windows PowerShell 5.1 的 Invoke-RestMethod 发 PATCH + JSON 字符串体时实际以 PUT 发出（405），
+    需改用 Invoke-WebRequest -Method Patch -Body 字节数组；
+  - fine-grained PAT 无法访问组织仓库（组织未开放），经典 token（repo scope）可正常读写镜像仓库。
