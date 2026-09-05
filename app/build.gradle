@@ -10,8 +10,8 @@ android {
         applicationId 'io.github.okaidev.pickupcode'
         minSdk 28
         targetSdk 34
-        versionCode 250
-        versionName '2.5.0'
+        versionCode 251
+        versionName '2.5.1'
     }
 
     // 正式签名（v2.2.0）：仅当传入 -PPICKUP_KEYSTORE=... 时启用；CI / 无参数构建不受影响

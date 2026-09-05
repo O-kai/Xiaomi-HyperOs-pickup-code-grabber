@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.okaidev.pickupcode"
-    android:versionCode="250"
-    android:versionName="2.5.0">
+    android:versionCode="251"
+    android:versionName="2.5.1">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- v2.5.1：唯一联网行为 = 检查更新（3 天一次，GitHub Releases API），无其他网络访问 -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="取件码助手"

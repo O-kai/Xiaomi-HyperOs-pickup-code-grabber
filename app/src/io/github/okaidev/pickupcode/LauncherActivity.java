@@ -80,7 +80,7 @@ public class LauncherActivity extends Activity {
         root.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.5.0 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
+        sub.setText("v2.5.1 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         root.addView(sub);
@@ -311,10 +311,15 @@ public class LauncherActivity extends Activity {
     private void showMainMenu(View anchor) {
         PopupMenu pm = new PopupMenu(this, anchor);
         pm.getMenu().add(0, 1, 0, "🏠 项目仓库（GitHub）");
-        pm.getMenu().add(0, 2, 1, "💰 打赏作者");
+        pm.getMenu().add(0, 3, 1, "🔍 检查更新");
+        pm.getMenu().add(0, 2, 2, "💰 打赏作者");
         pm.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
             if (id == 1) openUrl(REPO_URL);
+            else if (id == 3) {
+                Toast.makeText(this, "正在检查更新…", Toast.LENGTH_SHORT).show();
+                Updater.maybeCheck(this, true);
+            }
             else if (id == 2) startActivity(new Intent(this, DonateActivity.class));
             return true;
         });
@@ -555,6 +560,7 @@ public class LauncherActivity extends Activity {
         handleCopy(getIntent());
         handleDone(getIntent());
         updateStatus();
+        Updater.maybeCheck(this, false);
     }
 
     /** 通知点击：复制取件码 + 打开小米笔记 */
