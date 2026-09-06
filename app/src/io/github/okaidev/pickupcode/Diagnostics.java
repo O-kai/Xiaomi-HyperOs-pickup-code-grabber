@@ -123,12 +123,15 @@ public class Diagnostics {
             return new Check("LSPosed 作用域", true,
                     "必需目标齐全 ✓ " + st.scopeList + extra);
         }
+        boolean missAndroid = st.missingScope.contains("android");
         return new Check("LSPosed 作用域", false,
                 "缺少必需作用域：" + st.missingScope
                         + " → LSPosed 管理器 → 模块 → 取件码助手 → 作用域补勾后【重启手机】；"
-                        + "⚠️ 缺的若是 android，请勾「Android 系统」（带推荐角标），"
-                        + "不是「系统框架」（system，勾了无效）；当前："
-                        + (st.scopeList.isEmpty() ? "(空)" : st.scopeList));
+                        + (missAndroid
+                            ? "⚠️ android 在列表底部「Android 系统」——该条目【不带推荐角标】也必须勾选；"
+                              + "带角标的 5 个推荐应用不含它，别勾成中部的「系统框架（system）」；"
+                            : "")
+                        + "当前：" + (st.scopeList.isEmpty() ? "(空)" : st.scopeList));
     }
 
     /** 3.6) 通知权限（v2.2.0）：Android 13+ POST_NOTIFICATIONS */

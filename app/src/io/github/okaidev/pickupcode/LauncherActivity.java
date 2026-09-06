@@ -25,10 +25,11 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * 设置页（v2.1.1）：
- *  - 状态卡 / 模板模式（极简/完整/自定义）
- *  - 一键测试（随机码，永不撞去重；零短信费）
- *  - 黑名单（预览 + 修改/保存 二段式）
+ * 设置页（v2.6.0）：
+ *  - 折叠式部署体检（全绿一行收起；❌ 自动展开）+ 🔍 排查问题向导（含导出诊断报告/反馈渠道）
+ *  - 待办模板（极简/完整只读效果预览；自定义编辑+防御校验）
+ *  - 一键测试（随机码，永不撞去重）、黑名单（修改/保存 二段式）
+ *  - QQ 群入口（明文群号+一键复制）、右上角 ⋮ 菜单（仓库/检查更新/打赏）
  *  - 通知点击：复制 + 打开便签；"已取件"按钮：勾选待办
  */
 public class LauncherActivity extends Activity {
@@ -40,6 +41,20 @@ public class LauncherActivity extends Activity {
     private int currentMode = TodoWriter.MODE_FULL;
     private TextView statusCard;
     private TextView deployBtn;
+    /** v2.5.3：体检卡折叠态（全绿自动收起；null=体检未完成不折叠） */
+    private Boolean healthExpanded = null;
+    /** 最近一次完整体检文本（展开时还原用） */
+    private String lastHealthText = null;
+    /** v2.5.3：模板三按钮 + 高亮刷新器（切换模式不 recreate，只重着色） */
+    private final List<TextView> modeBtns = new java.util.ArrayList<>(3);
+    private final int[] modeIds = {TodoWriter.MODE_MIN, TodoWriter.MODE_FULL, TodoWriter.MODE_CUSTOM};
+    private Runnable restyleModes;
+    /** v2.5.3：模式切换后的模板预览刷新器（onCreate 里赋值） */
+    private Runnable refreshTplPreview;
+    /** v2.5.3：模板编辑控件引用（切模式时收起编辑态用） */
+    private EditText tplEditor;
+    private LinearLayout tplEditorBtnRow;
+    private TextView tplPreviewCard;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -80,10 +95,35 @@ public class LauncherActivity extends Activity {
         root.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.5.2 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
+        sub.setText("v2.6.0 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         root.addView(sub);
+
+        // v2.5.3：开发者 QQ 群——版本号正下方；群号明文展示 + 右侧一键复制按钮
+        LinearLayout qqRow = new LinearLayout(this);
+        qqRow.setOrientation(LinearLayout.HORIZONTAL);
+        qqRow.setGravity(Gravity.CENTER_VERTICAL);
+        qqRow.setPadding(0, dp(2), 0, dp(6));
+
+        TextView qqLabel = new TextView(this);
+        qqLabel.setText("💬 开发者 QQ 群：901543676（进群备注「取件码助手」）");
+        qqLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        qqLabel.setTextColor(Color.parseColor("#1E6FE8"));
+        qqLabel.setPadding(0, 0, dp(8), 0);
+        qqRow.addView(qqLabel, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        TextView qqCopy = new TextView(this);
+        qqCopy.setText("📋 复制群号");
+        qqCopy.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        qqCopy.setTextColor(Color.WHITE);
+        qqCopy.setBackgroundColor(Color.parseColor("#1E6FE8"));
+        qqCopy.setPadding(dp(10), dp(4), dp(10), dp(4));
+        qqCopy.setOnClickListener(v -> copyQqGroup());
+        qqRow.addView(qqCopy);
+
+        root.addView(qqRow);
 
         statusCard = new TextView(this);
         statusCard.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
@@ -91,6 +131,11 @@ public class LauncherActivity extends Activity {
         statusCard.setPadding(dp(14), dp(10), dp(14), dp(10));
         statusCard.setBackgroundColor(Color.parseColor("#F5F6FA"));
         statusCard.setText("⏳ 正在体检（root 检测约需 2-5 秒）…");
+        // v2.5.3：体检卡可折叠——全绿时自动收起为一行，点按切换；有 ❌ 自动展开
+        statusCard.setOnClickListener(v -> {
+            healthExpanded = !healthExpanded;
+            applyHealthCollapse();
+        });
         root.addView(statusCard);
 
         // 排查问题（v2.5.0）：按「未注入 → root 未授权 → 作用域 → 组件」分层定位并给出动作
@@ -143,20 +188,8 @@ public class LauncherActivity extends Activity {
         deployBtn.setLayoutParams(depLp);
         root.addView(deployBtn);
 
-        // 诊断报告导出按钮（体检下方，随时可点）
-        TextView diagBtn = new TextView(this);
-        diagBtn.setText("📤 导出诊断报告（发反馈请附上此文件）");
-        diagBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        diagBtn.setTextColor(Color.WHITE);
-        diagBtn.setBackgroundColor(Color.parseColor("#7A5AF8"));
-        diagBtn.setPadding(dp(16), dp(10), dp(16), dp(10));
-        diagBtn.setGravity(Gravity.CENTER);
-        diagBtn.setOnClickListener(v -> exportDiag());
-        LinearLayout.LayoutParams diagLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        diagLp.setMargins(dp(0), dp(8), dp(0), dp(0));
-        diagBtn.setLayoutParams(diagLp);
-        root.addView(diagBtn);
+        // v2.5.3：独立的「导出诊断报告」按钮已移除——统一收进「🔍 排查问题」向导
+        //（每层结果弹窗都带「📤 导出诊断报告」按钮，避免主界面按钮堆叠）
 
         refreshHealth();
 
@@ -178,26 +211,127 @@ public class LauncherActivity extends Activity {
 
         LinearLayout modeRow = new LinearLayout(this);
         modeRow.setOrientation(LinearLayout.HORIZONTAL);
-        modeRow.addView(modeButton("极简", TodoWriter.MODE_MIN));
-        modeRow.addView(modeButton("完整", TodoWriter.MODE_FULL));
-        modeRow.addView(modeButton("自定义", TodoWriter.MODE_CUSTOM));
+        // v2.5.3：保存三个按钮引用——切换模式只刷新高亮，不再 recreate 整个页面
+        // （旧实现 recreate 会连带重跑六项体检，模板与体检无关联，纯属扰民）
+        String[] labels = {"极简", "完整", "自定义"};
+        for (int i = 0; i < 3; i++) {
+            TextView mb = modeButton(labels[i], modeIds[i]);
+            modeBtns.add(mb);
+            modeRow.addView(mb);
+        }
+        // 高亮刷新器：按 currentMode 重着色，不重建界面
+        restyleModes = () -> {
+            for (int i = 0; i < modeBtns.size(); i++) {
+                boolean sel = modeIds[i] == currentMode;
+                modeBtns.get(i).setTextColor(sel ? Color.WHITE : Color.parseColor("#333333"));
+                modeBtns.get(i).setBackgroundColor(sel
+                        ? Color.parseColor("#1E6FE8") : Color.parseColor("#EDF1F7"));
+            }
+        };
         root.addView(modeRow);
 
-        EditText tpl = new EditText(this);
-        tpl.setText(getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString("todo_custom", "📦 取件码 {code}｜{source}｜{place}｜{time}"));
-        tpl.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        tpl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        tpl.setPadding(dp(12), dp(10), dp(12), dp(10));
-        tpl.setBackgroundColor(Color.parseColor("#FFFFFF"));
-        tpl.setHint("自定义模板（空则用默认）");
-        tpl.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) {
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putString("todo_custom", tpl.getText().toString().trim()).apply();
+        // ============ 模板效果预览 + 自定义编辑（v2.5.3 交互重构） ============
+        // 极简/完整：只读效果预览；自定义：预览 + ✏️编辑 → 输入框 + 💾保存/↩️恢复默认/取消
+        final String TPL_DEFAULT = "📦 取件码 {code}｜{source}｜{place}｜{time}";
+
+        TextView tplPreview = new TextView(this);
+        tplPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tplPreview.setTextColor(Color.parseColor("#666666"));
+        tplPreview.setPadding(dp(12), dp(8), dp(12), dp(8));
+        tplPreview.setBackgroundColor(Color.parseColor("#F0F3F8"));
+        tplPreviewCard = tplPreview; // 成员引用：切模式时恢复预览可见性
+        root.addView(tplPreview);
+
+        // 「✏️ 编辑模板」按钮：仅自定义模式可见
+        TextView tplEditBtn = smallButton("✏️ 编辑模板", "#F0A020");
+        LinearLayout.LayoutParams tplEditLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tplEditLp.setMargins(dp(0), dp(6), dp(0), dp(0));
+        tplEditBtn.setLayoutParams(tplEditLp);
+        tplEditBtn.setVisibility(View.GONE);
+        root.addView(tplEditBtn);
+
+        // 编辑区：输入框 + 按钮行（保存/恢复默认/取消）
+        EditText tplEdit = new EditText(this);
+        tplEdit.setVisibility(View.GONE);
+        tplEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        tplEdit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tplEdit.setPadding(dp(12), dp(10), dp(12), dp(10));
+        tplEdit.setBackgroundColor(Color.parseColor("#FFFFFF"));
+        tplEdit.setHint("自定义模板，占位符：{code} {source} {place} {time}");
+        tplEditor = tplEdit; // 成员引用：切模式时收起编辑态
+        root.addView(tplEdit);
+
+        LinearLayout tplBtnRow = new LinearLayout(this);
+        tplBtnRow.setOrientation(LinearLayout.HORIZONTAL);
+        tplBtnRow.setVisibility(View.GONE);
+        TextView tplSave = smallButton("💾 保存设置", "#0FA968");
+        TextView tplReset = smallButton("↩️ 恢复默认", "#9AA4B2");
+        TextView tplCancel = smallButton("取消", "#9AA4B2");
+        tplBtnRow.addView(tplSave);
+        tplBtnRow.addView(tplReset);
+        tplBtnRow.addView(tplCancel);
+        tplEditorBtnRow = tplBtnRow; // 成员引用：切模式时收起编辑态
+        root.addView(tplBtnRow);
+
+        // 预览渲染器：按 currentMode 生成效果预览文本 + 编辑入口可见性
+        Runnable renderTpl = () -> {
+            String savedTpl = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString("todo_custom", TPL_DEFAULT);
+            if (currentMode == TodoWriter.MODE_CUSTOM) {
+                tplPreview.setText("效果预览：\n"
+                        + renderTemplate(savedTpl, "99-9-8888", "菜鸟驿站", "XX小区", "09-06 18:00"));
+                tplEditBtn.setVisibility(View.VISIBLE);
+            } else if (currentMode == TodoWriter.MODE_MIN) {
+                tplPreview.setText("效果预览：\n99-9-8888");
+                tplEditBtn.setVisibility(View.GONE);
+            } else {
+                tplPreview.setText("效果预览：\n📦 取件码 99-9-8888｜菜鸟驿站｜XX小区｜09-06 18:00");
+                tplEditBtn.setVisibility(View.GONE);
             }
+        };
+        refreshTplPreview = renderTpl;
+        renderTpl.run();
+
+        tplEditBtn.setOnClickListener(v -> {
+            tplEdit.setText(getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString("todo_custom", TPL_DEFAULT));
+            tplEdit.setVisibility(View.VISIBLE);
+            tplBtnRow.setVisibility(View.VISIBLE);
+            tplEditBtn.setVisibility(View.GONE);
+            tplPreview.setVisibility(View.GONE);
         });
-        root.addView(tpl);
+        tplCancel.setOnClickListener(v -> exitTplEdit(tplEdit, tplBtnRow, tplEditBtn, tplPreview, renderTpl));
+        // 保存：防御性校验（必须含 {code}，长度≤500，空/纯占位则自动落默认）
+        tplSave.setOnClickListener(v -> {
+            String t = tplEdit.getText().toString().trim();
+            if (t.isEmpty()) {
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putString("todo_custom", TPL_DEFAULT).apply();
+                Toast.makeText(this, "内容为空，已恢复默认模板", Toast.LENGTH_SHORT).show();
+                exitTplEdit(tplEdit, tplBtnRow, tplEditBtn, tplPreview, renderTpl);
+                return;
+            }
+            if (t.length() > 500) {
+                Toast.makeText(this, "模板过长（" + t.length() + "/500 字），请精简",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!t.contains("{code}")) {
+                Toast.makeText(this, "模板必须包含 {code} 占位符（否则待办里看不到取件码）",
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("todo_custom", t).apply();
+            Toast.makeText(this, "自定义模板已保存并生效 ✓", Toast.LENGTH_SHORT).show();
+            exitTplEdit(tplEdit, tplBtnRow, tplEditBtn, tplPreview, renderTpl);
+        });
+        tplReset.setOnClickListener(v -> {
+            tplEdit.setText(TPL_DEFAULT);
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("todo_custom", TPL_DEFAULT).apply();
+            Toast.makeText(this, "已恢复默认模板", Toast.LENGTH_SHORT).show();
+            exitTplEdit(tplEdit, tplBtnRow, tplEditBtn, tplPreview, renderTpl);
+        });
 
         root.addView(spacer(16));
 
@@ -268,8 +402,14 @@ public class LauncherActivity extends Activity {
             });
             blSave.setOnClickListener(v -> {
                 String newList = blEdit.getText().toString().trim();
+                if (newList.isEmpty()) {
+                    // v2.6.0：空黑名单 = 全放行（不过滤任何短信），给用户说明而不是静默接受
+                    Toast.makeText(this, "黑名单已清空（所有短信不再被关键词过滤）", Toast.LENGTH_SHORT).show();
+                }
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("blacklist", newList).apply();
-                Toast.makeText(this, "黑名单已保存", Toast.LENGTH_SHORT).show();
+                if (!newList.isEmpty()) {
+                    Toast.makeText(this, "黑名单已保存", Toast.LENGTH_SHORT).show();
+                }
                 blEdit.setVisibility(View.GONE);
                 blBtnRow.setVisibility(View.GONE);
                 blModify.setVisibility(View.VISIBLE);
@@ -290,13 +430,14 @@ public class LauncherActivity extends Activity {
         TextView help = new TextView(this);
         help.setText("📖 使用说明\n"
                 + "1. LSPosed 激活模块；作用域勾选 5 项：⚠️ 必须勾「Android 系统」"
-                + "（android）——注意不是「系统框架」（system）！再加 电话、短信、"
-                + "com.android.providers.telephony、笔记\n"
+                + "（android，在列表底部、不带推荐角标）——注意不是「系统框架」（system）！"
+                + "再加 电话、短信、com.android.providers.telephony、笔记\n"
                 + "2. 收到取件短信后自动写入待办（一码一条，新码置顶）\n"
                 + "3. 通知可点击：复制取件码；通知上「已取件」：一键勾选\n"
                 + "4. 需要 root（Magisk）授权一次；sqlite3 缺失时点「一键部署」\n"
-                + "5. 遇到问题：点上方「🔍 排查问题」逐步定位；仍不行再「导出诊断报告」"
-                + "发给作者（GitHub Issues / 酷安帖子留言均可）");
+                + "5. 遇到问题：点上方「🔍 排查问题」逐步定位；向导里可顺路"
+                + "「导出诊断报告」发给作者\n"
+                + "6. 交流学习 / 反馈问题：QQ 群 901543676（进群备注「取件码助手」）");
         help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         help.setTextColor(Color.parseColor("#888888"));
         help.setLineSpacing(dp(3), 1.0f);
@@ -372,9 +513,10 @@ public class LauncherActivity extends Activity {
             if (scope != null && !scope.ok) {
                 showTroubleshootDialog(
                         "【第 3 步：补齐作用域】\n\n" + nz(scope.detail)
-                        + "\n\n⚠️ 特别提醒：要勾的是【Android 系统（android）】"
-                        + "（带\"推荐应用\"角标），不是字面很像的「系统框架（system）」"
-                        + "——勾 system 无效！\n补勾后务必【重启手机】", null, null);
+                        + "\n\n⚠️ 特别提醒：「Android 系统（android）」在列表底部，"
+                        + "【不带\"推荐应用\"角标】也必须勾选（带角标的 5 个推荐应用不含它）；"
+                        + "别勾成中部的「系统框架（system）」——勾了无效！\n"
+                        + "补勾后务必【重启手机】", null, null);
                 return;
             }
             if (notif != null && !notif.ok) {
@@ -407,7 +549,7 @@ public class LauncherActivity extends Activity {
                 showTroubleshootDialog(
                         "【第 5 步：笔记库访问异常】\n\n" + nz(notes.detail)
                         + "\n\n先点「🧪 一键测试」触发一次自动修复；仍失败 → "
-                        + "导出诊断报告反馈给作者", null, null);
+                        + "导出诊断报告 + 加 QQ 群 901543676 反馈给作者", null, null);
                 return;
             }
             runOnUiThread(() -> new AlertDialog.Builder(this)
@@ -416,9 +558,10 @@ public class LauncherActivity extends Activity {
                             + "如果还是收不到取件码：\n"
                             + "1. 点「🧪 一键测试」验证写入链路\n"
                             + "2. 确认短信含取件码（黑名单可能误过滤）\n"
-                            + "3. 仍异常 → 导出诊断报告反馈给作者")
+                            + "3. 仍异常 → 导出诊断报告 + QQ 群 901543676（备注「取件码助手」）")
                     .setPositiveButton("知道了", null)
                     .setNeutralButton("📤 导出诊断报告", (d, w) -> exportDiag())
+                    .setNegativeButton("💬 反馈给作者", (d, w) -> showFeedbackChannels())
                     .show());
         }).start();
     }
@@ -442,12 +585,44 @@ public class LauncherActivity extends Activity {
                     }
                 });
             } else {
-                b.setNeutralButton("🐛 反馈给作者", (d, w) -> openUrl(ISSUES_URL));
+                b.setNeutralButton("🐛 反馈给作者", (d, w) -> showFeedbackChannels());
             }
             AlertDialog dlg = b.create();
             dlg.setOnDismissListener(d -> refreshHealth());
             dlg.show();
         });
+    }
+
+    /** 复制 QQ 群号到剪贴板（v2.5.3） */
+    private void copyQqGroup() {
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText("qq_group", "901543676"));
+            Toast.makeText(this, "群号已复制：901543676\n进群请备注「取件码助手」", Toast.LENGTH_LONG).show();
+        } catch (Throwable t) {
+            Toast.makeText(this, "复制失败，群号：901543676", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 反馈渠道选择（v2.5.3）：QQ 群（复制群号）/ GitHub Issues / 酷安帖子 */
+    private void showFeedbackChannels() {
+        new AlertDialog.Builder(this)
+                .setTitle("选择反馈渠道")
+                .setItems(new CharSequence[]{
+                        "💬 QQ 群：901543676（复制群号）",
+                        "🐛 GitHub Issues",
+                        "📱 酷安发布帖"
+                }, (d, which) -> {
+                    if (which == 0) {
+                        copyQqGroup();
+                    } else if (which == 1) {
+                        openUrl(ISSUES_URL);
+                    } else {
+                        openUrl(COOLAPK_URL);
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     /** 生成并导出诊断报告（自动脱敏），提示反馈渠道 */
@@ -459,7 +634,8 @@ public class LauncherActivity extends Activity {
                 String where = Diagnostics.exportAndShare(this, report);
                 runOnUiThread(() -> Toast.makeText(this,
                         "报告已生成：" + where + "（已自动脱敏）\n"
-                                + "反馈渠道：GitHub Issues / 酷安帖子留言或私信作者",
+                                + "反馈渠道：QQ 群 901543676（备注「取件码助手」）/ "
+                                + "GitHub Issues / 酷安帖子留言",
                         Toast.LENGTH_LONG).show());
             } catch (Throwable t) {
                 runOnUiThread(() -> Toast.makeText(this,
@@ -504,7 +680,7 @@ public class LauncherActivity extends Activity {
                 String diag = TodoWriter.getLastWriteDiag();
                 if (diag.length() > 140) diag = diag.substring(0, 140) + "…";
                 Toast.makeText(this, "测试失败：" + wrote + "\n原因：" + diag
-                        + "\n（详查：导出诊断报告）", Toast.LENGTH_LONG).show();
+                        + "\n（详查：点「🔍 排查问题」→ 向导里可导出诊断报告）", Toast.LENGTH_LONG).show();
                 refreshHealth();
             } else {
                 Toast.makeText(this, "测试成功：已写入待办 " + wrote + "（可删除）", Toast.LENGTH_LONG).show();
@@ -522,29 +698,55 @@ public class LauncherActivity extends Activity {
         new Thread(() -> {
             String text;
             boolean needDeploy = false;
+            boolean allOk = true;
             try {
                 StringBuilder sb = new StringBuilder("🩺 部署体检\n");
                 for (Diagnostics.Check c : Diagnostics.healthCheck(this)) {
                     sb.append(c.ok ? "✅ " : "❌ ").append(c.title)
                       .append("：").append(c.detail).append("\n");
+                    if (!c.ok) allOk = false;
                     if ("sqlite3 部署".equals(c.title) && !c.ok
                             && c.detail != null && c.detail.contains("一键部署")) {
                         needDeploy = true;
                     }
                 }
-                sb.append("模板模式：").append(modeName(currentMode))
-                  .append(" ｜ 写入：小米笔记待办");
+                // v2.5.3：不再追加"模板模式"行——模板与体检已解耦（切换模板不再触发体检），
+                // 模式高亮由模板按钮组自己表达
                 text = sb.toString();
             } catch (Throwable t) {
+                allOk = false;
                 text = "体检异常：" + t.getMessage();
             }
             final String t2 = text;
             final boolean show = needDeploy;
+            final boolean ok = allOk;
             runOnUiThread(() -> {
-                statusCard.setText(t2);
+                lastHealthText = t2;
+                // v2.5.3：全绿自动折叠成一行；有 ❌ 强制全量展示；点按可切换
+                if (ok && healthExpanded == null) healthExpanded = false;
+                if (!ok) healthExpanded = true;
+                if (healthExpanded) {
+                    statusCard.setText(t2);
+                    statusCard.setMaxLines(Integer.MAX_VALUE);
+                } else {
+                    statusCard.setText("✅ 一切正常 · 六项体检全部通过（点开查看详情）");
+                    statusCard.setMaxLines(2);
+                }
                 deployBtn.setVisibility(show ? View.VISIBLE : View.GONE);
             });
         }).start();
+    }
+
+    /** v2.5.3：点按切换折叠/展开 */
+    private void applyHealthCollapse() {
+        if (healthExpanded == null || lastHealthText == null) return;
+        if (healthExpanded) {
+            statusCard.setText(lastHealthText);
+            statusCard.setMaxLines(Integer.MAX_VALUE);
+        } else {
+            statusCard.setText("✅ 一切正常 · 六项体检全部通过（点开查看详情）");
+            statusCard.setMaxLines(2);
+        }
     }
 
     @Override
@@ -559,7 +761,7 @@ public class LauncherActivity extends Activity {
         super.onResume();
         handleCopy(getIntent());
         handleDone(getIntent());
-        updateStatus();
+        refreshHealth(); // v2.6.0：直接调用（updateStatus 壳已删）
         Updater.maybeCheck(this, false);
     }
 
@@ -602,9 +804,23 @@ public class LauncherActivity extends Activity {
         }
     }
 
-    private void updateStatus() {
-        // v2.1.2：状态卡 = 动态体检结果（不再静态宣称"已激活"）
-        refreshHealth();
+    /** 渲染模板效果预览（v2.5.3）：占位符替换为样例值 */
+    private static String renderTemplate(String tpl, String code, String source, String place, String time) {
+        if (tpl == null || tpl.isEmpty()) return "（空模板）";
+        return tpl.replace("{code}", code)
+                .replace("{source}", source)
+                .replace("{place}", place)
+                .replace("{time}", time);
+    }
+
+    /** 退出模板编辑态：隐藏输入框/按钮行，恢复预览卡与编辑按钮（v2.5.3） */
+    private void exitTplEdit(EditText tplEdit, LinearLayout tplBtnRow,
+                             TextView tplEditBtn, TextView tplPreview, Runnable render) {
+        tplEdit.setVisibility(View.GONE);
+        tplBtnRow.setVisibility(View.GONE);
+        tplPreview.setVisibility(View.VISIBLE);
+        if (currentMode == TodoWriter.MODE_CUSTOM) tplEditBtn.setVisibility(View.VISIBLE);
+        if (render != null) render.run();
     }
 
     private TextView modeButton(String label, int mode) {
@@ -617,11 +833,18 @@ public class LauncherActivity extends Activity {
         b.setGravity(Gravity.CENTER);
         b.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
         b.setOnClickListener(v -> {
+            if (mode == currentMode) return; // 已是当前模式，无操作（也不弹 Toast 打扰）
             currentMode = mode;
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt("todo_mode", mode).apply();
+            if (restyleModes != null) restyleModes.run(); // 只重着色高亮，不 recreate
+            if (refreshTplPreview != null) refreshTplPreview.run(); // 刷新效果预览
+            // 若模板编辑框还开着，切换模式时收起编辑态（未保存的内容丢弃，防误操作）
+            if (tplEditor != null && tplEditor.getVisibility() == View.VISIBLE) {
+                tplEditor.setVisibility(View.GONE);
+                if (tplEditorBtnRow != null) tplEditorBtnRow.setVisibility(View.GONE);
+                if (tplPreviewCard != null) tplPreviewCard.setVisibility(View.VISIBLE);
+            }
             Toast.makeText(this, "待办模板已切换为「" + label + "」", Toast.LENGTH_SHORT).show();
-            updateStatus();
-            recreate();
         });
         return b;
     }
@@ -636,14 +859,6 @@ public class LauncherActivity extends Activity {
         b.setGravity(Gravity.CENTER);
         b.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
         return b;
-    }
-
-    private String modeName(int mode) {
-        switch (mode) {
-            case TodoWriter.MODE_MIN: return "极简";
-            case TodoWriter.MODE_CUSTOM: return "自定义";
-            default: return "完整";
-        }
     }
 
     private int dp(int v) {

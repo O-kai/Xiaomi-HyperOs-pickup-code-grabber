@@ -36,8 +36,6 @@ public class TodoWriter {
     private static final Pattern P_PLACE = Pattern.compile(
             "(?:到|在)([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:店|站|柜|点|自提))");
 
-    private static String lastSqlFile;
-
     /** 最近一次 su/sqlite 执行记录（诊断报告用）：含失败原因与命令输出 */
     private static volatile String lastWriteDiag =
             "尚未执行过写库操作（还没有收到取件短信/跑过一键测试）";
@@ -240,9 +238,5 @@ public class TodoWriter {
     private static String sqlEscape(String s) {
         if (s == null) return "";
         return s.replace("'", "''").replace("\0", "");
-    }
-
-    static String getLastSqlFile() {
-        return lastSqlFile;
     }
 }
