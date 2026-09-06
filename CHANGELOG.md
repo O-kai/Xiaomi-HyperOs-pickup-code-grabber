@@ -2,6 +2,15 @@
 
 > 版本策略：对外发布延续内部版本号。完整生命周期故事见 [docs/HISTORY.md](docs/HISTORY.md)。
 
+## [2.5.2] - 2026-09-06 · 修复空表写入失败（酷安网友反馈）
+
+- **🐛 修复致命 bug**：todo 表为空（0 条）时，`MAX(custom_sort_id)` 返回 NULL，
+  `NULL + 1048576` 触发 `NOT NULL constraint failed: todo.custom_sort_id`，
+  导致首次安装用户（或清空过待办的用户）永远无法写入。
+  修复：`COALESCE(MAX(custom_sort_id), 0)`，空表时从 0 起算；
+- 诊断文案微调：system 残留项提示改为"请直接在 LSPosed 作用域里删除这一项"
+  （android 已勾的情况下无需再确认）。
+
 ## [2.5.1] - 2026-09-05 · 应用内检查更新
 
 - **新增自动检查更新**：默认每 3 天最多 1 次，仅访问 GitHub Releases API 读取最新版本号；

@@ -118,7 +118,7 @@ public class Diagnostics {
         }
         if (st.missingScope == null) {
             String extra = st.hasStaleSystem
-                    ? "（发现勾了「系统框架/system」——它无效，请删除并确认已勾「Android 系统/android」）"
+                    ? "（发现勾了「系统框架/system」——它无效，请直接在 LSPosed 作用域里删除这一项）"
                     : "";
             return new Check("LSPosed 作用域", true,
                     "必需目标齐全 ✓ " + st.scopeList + extra);

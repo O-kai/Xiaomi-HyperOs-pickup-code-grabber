@@ -214,7 +214,7 @@ public class TodoWriter {
         String esc = sqlEscape(content);
         String sql = ".timeout 5000\n"
                 + "INSERT INTO todo (content, plain_text, is_finish, list_type, type, category, folder_id, source, input_type, remind_type, priority, hide_type, custom_sort_id, sort_id, version, local_status, server_status, words_count, create_time, last_modified_time)\n"
-                + "VALUES ('" + esc + "', '" + esc + "', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, (SELECT MAX(custom_sort_id) FROM todo) + 1048576, 0, 1, 0, 0, 0, (strftime('%s','now')*1000), (strftime('%s','now')*1000));\n";
+                + "VALUES ('" + esc + "', '" + esc + "', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, (SELECT COALESCE(MAX(custom_sort_id), 0) FROM todo) + 1048576, 0, 1, 0, 0, 0, (strftime('%s','now')*1000), (strftime('%s','now')*1000));\n";
         return runSql(ctx, sql) == 0;
     }
 

@@ -80,7 +80,7 @@ public class LauncherActivity extends Activity {
         root.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.5.1 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
+        sub.setText("v2.5.2 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         root.addView(sub);
