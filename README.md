@@ -3,6 +3,8 @@
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/O-kai/Xiaomi-HyperOs-pickup-code-grabber?style=flat-square)](https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases)
 
+💬 **开发者 QQ 群：901543676**（反馈问题 / 交流学习；进群请备注 **"取件码助手"**）
+
 📱 **酷安发布帖**：[取件码助手 · 自动提取快递取件码写入小米笔记待办](https://www.coolapk.com/feed/73558591?s=ZTFhMTFhMDMxMmE4ZjhnNmE5OGQxYjV6a1661)
 （更新动态会在酷安同步；欢迎 ⭐ Star）
 
