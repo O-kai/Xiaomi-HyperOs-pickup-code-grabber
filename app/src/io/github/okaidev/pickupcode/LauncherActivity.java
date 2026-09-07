@@ -95,7 +95,7 @@ public class LauncherActivity extends Activity {
         root.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.6.0 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
+        sub.setText("v2.6.1 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         root.addView(sub);
@@ -667,7 +667,7 @@ public class LauncherActivity extends Activity {
             String code = "99-9-" + String.format("%04d", new Random().nextInt(10000));
             android.os.Bundle extras = new android.os.Bundle();
             extras.putString("sender", "test");
-            extras.putString("body", "【菜鸟驿站】测试包裹：取件码为" + code + "（测试条目，可删除）");
+            extras.putString("body", "【菜鸟驿站】测试包裹：取件码为" + code + "，请到 XX小区 门口取件（测试条目，可删除）");
             extras.putLong("ts", System.currentTimeMillis());
             android.os.Bundle res = getContentResolver().call(
                     android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
