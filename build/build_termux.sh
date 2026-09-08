@@ -76,9 +76,11 @@ echo "[5/7] 打包（增量，保护 resources.arsc 对齐）..."
 rm -rf "$BUILD/staging"
 mkdir -p "$BUILD/staging/assets"
 cp "$BUILD/dex/classes.dex" "$BUILD/staging/"
-cp "$APP/assets/xposed_init" "$BUILD/staging/assets/"
+# v2.7.0 修复：打包【全部】assets —— xposed_init + donate_qr.png + sqlite3 套件
+# （旧版只装 xposed_init，是 v2.0 时代 21KB 包的遗留；sqlite3 二进制与打赏图全在 assets 下）
+cp -r "$APP/assets/." "$BUILD/staging/assets/"
 cp "$BUILD/linked.apk" "$BUILD/unsigned.apk"
-( cd "$BUILD/staging" && $ZIP -q "$BUILD/unsigned.apk" classes.dex assets/xposed_init )
+( cd "$BUILD/staging" && $ZIP -q -r "$BUILD/unsigned.apk" classes.dex assets )
 
 echo "[6/7] 签名..."
 if $RELEASE_MODE; then
