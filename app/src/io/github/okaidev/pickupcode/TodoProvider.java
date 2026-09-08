@@ -27,8 +27,7 @@ public class TodoProvider extends ContentProvider {
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
         if (METHOD_MARK_DONE.equals(method) && arg != null && !arg.isEmpty()) {
-            String sql = "UPDATE todo SET is_finish=1, mark_finish_time=strftime('%s','now')*1000 "
-                    + "WHERE is_finish=0 AND content LIKE '%" + TodoWriter.escape(arg) + "%';";
+            String sql = NotesBackend.markDoneSql(getContext(), arg);
             int rc = TodoWriter.runSql(getContext(), sql);
             Log.i(TAG, "MARK_DONE(call): code=" + arg + " rc=" + rc);
             Bundle r = new Bundle();
