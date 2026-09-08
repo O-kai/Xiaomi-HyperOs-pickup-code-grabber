@@ -24,14 +24,24 @@ public class Repair {
     public static final String TARGET_DIR = "/data/local/tmp/pickup_sqlite";
     public static final String LIBS = TARGET_DIR + "/lib";
     public static final String SQLITE = TARGET_DIR + "/sqlite3";
-    public static final String DB = "/data/user/0/com.miui.notes/databases/todo.db";
     private static final String LSP_DB = "/data/adb/lspd/config/modules_config.db";
     private static final String SELF = "io.github.okaidev.pickupcode";
 
-    /** 作用域必需目标（实测 HyperOS 将 providers.telephony 合并进 phone 进程，故列为可选） */
-    public static final String[] SCOPE_REQUIRED = {
-            "android", "com.android.phone", "com.android.mms", "com.miui.notes"
-    };
+    /**
+     * 作用域必需目标（v2.7.0 按 ROM 收敛）：
+     *  - 通用（Hook 目标，两家 ROM 都要）：android、com.android.phone、com.android.mms；
+     *  - 小米侧追加 com.miui.notes（旧版要求，仅小米后端时校验——保留兼容旧用户已勾配置）；
+     *  - com.android.providers.telephony 为可选（S8 主通道所在；实测 HyperOS 将其合并进
+     *    phone 进程，勾上更稳，未勾也不报缺）。
+     *  写入目标 App（笔记/日历）不是 Hook 目标（模块靠 su 直写其库），无需勾选。
+     */
+    public static String[] scopeRequired(Context ctx) {
+        String backend = NotesBackend.detect(ctx);
+        if (NotesBackend.BACKEND_XIAOMI.equals(backend)) {
+            return new String[]{"android", "com.android.phone", "com.android.mms", NotesBackend.PKG_XIAOMI};
+        }
+        return new String[]{"android", "com.android.phone", "com.android.mms"};
+    }
     public static final String SCOPE_OPTIONAL = "com.android.providers.telephony";
 
     // ==================== 一键部署 sqlite3 ====================
@@ -167,7 +177,7 @@ public class Repair {
         if (st.moduleEnabled) {
             // 精确集合比对（不能用子串：com.android.phone 会误匹配 android）
             java.util.List<String> missing = new java.util.ArrayList<>();
-            for (String need : SCOPE_REQUIRED) {
+            for (String need : scopeRequired(ctx)) {
                 if (!scopePkgs.contains(need)) missing.add(need);
             }
             st.missingScope = missing.isEmpty() ? null : join(missing, "、");
