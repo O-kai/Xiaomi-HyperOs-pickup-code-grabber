@@ -25,16 +25,20 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * 设置页（v2.6.0）：
+ * 设置页（v2.6.0 / v2.7.0 多 ROM）：
  *  - 折叠式部署体检（全绿一行收起；❌ 自动展开）+ 🔍 排查问题向导（含导出诊断报告/反馈渠道）
  *  - 待办模板（极简/完整只读效果预览；自定义编辑+防御校验）
  *  - 一键测试（随机码，永不撞去重）、黑名单（修改/保存 二段式）
  *  - QQ 群入口（明文群号+一键复制）、右上角 ⋮ 菜单（仓库/检查更新/打赏）
- *  - 通知点击：复制 + 打开便签；"已取件"按钮：勾选待办
+ *  - v2.7.0：写入目标选择器（自动 / 小米笔记 / ColorOS 日历待办 / ColorOS 便签置顶笔记），
+ *    副标题按当前后端显示；系统直写兜底开关（默认关，需给系统进程授权 root）
+ *  - 通知点击：复制 + 打开对应待办 App；"已取件"按钮：勾选待办
  */
 public class LauncherActivity extends Activity {
 
     private static final String PREFS = "dedup";
+    private static final String KEY_BACKEND = "backend_override";
+    private static final String KEY_SYS_DIRECT = "sys_direct_write";
     private static final String REPO_URL = "https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber";
     private static final String ISSUES_URL = REPO_URL + "/issues";
     private static final String COOLAPK_URL = "https://www.coolapk.com/feed/73558591";
@@ -55,6 +59,9 @@ public class LauncherActivity extends Activity {
     private EditText tplEditor;
     private LinearLayout tplEditorBtnRow;
     private TextView tplPreviewCard;
+    /** v2.7.0：副标题与写入目标选择器文案引用（切换后端时原地刷新） */
+    private TextView subTitleView;
+    private TextView backendLabelView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -95,9 +102,10 @@ public class LauncherActivity extends Activity {
         root.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.6.1 · LSPosed 模块 · 自动提取取件码写入小米笔记待办");
+        sub.setText("v2.7.0 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
+        subTitleView = sub;
         root.addView(sub);
 
         // v2.5.3：开发者 QQ 群——版本号正下方；群号明文展示 + 右侧一键复制按钮
@@ -124,6 +132,33 @@ public class LauncherActivity extends Activity {
         qqRow.addView(qqCopy);
 
         root.addView(qqRow);
+
+        // ============ v2.7.0：写入目标选择器（多 ROM 支持） ============
+        // 自动（按 ROM/已装 App 识别）→ 小米笔记待办 / ColorOS 日历待办 / ColorOS 便签置顶笔记
+        LinearLayout backendRow = new LinearLayout(this);
+        backendRow.setOrientation(LinearLayout.HORIZONTAL);
+        backendRow.setGravity(Gravity.CENTER_VERTICAL);
+        backendRow.setPadding(0, dp(6), 0, dp(2));
+
+        TextView backendLabel = new TextView(this);
+        backendLabel.setText("🎯 写入目标：" + backendLabel());
+        backendLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        backendLabel.setTextColor(Color.parseColor("#1E6FE8"));
+        backendLabel.setPadding(0, 0, dp(8), 0);
+        backendLabelView = backendLabel;
+        backendRow.addView(backendLabel, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        TextView backendBtn = new TextView(this);
+        backendBtn.setText("切换");
+        backendBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        backendBtn.setTextColor(Color.WHITE);
+        backendBtn.setBackgroundColor(Color.parseColor("#1E6FE8"));
+        backendBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
+        backendBtn.setOnClickListener(v -> showBackendPicker(backendLabel));
+        backendRow.addView(backendBtn);
+
+        root.addView(backendRow);
 
         statusCard = new TextView(this);
         statusCard.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
@@ -425,19 +460,59 @@ public class LauncherActivity extends Activity {
         };
         refreshBlacklistUi[0].run();
 
+        root.addView(spacer(16));
+
+        // ============ v2.7.0：系统直写兜底开关（默认关） ============
+        // 作用：模块 App 被 ColorOS 冻结时，短信系统进程直接 su 写待办库，保证「划掉后台也能写」。
+        // 代价：需要给系统进程（com.android.providers.telephony）授权 root——会扩大风险面，默认关闭。
+        LinearLayout sdwRow = new LinearLayout(this);
+        sdwRow.setOrientation(LinearLayout.HORIZONTAL);
+        sdwRow.setGravity(Gravity.CENTER_VERTICAL);
+        sdwRow.setPadding(0, dp(2), 0, dp(2));
+
+        TextView sdwLabel = new TextView(this);
+        sdwLabel.setText("🛡 冻结免疫直写（ColorOS 划掉后台仍可写入）");
+        sdwLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        sdwLabel.setTextColor(Color.parseColor("#333333"));
+        sdwLabel.setPadding(0, 0, dp(8), 0);
+        sdwRow.addView(sdwLabel, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        boolean sdwOn = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_SYS_DIRECT, false);
+        TextView sdwBtn = new TextView(this);
+        sdwBtn.setText(sdwOn ? "已开启 · 点我关闭" : "默认关闭 · 点我开启");
+        sdwBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        sdwBtn.setTextColor(Color.WHITE);
+        sdwBtn.setBackgroundColor(Color.parseColor(sdwOn ? "#0FA968" : "#9AA4B2"));
+        sdwBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
+        sdwBtn.setOnClickListener(v -> toggleSysDirectWrite(sdwBtn));
+        sdwRow.addView(sdwBtn);
+
+        root.addView(sdwRow);
+
+        TextView sdwHint = new TextView(this);
+        sdwHint.setText("⚠️ 开启后需在 Magisk/KernelSU 里给「短信存储（com.android.providers.telephony）"
+                + "授权 root——给常驻系统进程授权 root 会扩大风险面，请自行评估。"
+                + "不开启时此代码路径完全不执行（默认与 v2.6.1 行为一致）。");
+        sdwHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        sdwHint.setTextColor(Color.parseColor("#999999"));
+        sdwHint.setLineSpacing(dp(2), 1.0f);
+        root.addView(sdwHint);
+
         root.addView(spacer(18));
 
         TextView help = new TextView(this);
         help.setText("📖 使用说明\n"
-                + "1. LSPosed 激活模块；作用域勾选 5 项：⚠️ 必须勾「Android 系统」"
-                + "（android，在列表底部、不带推荐角标）——注意不是「系统框架」（system）！"
-                + "再加 电话、短信、com.android.providers.telephony、笔记\n"
-                + "2. 收到取件短信后自动写入待办（一码一条，新码置顶）\n"
-                + "3. 通知可点击：复制取件码；通知上「已取件」：一键勾选\n"
-                + "4. 需要 root（Magisk）授权一次；sqlite3 缺失时点「一键部署」\n"
-                + "5. 遇到问题：点上方「🔍 排查问题」逐步定位；向导里可顺路"
+                + "1. LSPosed 激活模块；作用域必勾「Android 系统」（android，列表底部、"
+                + "不带推荐角标——不是「系统框架」system！），再加 电话、短信、"
+                + "com.android.providers.telephony；小米设备另勾「小米笔记」\n"
+                + "2. 写入目标自动识别（小米笔记待办 / ColorOS 日历待办），也可点上方「切换」手动指定\n"
+                + "3. 收到取件短信后自动写入待办（一码一条，新码置顶）\n"
+                + "4. 通知可点击：复制取件码；通知上「已取件」：一键勾选\n"
+                + "5. 需要 root（Magisk/KernelSU）授权一次；sqlite3 缺失时点「一键部署」\n"
+                + "6. 遇到问题：点上方「🔍 排查问题」逐步定位；向导里可顺路"
                 + "「导出诊断报告」发给作者\n"
-                + "6. 交流学习 / 反馈问题：QQ 群 901543676（进群备注「取件码助手」）");
+                + "7. 交流学习 / 反馈问题：QQ 群 901543676（进群备注「取件码助手」）");
         help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         help.setTextColor(Color.parseColor("#888888"));
         help.setLineSpacing(dp(3), 1.0f);
@@ -467,6 +542,93 @@ public class LauncherActivity extends Activity {
         pm.show();
     }
 
+    // ==================== v2.7.0：写入目标（多 ROM 后端） ====================
+
+    /** 副标题/选择器当前后端的人话名（随 NotesBackend 自动/手动结果切换） */
+    private String backendLabel() {
+        String b = NotesBackend.detect(this);
+        if (NotesBackend.BACKEND_XIAOMI.equals(b)) return "小米笔记待办";
+        if (NotesBackend.BACKEND_COLOROS_NOTE.equals(b)) return "ColorOS 便签置顶笔记";
+        return "ColorOS 日历待办";
+    }
+
+    /** 写入目标选择器：自动 / 三个具体后端（ColorOS 机型上"自动"默认走日历待办） */
+    private void showBackendPicker(TextView label) {
+        String cur = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_BACKEND, "");
+        final String[] values = {
+                "", NotesBackend.BACKEND_XIAOMI, NotesBackend.BACKEND_COLOROS_TODO, NotesBackend.BACKEND_COLOROS_NOTE
+        };
+        CharSequence[] items = {
+                "自动识别（推荐）",
+                "小米笔记 待办（HyperOS/MIUI）",
+                "ColorOS 日历 待办（ColorOS 16 默认）",
+                "ColorOS 便签 置顶笔记（备用）"
+        };
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(cur)) { checked = i; break; }
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("选择写入目标")
+                .setSingleChoiceItems(items, checked, (d, which) -> {
+                    applyBackend(values[which]);
+                    d.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 应用后端选择：写偏好 + 失效缓存 + 刷新副标题/选择器文案 + 复查体检（换库后探针要重跑） */
+    private void applyBackend(String value) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_BACKEND, value).apply();
+        NotesBackend.invalidateCache();
+        String name;
+        if (NotesBackend.BACKEND_XIAOMI.equals(value)) name = "小米笔记待办";
+        else if (NotesBackend.BACKEND_COLOROS_TODO.equals(value)) name = "ColorOS 日历待办";
+        else if (NotesBackend.BACKEND_COLOROS_NOTE.equals(value)) name = "ColorOS 便签置顶笔记";
+        else name = "自动识别";
+        Toast.makeText(this, "写入目标已切换：\n" + name
+                + "\n（下次收到取件短信即写入新目标；可点「🧪 一键测试」立即验证）", Toast.LENGTH_LONG).show();
+        // 重建页面成本高（模板编辑态等局部状态），这里直接刷新副标题与选择器文案即可
+        if (subTitleView != null) subTitleView.setText("v2.7.0 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
+        if (backendLabelView != null) backendLabelView.setText("🎯 写入目标：" + backendLabel());
+        refreshHealth();
+    }
+
+    /**
+     * v2.7.0：切换「冻结免疫直写」开关。
+     * 模块 App 偏好存 SharedPreferences；系统进程（Hook 所在）读不到它，因此同时用 su 把
+     * "1"/"0" 写入 /data/local/tmp/pickup_sqlite/enable_sys_direct_write 标志文件同步状态
+     * （SystemDirectWriter 启动时 root 读该文件决定是否启用）。切换后需重启手机让系统进程重载。
+     */
+    private void toggleSysDirectWrite(TextView btn) {
+        boolean now = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_SYS_DIRECT, false);
+        boolean next = !now;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SYS_DIRECT, next).apply();
+        // 异步同步标志文件（需 su；失败也只影响系统进程侧开关，App 内状态已更新）
+        final boolean target = next;
+        new Thread(() -> {
+            String flag = Repair.TARGET_DIR + "/enable_sys_direct_write";
+            try {
+                Diagnostics.suExecPublic("mkdir -p " + Repair.TARGET_DIR + "; "
+                        + "echo " + (target ? "1" : "0") + " > " + flag + "; "
+                        + "chmod 644 " + flag, 15);
+            } catch (Throwable ignored) { }
+            runOnUiThread(() -> {
+                btn.setText(target ? "已开启 · 点我关闭" : "默认关闭 · 点我开启");
+                btn.setBackgroundColor(Color.parseColor(target ? "#0FA968" : "#9AA4B2"));
+                if (target) {
+                    Toast.makeText(this, "已开启冻结免疫直写 ✓\n"
+                            + "还需两步：\n1. Magisk/KernelSU 给「com.android.providers.telephony」"
+                            + "（短信存储）授权 root\n2. 重启手机生效", Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(this, "已关闭冻结免疫直写（重启手机后系统进程侧同步生效）",
+                            Toast.LENGTH_SHORT).show();
+                }
+            });
+        }).start();
+    }
+
     /**
      * 排查问题（v2.5.0）：按「未注入 → root 未授权 → 作用域缺失 → 通知权限 →
      * sqlite3 组件缺失（自动修复）→ 笔记库异常 → 一切 OK」的决策树逐层定位。
@@ -486,15 +648,18 @@ public class LauncherActivity extends Activity {
             Diagnostics.Check scope = findCheck(checks, "LSPosed 作用域");
             Diagnostics.Check notif = findCheck(checks, "通知权限");
             Diagnostics.Check sqlite = findCheck(checks, "sqlite3 部署");
-            Diagnostics.Check notes = findCheck(checks, "笔记库访问");
+            Diagnostics.Check notes = findCheck(checks, "待办库访问");
 
             if (inject == null || !inject.ok) {
+                String backendHint = NotesBackend.BACKEND_XIAOMI.equals(NotesBackend.detect(this))
+                        ? "（小米侧含 com.miui.notes；写入目标 App 无需勾选）"
+                        : "（勾 3 项即可；写入目标 App 无需勾选）";
                 showTroubleshootDialog(
                         "【第 1 步：让模块生效】\n\n"
                         + "1. 打开 LSPosed 管理器 → 模块 → 取件码助手\n"
                         + "2. 打开「启用模块」开关\n"
-                        + "3. 勾选作用域，共 5 项（⚠️ 必须包含「Android 系统」，"
-                        + "不是「系统框架」）\n"
+                        + "3. 勾选作用域：⚠️ 必须包含「Android 系统」，"
+                        + "再加 电话、短信" + backendHint + "\n"
                         + "4. 重启手机（必须）\n"
                         + "5. 重启后打开本 App，再点一次「🔍 排查问题」", null, null);
                 return;
@@ -546,8 +711,9 @@ public class LauncherActivity extends Activity {
                 return;
             }
             if (notes != null && !notes.ok) {
+                String target = NotesBackend.targetAppName(this);
                 showTroubleshootDialog(
-                        "【第 5 步：笔记库访问异常】\n\n" + nz(notes.detail)
+                        "【第 5 步：待办库访问异常（" + target + "）】\n\n" + nz(notes.detail)
                         + "\n\n先点「🧪 一键测试」触发一次自动修复；仍失败 → "
                         + "导出诊断报告 + 加 QQ 群 901543676 反馈给作者", null, null);
                 return;
@@ -667,7 +833,8 @@ public class LauncherActivity extends Activity {
             String code = "99-9-" + String.format("%04d", new Random().nextInt(10000));
             android.os.Bundle extras = new android.os.Bundle();
             extras.putString("sender", "test");
-            extras.putString("body", "【菜鸟驿站】测试包裹：取件码为" + code + "，请到 XX小区 门口取件（测试条目，可删除）");
+            extras.putString("body", "【菜鸟驿站】测试包裹：取件码为" + code
+                    + "，请到XX小区快递驿站门口取件（测试条目，可删除）");
             extras.putLong("ts", System.currentTimeMillis());
             android.os.Bundle res = getContentResolver().call(
                     android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
@@ -765,7 +932,7 @@ public class LauncherActivity extends Activity {
         Updater.maybeCheck(this, false);
     }
 
-    /** 通知点击：复制取件码 + 打开小米笔记 */
+    /** 通知点击：复制取件码 + 打开当前后端对应的待办 App（v2.7.0：跳转包名动态化） */
     private void handleCopy(Intent intent) {
         if (intent == null) return;
         String copy = intent.getStringExtra("copy");
@@ -778,26 +945,25 @@ public class LauncherActivity extends Activity {
             Toast.makeText(this, "复制失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
         }
         try {
-            Intent notes = getPackageManager().getLaunchIntentForPackage("com.miui.notes");
+            Intent notes = getPackageManager().getLaunchIntentForPackage(NotesBackend.targetPkg(this));
             if (notes != null) startActivity(notes);
         } catch (Throwable ignored) { }
         intent.removeExtra("copy");
     }
 
-    /** 通知"已取件"按钮：勾选对应待办 */
+    /** 通知"已取件"按钮：勾选对应待办（v2.7.0：SQL 随后端分派） */
     private void handleDone(Intent intent) {
         if (intent == null) return;
         String code = intent.getStringExtra("done");
         if (code == null || code.isEmpty()) return;
-        String sql = "UPDATE todo SET is_finish=1, mark_finish_time=strftime('%s','now')*1000 "
-                + "WHERE is_finish=0 AND content LIKE '%" + TodoWriter.escape(code) + "%';";
+        String sql = NotesBackend.markDoneSql(this, code);
         int rc = TodoWriter.runSql(this, sql);
         Toast.makeText(this, rc == 0 ? "已标记已取件：" + code : "标记失败（rc=" + rc + "）",
                 Toast.LENGTH_LONG).show();
         intent.removeExtra("done");
         if (rc == 0) {
             try {
-                Intent notes = getPackageManager().getLaunchIntentForPackage("com.miui.notes");
+                Intent notes = getPackageManager().getLaunchIntentForPackage(NotesBackend.targetPkg(this));
                 if (notes != null) startActivity(notes);
             } catch (Throwable ignored) { }
             finish();
