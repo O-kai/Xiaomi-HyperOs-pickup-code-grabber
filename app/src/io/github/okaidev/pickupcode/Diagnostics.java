@@ -39,7 +39,6 @@ public class Diagnostics {
     private static final String TAG = "PICKUPDEBUG";
     private static final String LIBS = "/data/local/tmp/pickup_sqlite/lib";
     private static final String SQLITE = "/data/local/tmp/pickup_sqlite/sqlite3";
-    private static final String DB = "/data/user/0/com.miui.notes/databases/todo.db";
 
     private static final Pattern P_PHONE = Pattern.compile("(?<!\\d)1[3-9]\\d{9}(?!\\d)");
     private static final Pattern P_CODE = Pattern.compile("\\b\\d{1,4}-\\d{1,2}-\\d{1,5}\\b");
@@ -67,10 +66,10 @@ public class Diagnostics {
         out.add(checkNotification(ctx));                    // v2.2.0：通知权限
         if (su.ok) {
             out.add(checkSqlite3());
-            out.add(checkNotesDb());
+            out.add(checkNotesDb(ctx));
         } else {
             out.add(new Check("sqlite3 部署", false, "需要先有 root 才能检测（见上一项）"));
-            out.add(new Check("笔记库访问", false, "需要先有 root 才能检测（见上一项）"));
+            out.add(new Check("待办库访问", false, "需要先有 root 才能检测（见上一项）"));
         }
         return out;
     }
@@ -177,24 +176,33 @@ public class Diagnostics {
 
     private static String nz(String s) { return s == null ? "" : s; }
 
-    /** 4) 笔记库可打开（只读 count 探针，不读内容） */
-    private static Check checkNotesDb() {
-        String[] r = suExec("su", LD() + " " + SQLITE + " " + DB
-                + " 'SELECT COUNT(*) FROM todo;'", 15);
+    /** 4) 待办库可打开（只读 count 探针，不读内容）；v2.7.0 起按 NotesBackend 后端分派 */
+    private static Check checkNotesDb(Context ctx) {
+        String db = NotesBackend.dbPath(ctx);
+        String backend = NotesBackend.detect(ctx);
+        String table = NotesBackend.BACKEND_COLOROS_TODO.equals(backend) ? "Tasks"
+                : NotesBackend.BACKEND_COLOROS_NOTE.equals(backend) ? "rich_notes" : "todo";
+        String dbFile = db.substring(db.lastIndexOf('/') + 1);
+        String needHint = NotesBackend.BACKEND_COLOROS_TODO.equals(backend) ? "在日历 App 里建过一条待办"
+                : NotesBackend.BACKEND_COLOROS_NOTE.equals(backend) ? "在便签 App 里建过至少一条笔记"
+                : "在小米笔记里建过至少一条待办";
+        String[] r = suExec("su", LD() + " " + SQLITE + " " + db
+                + " '" + NotesBackend.countProbeSql(ctx) + "'", 15);
         if (r != null && r[0] != null && r[0].trim().matches("\\d+")) {
-            return new Check("笔记库访问", true, "todo 表可读，当前 " + r[0].trim() + " 条 ✓");
+            return new Check("待办库访问", true,
+                    table + " 表可读，当前 " + r[0].trim() + " 条 ✓");
         }
         String e = r == null ? "null" : (r[1] + " " + r[2]).trim();
         if (e.contains("unable to open")) {
-            return new Check("笔记库访问", false,
-                    "打不开 todo.db（权限不足）→ 正常情况模块写入时会自动 chmod 修复；"
+            return new Check("待办库访问", false,
+                    "打不开 " + dbFile + "（权限不足）→ 正常情况模块写入时会自动处理；"
                             + "可先跑一次「一键测试」让它自愈，再导出报告");
         }
         if (e.contains("no such table")) {
-            return new Check("笔记库访问", false,
-                    "todo 表不存在 → 小米笔记里请先建过至少一条待办，或笔记版本过旧");
+            return new Check("待办库访问", false,
+                    table + " 表不存在 → 请先" + needHint + "，或系统版本过旧");
         }
-        return new Check("笔记库访问", false, "探测失败：" + tail(e, 140));
+        return new Check("待办库访问", false, "探测失败：" + tail(e, 140));
     }
 
     // ==================== 报告 ====================
@@ -220,6 +228,11 @@ public class Diagnostics {
         String miOs = prop("ro.mi.os.version.name");
         if (miOs != null && !miOs.isEmpty()) sb.append("澎湃OS: ").append(miOs).append("\n");
         else if (miui != null && !miui.isEmpty()) sb.append("MIUI: ").append(miui).append("\n");
+        // v2.7.0：多 ROM 支持——ColorOS 版本与当前写入后端一并写入报告
+        String oplus = prop("ro.build.version.oplusRom");
+        if (oplus != null && !oplus.isEmpty()) sb.append("ColorOS: ").append(oplus).append("\n");
+        sb.append("写入后端: ").append(NotesBackend.detect(ctx)).append("（")
+          .append(NotesBackend.targetAppName(ctx)).append("）\n");
         sb.append("Magisk: ").append(prop("magisk.version") ).append("\n");
         try {
             android.content.pm.PackageInfo pi = ctx.getPackageManager()

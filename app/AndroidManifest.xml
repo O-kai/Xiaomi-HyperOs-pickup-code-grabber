@@ -1,14 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.okaidev.pickupcode"
-    android:versionCode="261"
-    android:versionName="2.6.1">
+    android:versionCode="270"
+    android:versionName="2.7.0">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- v2.5.1：唯一联网行为 = 检查更新（3 天一次，GitHub Releases API），无其他网络访问 -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- v2.7.0：包可见性声明（Android 11+），保证后端探测能准确找到各 ROM 的目标 App -->
+    <queries>
+        <package android:name="com.coloros.note" />
+        <package android:name="com.miui.notes" />
+    </queries>
 
     <application
         android:label="取件码助手"
@@ -22,7 +28,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="自动提取快递取件码，写入小米笔记待办" />
+            android:value="自动提取快递取件码，写入待办（小米笔记 / ColorOS 日历·便签，自动识别）" />
         <meta-data
             android:name="xposedminversion"
             android:value="82" />

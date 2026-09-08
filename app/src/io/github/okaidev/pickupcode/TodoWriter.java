@@ -20,7 +20,9 @@ import java.util.regex.Pattern;
 
 /**
  * 待办写入器（P2）：在模块自身进程运行。
- * 流程：提取取件码 → 去重（本地指纹 On）→ su sqlite3 直写 todo.db（堆栈置顶）→ 日志
+ * 流程：提取取件码 → 去重（本地指纹 On）→ su sqlite3 直写目标库（堆栈置顶）→ 日志
+ * v2.7.0：目标库由 NotesBackend 决定（小米笔记 todo.db / ColorOS 日历 tasks.db / ColorOS 便签
+ * nearme_note.db），置顶与完成算法随后端自动切换（多 ROM 支持）。
  */
 public class TodoWriter {
 
@@ -28,7 +30,6 @@ public class TodoWriter {
     // sqlite3 部署在 /data/local/tmp（对 App su 子进程可执行），依赖库同目录
     private static final String LIBS = "/data/local/tmp/pickup_sqlite/lib";
     private static final String SQLITE = "/data/local/tmp/pickup_sqlite/sqlite3";
-    private static final String DB = "/data/user/0/com.miui.notes/databases/todo.db";
     private static final String PREFS = "dedup";
     private static final int DEDUP_MAX = 500;
 
@@ -74,7 +75,7 @@ public class TodoWriter {
             }
             seen.add(fingerprint);
             String content = buildContent(mode, customTpl, code, source, place, time);
-            boolean ok = writeTodo(ctx, content);
+            boolean ok = writeTodo(ctx, content, buildTitle(code, content));
             if (ok) {
                 wrote.add(code);
                 Log.i(TAG, "TODO OK: " + content);
@@ -144,7 +145,7 @@ public class TodoWriter {
             String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"};
             String trace = "";
             for (String suBin : suBins) {
-                String cmd = suBin + " -M -c \"id; " + buildSuCmd(sqlFile) + "\"";
+                String cmd = suBin + " -M -c \"id; " + buildSuCmd(ctx, sqlFile) + "\"";
                 Log.i(TAG, "su attempt(" + suBin + ")");
                 Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd});
                 StringBuilder out = new StringBuilder();
@@ -184,13 +185,23 @@ public class TodoWriter {
         return s.replace("'", "''").replace("\0", "");
     }
 
-    private static String extractPlace(String body) {
+    /** 地点提取（v2.7.0 起 public：SystemDirectWriter 兜底直写也用它组内容） */
+    public static String extractPlace(String body) {
         Matcher m = P_PLACE.matcher(body == null ? "" : body);
         if (m.find()) return m.group(1);
         return "未知地点";
     }
 
-    private static String resolveSource(String sender, String body) {
+    /** 笔记标题（ColorOS rich_notes 的 summary_title 展示用）：取内容首个「｜」前的短句 */
+    public static String buildTitle(String code, String content) {
+        if (content == null) return "📦 " + code;
+        int cut = content.indexOf('｜');
+        String t = cut > 0 ? content.substring(0, cut) : content;
+        return t.length() > 40 ? t.substring(0, 40) : t;
+    }
+
+    /** 来源识别（v2.7.0 起 public：SystemDirectWriter 兜底直写也用它组内容） */
+    public static String resolveSource(String sender, String body) {
         String t = (body == null ? "" : body);
         if (t.contains("菜鸟") || t.contains("驿站")) return "菜鸟驿站";
         if (t.contains("丰巢") || t.contains("柜")) return "丰巢快递柜";
@@ -204,25 +215,27 @@ public class TodoWriter {
         return sender == null || sender.isEmpty() ? "快递" : "快递(" + sender + ")";
     }
 
+    /** 简单 SQL 单引号转义（供 NotesBackend 组 SQL 用） */
+    public static String sqlEscapePub(String s) {
+        return sqlEscape(s);
+    }
+
     /**
-     * 直写 todo.db：内容转义后写入模块私有 SQL 文件，su -M sqlite3 执行。
-     * custom_sort_id = MAX + 0x100000（系统原生堆栈置顶）
+     * 直写待办库：内容转义后写入模块私有 SQL 文件，su -M sqlite3 执行。
+     * v2.7.0：目标库与置顶算法由 NotesBackend 决定
+     * （小米 todo 堆栈置顶 / ColorOS Tasks 直插 / ColorOS rich_notes top_time 置顶）
      */
-    private static synchronized boolean writeTodo(Context ctx, String content) {
-        String esc = sqlEscape(content);
-        String sql = ".timeout 5000\n"
-                + "INSERT INTO todo (content, plain_text, is_finish, list_type, type, category, folder_id, source, input_type, remind_type, priority, hide_type, custom_sort_id, sort_id, version, local_status, server_status, words_count, create_time, last_modified_time)\n"
-                + "VALUES ('" + esc + "', '" + esc + "', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, (SELECT COALESCE(MAX(custom_sort_id), 0) FROM todo) + 1048576, 0, 1, 0, 0, 0, (strftime('%s','now')*1000), (strftime('%s','now')*1000));\n";
+    private static synchronized boolean writeTodo(Context ctx, String content, String title) {
+        String sql = ".timeout 5000\n" + NotesBackend.insertSql(ctx, content, title);
         return runSql(ctx, sql) == 0;
     }
 
-    private static String buildSuCmd(File sqlFile) {
-        // 自愈式：每次写入前确保目录/文件可访问（App su 子进程缺 DAC 特权，需要放开）
+    private static String buildSuCmd(Context ctx, File sqlFile) {
+        // 自愈式：每次写入前确保目录/文件可访问（App su 子进程缺 DAC 特权，需要放开；仅小米后端需要）
         // LD_LIBRARY_PATH 必须写在命令串内（su 会保留命令行内的环境变量赋值）
-        return "chmod 711 /data/user/0/com.miui.notes; "
-                + "chmod 771 /data/user/0/com.miui.notes/databases; "
-                + "chmod 666 /data/user/0/com.miui.notes/databases/todo.db; "
-                + "LD_LIBRARY_PATH=" + LIBS + " " + SQLITE + " " + DB + " < " + sqlFile.getAbsolutePath();
+        return NotesBackend.chmodCmd(ctx)
+                + "LD_LIBRARY_PATH=" + LIBS + " " + SQLITE + " "
+                + NotesBackend.dbPath(ctx) + " < " + sqlFile.getAbsolutePath();
     }
 
     private static void drain(java.io.InputStream in, StringBuilder sb) {

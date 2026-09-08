@@ -5,21 +5,39 @@
 
 💬 **开发者 QQ 群：901543676**（反馈问题 / 交流学习；进群请备注 **"取件码助手"**）
 
-📱 **酷安发布帖**：[取件码助手 · 自动提取快递取件码写入小米笔记待办](https://www.coolapk.com/feed/73558591?s=ZTFhMTFhMDMxMmE4ZjhnNmE5OGQxYjV6a1661)
+📱 **酷安发布帖**：[取件码助手 · 自动提取快递取件码写入待办](https://www.coolapk.com/feed/73558591?s=ZTFhMTFhMDMxMmE4ZjhnNmE5OGQxYjV6a1661)
 （更新动态会在酷安同步；欢迎 ⭐ Star）
 
 🧩 **LSPosed 官方模块仓库已上架**：LSPosed 管理器内即可搜索安装/更新「取件码助手」，
 仓库页：[Xposed-Modules-Repo/io.github.okaidev.pickupcode](https://github.com/Xposed-Modules-Repo/io.github.okaidev.pickupcode)
 （模块页：[modules.lsposed.org](https://modules.lsposed.org)，Release 与本仓库自动同步）
 
-> 一个 **LSPosed 模块**：自动捕获快递取件短信 → 提取取件码 → 写入小米笔记「待办」
+> 一个 **LSPosed 模块**：自动捕获快递取件短信 → 提取取件码 → 写入待办
 > （一码一条、新码堆栈置顶）→ 弹出通知（点击复制 / 一键标记已取件）。
 >
-> 适用于 **小米 / 红米（MIUI·HyperOS）+ Root + LSPosed** 环境。
+> 适用于 **小米 / 红米（MIUI·HyperOS）+ ColorOS 16（一加/OPPO/realme）** + Root + LSPosed 环境
+> （v2.7.0 起自动识别写入目标，也可在设置页手动切换）。
 
-**[English summary]** An LSPosed module for Xiaomi/HyperOS that automatically extracts parcel
-pickup codes from SMS and writes each code as a to-do item in Xiaomi Notes, with copy-on-tap
-notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android 17.
+**[English summary]** An LSPosed module that automatically extracts parcel pickup codes from SMS
+and writes each code as a to-do item — Xiaomi Notes todos on MIUI/HyperOS, or Calendar tasks on
+ColorOS 16 (OnePlus/OPPO/realme), auto-detected. Copy-on-tap notifications. Requires root
+(Magisk/KernelSU) + LSPosed; tested on HyperOS 4.0 / Android 17 and ColorOS 16 / Android 16.
+
+### 🧩 社区改编版本
+
+- **ColorOS 16 适配版**：[Vv-Ww/pickup-code-grabber-coloros](https://github.com/Vv-Ww/pickup-code-grabber-coloros) ——
+  由社区开发者 [Vv-Ww](https://github.com/Vv-Ww) 完成的 ColorOS 16（一加 / OPPO / realme）适配：
+  待办写入**日历**（ColorOS 16 已把待办从便签整体迁移到日历），在一加 9 Pro 上端到端实测通过；
+  MIT 协议、二改声明规范。
+  **v2.7.0 起该能力已整合为本仓库官方功能**（同源代码，逆向侦察与验证记录见
+  [docs/17-coloros-adaptation.md](docs/17-coloros-adaptation.md)），ColorOS 用户可直接使用本仓库版本；
+  该社区仓库仍作为独立定制版维护，任君选择。适配问题欢迎带上「导出诊断报告」到
+  [Issues](https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/issues) 反馈。
+
+> 想为其他 ROM（OriginOS / Flyme / HarmonyOS…）做适配？上游的写入侧已完全后端化
+> （`NotesBackend`），新 ROM 通常只需补一组「目标 App + 数据库路径 + INSERT/UPDATE SQL 模板」。
+> 侦察方法与字段验证流程见 [docs/17-coloros-adaptation.md](docs/17-coloros-adaptation.md)，
+> 欢迎直接提 PR——你侦察、我合并、社区共享，这就是开源的玩法 🎉
 
 ---
 
@@ -27,10 +45,16 @@ notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android
 
 - **100% 覆盖短信来源**：在短信数据库的写入必经点（`SmsProvider.insert`）捕获，
   普通短信与小米网络短信都逃不掉；
+- **多 ROM 支持**（v2.7.0，整合社区 ColorOS 适配）：自动识别写入目标——
+  小米笔记待办（MIUI/HyperOS）/ ColorOS 日历待办（一加/OPPO/realme）；
+  设置页可手动切换（含 ColorOS 便签置顶笔记备用后端）；
 - **智能提取**：支持「取件码为 16-4-9626, 15-3-2194」「凭22-2-3579到…取件」等多种真实短信格式，
   支持一条短信内多码簇提取；来源识别（菜鸟/丰巢/京东/顺丰/中通/圆通/韵达/申通/邮政）；
 - **去重**：按「取件码 + 地点」指纹去重，同一地点的同一码不会重复写入；
-- **一码一条待办**：写入小米笔记待办，`custom_sort_id = MAX + 0x100000` 新码堆栈置顶；
+- **一码一条待办**：小米笔记 `custom_sort_id = MAX + 0x100000` 堆栈置顶 /
+  ColorOS 日历任务新码置顶；
+- **冻结免疫直写**（v2.7.0，默认关）：ColorOS 用户划掉后台也不漏码——短信系统进程直写兜底
+  （需给系统进程授权 root，设置页一键开关 + 风险提示）；
 - **通知交互**：通知正文显示取件码，点击 → 复制到剪贴板 + 打开笔记待办；每条码带「已取件」动作按钮；
 - **三种模板**（v2.6.0 重构）：极简（仅码）/ 完整（码+来源+地点+时间，默认）——
   均为只读效果预览；自定义占位符模板（`{code}` `{source}` `{place}` `{time}`），
@@ -78,42 +102,47 @@ notifications. Requires root (Magisk) + LSPosed; tested on HyperOS 4.0 / Android
 
 ```
 短信（普通 / 小米网络短信）
-   ↓ ① 捕获：Hook SmsProvider.insert / bulkInsert（短信库写入必经点，100% 覆盖）
+   ↓ ① 捕获：Hook SmsProvider.insert / bulkInsert（短信库写入必经点，100% 覆盖，AOSP 通用）
    ↓ ② 拼接与转发：ContentResolver.call → 模块 App（Provider 唤醒，不受后台冻结限制）
    ↓ ③ 提取：正则引擎（关键词锚定 / 凭…到 / 快递特征词，支持多码簇）
    ↓ ④ 去重：码 + 地点指纹（模块自有 SharedPreferences）
-   ↓ ⑤ 写入：su -M sqlite3 直写 小米笔记 todo.db（custom_sort_id=MAX+0x100000 堆栈置顶）
+   ↓ ⑤ 写入：su -M sqlite3 直写目标库（NotesBackend 按后端分派）——
+        小米笔记 todo.db（custom_sort_id=MAX+0x100000 堆栈置顶）
+        / ColorOS 日历 tasks.db（一码一条置顶；划掉后台可选系统进程直写兜底）
    ↓ ⑥ 通知：点击复制取件码 + 打开待办；动作按钮「已取件」
 ```
 
 多点冗余 Hook（S1–S8，详见 [docs/14-hooks.md](docs/14-hooks.md)）保证不同 ROM 版本都能兜底，
-`S8`（短信库写入点）是主通道。
+`S8`（短信库写入点）是主通道（AOSP 标准组件，ColorOS 上同样存在；S4–S7 小米定制类找不到自动跳过，
+不影响主功能）。
 
 ## 📋 环境要求
 
 | 项目 | 要求 |
 |---|---|
-| 设备 | 小米 / 红米，MIUI / HyperOS（Android 12+；实测见兼容矩阵） |
-| Root | Magisk（需要 `su -M`，即全局挂载命名空间） |
+| 设备 | 小米 / 红米（MIUI / HyperOS，Android 12+）或 一加 / OPPO / realme（ColorOS 16，Android 16） |
+| Root | Magisk / KernelSU（需要 `su -M`，即全局挂载命名空间） |
 | 框架 | LSPosed（Zygisk 或原版均可） |
-| 手机端工具 | `sqlite3` 可执行文件（见「部署准备」） |
-| 备注 | 待办写入依赖小米笔记 App（`com.miui.notes`），**非小米设备不适用** |
+| 手机端工具 | `sqlite3` 可执行文件（见「部署准备」；APK 内置可一键部署） |
+| 写入目标 | 小米侧：小米笔记 App（`com.miui.notes`）；ColorOS 16：系统日历（待办已迁移至日历） |
 
 ## 🚀 安装
 
 1. **下载 APK**：GitHub Releases 页面下载最新版，或在 **LSPosed 管理器内搜索「取件码助手」
    直接安装/更新**（官方模块仓库已上架）；
 2. **安装** APK（首次安装后请在权限弹窗授予「通知」权限，Android 13+）；
-3. **LSPosed 激活**：LSPosed 管理器 → 模块 → 取件码助手 → 勾选启用，作用域勾选 **5 项**
-   （v2.1.2 起会自动显示推荐勾选；从旧版升级请**重新核对**）：
-   - `android`（**「Android 系统」**，带"推荐应用"角标；⚠️ **不是**「系统框架」——勾 system 无效！）
-   - `com.android.phone`（电话）
-   - `com.android.mms`（短信）
-   - `com.android.providers.telephony`（短信库 —— **必勾！100% 捕获主通道**）
-   - `com.miui.notes`（小米笔记）
+3. **LSPosed 激活**：LSPosed 管理器 → 模块 → 取件码助手 → 勾选启用，作用域：
+   - **通用必勾（所有 ROM）**：
+     - `android`（**「Android 系统」**，列表底部、不带推荐角标；⚠️ **不是**「系统框架」——勾 system 无效！）
+     - `com.android.phone`（电话）
+     - `com.android.mms`（短信）
+     - `com.android.providers.telephony`（短信库 —— **必勾！100% 捕获主通道**）
+   - **小米设备另勾**：`com.miui.notes`（小米笔记）
+   - （写入目标 App——笔记/日历——不是 Hook 目标，ColorOS 上无需勾选）
 4. **重启手机**；
 5. **打开 App 跑「部署体检」**：六项全 ✅ 后点「一键测试」验证；体检有 ❌ 时点「🔍 排查问题」按向导处理；
-6. **授权 Root**：触发一次后，Magisk 弹窗授权（一次性，永久生效）。
+   ColorOS 用户请确认设置页「🎯 写入目标」显示为 *ColorOS 日历待办*；
+6. **授权 Root**：触发一次后，Magisk / KernelSU 弹窗授权（一次性，永久生效）。
 
 ### 部署准备（v2.2.0 起通常无需手动）
 
@@ -176,20 +205,23 @@ su -c 'bash /sdcard/Download/pickup-code-grabber/build/build_termux.sh'
 | 设备 / 系统 | 结果 |
 |---|---|
 | REDMI K90 Pro Max / HyperOS 4.0 / Android 17 / Magisk + LSPosed | ✅ **实测通过**（2026-09-03 端到端，真实短信 → 待办可见） |
-| MIUI / HyperOS 12–17（其他设备） | ⚠️ 设计上兼容，**未逐一实测**，欢迎反馈 |
+| 一加 9 Pro / ColorOS 16 / Android 16 / KernelSU + LSPosed | ✅ **实测通过**（2026-09-08 端到端，社区适配验证；v2.7.0 整合） |
+| MIUI / HyperOS 12–17（其他小米设备） | ⚠️ 设计上兼容，**未逐一实测**，欢迎反馈 |
+| ColorOS 15.x 及更早 / OPPO·realme 老机型 | ⚠️ 未实测（ColorOS 16 前待办未迁日历，行为可能不同），欢迎反馈 |
 
-- 若你的 ROM 上「短信 App / 笔记 App」表结构或类名有差异，可能表现为：Hook 点 NOT FOUND（自动跳过，无害）、
+- 若你的 ROM 上「短信 App / 待办 App」表结构或类名有差异，可能表现为：Hook 点 NOT FOUND（自动跳过，无害）、
   待办写入失败（可在模块日志 `PICKUPDEBUG` 中看到 `TODO FAIL`）；
+- 小米侧 v2.7.0 为代码级等价保留（写入 SQL 与 v2.6.1 逐字节一致），同版本真机回归待补；
 - 待办表结构自检降级（写入前校验 → 自动降级为仅通知+模块内列表）为计划项，当前版本未实现（见「已知限制」）。
 
 ## ❓ 常见问题（FAQ）
 
 **Q1：模块已启用但毫无反应？（v2.1.2 起：先跑 App 内「部署体检」；v2.5.0 起直接点「🔍 排查问题」）**
-最常见原因是**作用域勾错**——尤其注意：要勾的是 **「Android 系统」（android，带"推荐应用"角标）**，
+最常见原因是**作用域勾错**——尤其注意：要勾的是 **「Android 系统」（android，列表底部，不带"推荐应用"角标）**，
 **不是**字面很像的「系统框架」（system）——勾 system 无效（旧版文档误导项，v2.5.0 起体检会点名提示）。
-正确作用域 **5 项**：`android`（Android 系统）、`com.android.phone`、`com.android.mms`、
-`com.android.providers.telephony`（必勾，主通道）、`com.miui.notes`；勾完**必须重启手机**。
-其余顺序：② 重启；③ Magisk 授权过 su；④ sqlite3 部署到 `/data/local/tmp/pickup_sqlite/`；
+通用必勾 4 项：`android`（Android 系统）、`com.android.phone`、`com.android.mms`、
+`com.android.providers.telephony`（必勾，主通道）；小米设备另勾 `com.miui.notes`；勾完**必须重启手机**。
+其余顺序：② 重启；③ Magisk/KernelSU 授权过 su；④ sqlite3 部署到 `/data/local/tmp/pickup_sqlite/`；
 ⑤ App「导出诊断报告」或 `adb logcat -s PICKUPDEBUG`。
 
 **Q2：收到短信但没写入待办？**
@@ -214,12 +246,18 @@ v2.1.2 起「一键测试」失败时会直接显示断在哪一步，也可「�
 
 ## ⚠️ 已知限制与风险（请阅读）
 
-1. **针对小米笔记私有数据库**：模块直接写入 `com.miui.notes` 的 `todo.db`（私人表结构），
-   不同 HyperOS 版本的字段可能变化；当前仅实测一台设备。**写入前无表结构自检 / 自动降级**（计划中），
-   若表结构不匹配，写入会失败但**不会破坏已有数据**（只增行 + 定点标记完成，绝不删改用户数据）；
-2. **不承诺云同步**（见 FAQ5）；
-3. **Root 风险自担**：直写其他应用数据库属于系统权限操作，请自行权衡；
-4. 需要**小米 / 红米设备**：非小米设备没有 `com.miui.notes`，模块核心功能不可用.
+1. **直写私有数据库**（多 ROM）：模块直接写入待办 App 的私有库——小米侧 `com.miui.notes` 的
+   `todo.db`、ColorOS 16 侧系统日历 `tasks.db`（均为私人表结构），不同系统版本的字段可能变化；
+   ColorOS 侧 `create_package` 字段含设备相关哈希（逆向值），换机/大版本更新后若失效，
+   按 [docs/17-coloros-adaptation.md](docs/17-coloros-adaptation.md) 第六节方法复查。
+   **写入前无表结构自检 / 自动降级**（计划中），若表结构不匹配，写入会失败但
+   **不会破坏已有数据**（只增行 + 定点标记完成，绝不删改用户数据）；
+2. **ColorOS 冻结策略**：从最近任务划掉本模块后其 Provider 会被系统屏蔽（收不到新短信事件）；
+   规避：最近任务卡片下拉锁定，或开启设置页「冻结免疫直写」（需给系统进程授权 root，风险自评）；
+3. **不承诺云同步**（见 FAQ5）；
+4. **Root 风险自担**：直写其他应用数据库属于系统权限操作，请自行权衡；
+5. 设备范围：小米/红米（MIUI/HyperOS）或 ColorOS 16（一加/OPPO/realme）；
+   ColorOS 16 前的老 ColorOS 与其他 ROM 未实测。
 
 ## 🔐 隐私与安全
 
@@ -228,7 +266,7 @@ v2.1.2 起「一键测试」失败时会直接显示断在哪一步，也可「�
   可在右上角「⋮ → 检查更新」手动触发；对网络层做限制也不影响模块核心功能；
 - **零短信权限**：不申请 READ_SMS / RECEIVE_SMS，Hook 层直接取 PDU / 数据库写入值；
 - **本地处理**：短信文本仅在设备本地内存与模块私有存储中流转；
-- 唯一写出去的内容 = 你手机上的小米笔记待办（你本地的）；
+- 唯一写出去的内容 = 你手机上的待办 App 记录（小米笔记 / 系统日历，均在你本地）；
 - 日志只输出到 logcat 与 LSPosed 模块日志（均为本机）。
 
 ## 📖 文档
@@ -242,6 +280,7 @@ v2.1.2 起「一键测试」失败时会直接显示断在哪一步，也可「�
 | [docs/12-build-setup.md](docs/12-build-setup.md) | Termux 构建环境与流程 |
 | [docs/13-pipeline-log.md](docs/13-pipeline-log.md) | 关键日志与踩坑归档（含 su -M / 冻结 / 网络短信等） |
 | [docs/14-hooks.md](docs/14-hooks.md) | Hook 点清单与捕获链路 |
+| [docs/17-coloros-adaptation.md](docs/17-coloros-adaptation.md) | **ColorOS 16 适配全记录**（目标库侦察 / 字段逆向 / 端到端验证，社区贡献） |
 | [docs/HISTORY.md](docs/HISTORY.md) | **完整生命周期演进史**（v1 时代 → v2 重构 → v2.1 增强） |
 | [docs/15-journey.md](docs/15-journey.md) | 开发历程展示稿（面向社区阅读，已被 README/宣传引用） |
 | [docs/RELEASE-PROCESS.md](docs/RELEASE-PROCESS.md) | 维护者标准发布流程（本地更新 → 自动化归纳发版） |
@@ -251,11 +290,14 @@ v2.1.2 起「一键测试」失败时会直接显示断在哪一步，也可「�
 
 - 本项目基于 **MIT 许可**开源（见 [LICENSE](LICENSE)）；
 - 作者 / 维护者：[O-kai](https://github.com/O-kai)；
-- 本项目**与小米公司无任何关联**，非官方作品；「小米」「HyperOS」等为相关方商标；
+- ColorOS 16 适配：[Vv-Ww](https://github.com/Vv-Ww)（社区贡献，v2.7.0 整合）；
+- 本项目**与小米 / OPPO 公司均无任何关联**，非官方作品；「小米」「HyperOS」「ColorOS」等为相关方商标；
 - 模块使用 `de.robv.android.xposed:api:82`（Apache-2.0）仅编译期引用，运行时由 LSPosed 提供；
 - 请勿将本项目用于任何违反当地法规的用途；使用本模块造成的任何数据问题由使用者自行承担。
 
 ## 🙏 致谢
 
-[Xposed Framework](https://github.com/rovo89/XposedBridge) 作者、[LSPosed](https://github.com/LSPosed/LSPosed) 社区、
-SQLite 项目，以及所有提供反馈的测试用户。
+- **[Vv-Ww](https://github.com/Vv-Ww)**：ColorOS 16 适配（目标库侦察、字段逆向、端到端验证与
+  [二改版仓库](https://github.com/Vv-Ww/pickup-code-grabber-coloros)），v2.7.0 多 ROM 支持的基础；
+- [Xposed Framework](https://github.com/rovo89/XposedBridge) 作者、[LSPosed](https://github.com/LSPosed/LSPosed) 社区、
+  SQLite 项目，以及所有提供反馈的测试用户。

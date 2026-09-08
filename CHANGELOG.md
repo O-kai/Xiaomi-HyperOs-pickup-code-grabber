@@ -2,6 +2,31 @@
 
 > 完整开发历程见 [docs/HISTORY.md](docs/HISTORY.md)。
 
+## [2.7.0] - 2026-09-09 · 多 ROM 支持（整合社区 ColorOS 适配）
+
+- **🎉 ColorOS 16 官方支持（上游整合）**：自动识别 ROM——小米 HyperOS/MIUI 写小米笔记待办
+  （行为与 v2.6.1 逐字节一致），ColorOS 16 写**日历「待办」**（`tasks.db` Tasks 表，
+  完成态 = `finish_time`）；基于社区开发者
+  [Vv-Ww](https://github.com/Vv-Ww) 的 [ColorOS 二改版](https://github.com/Vv-Ww/pickup-code-grabber-coloros)
+  （MIT）整合，逆向侦察与端到端验证记录见
+  [docs/17-coloros-adaptation.md](docs/17-coloros-adaptation.md)；
+- **🎯 写入目标可手动切换**：设置页新增「写入目标」选择器——自动识别（默认）/
+  小米笔记待办 / ColorOS 日历待办 / ColorOS 便签置顶笔记（备用后端）；
+- **🛡 冻结免疫直写（默认关闭）**：ColorOS 会冻结从最近任务划掉的 App，导致模块收不到短信事件；
+  开启后由短信系统进程直接 su 写库（`SystemDirectWriter`，需给系统进程授权 root，风险自评），
+  设置页一键开关 + 风险文案；不开启时与 v2.6.1 行为一致；
+- **架构**：新增 `NotesBackend` 后端抽象（目标库路径 / chmod / INSERT / 已取件 / 探针 SQL
+  全部按后端分派），`TodoWriter`/`TodoProvider`/`Notifier`/`Diagnostics`/`Repair` 全面改走后端；
+  短信捕获侧（S1–S8）**零改动**；
+- **作用域提示更新**：写入目标 App（笔记/日历）不再是 Hook 目标——ColorOS 上只需勾
+  3 项（Android 系统 / 电话 / 短信）+ 可选短信库；小米侧保持原 5 项不变（体检按 ROM 自动区分）；
+- **诊断报告增强**：报告新增 ColorOS 版本行与「写入后端」行，排查跨 ROM 问题不再靠猜；
+- **Manifest**：新增 `<queries>` 包可见性声明（com.coloros.note / com.miui.notes，
+  Android 11+ 后端探测需要）；模块描述更新为多 ROM 表述；
+- **兼容性**：小米侧为代码级等价保留（同版本真机回归待补），ColorOS 侧实测一加 9 Pro；
+- 鸣谢：[Vv-Ww](https://github.com/Vv-Ww) 的 ColorOS 16 适配工作（二改声明规范、
+  MIT 协议保留，欢迎社区继续这样玩）。
+
 ## [2.6.1] - 2026-09-08 · 提取引擎 v3（语料驱动重构）
 
 - **提取引擎 v3**：从"关键词表 + 固定结构"改为"码形状优先 + 上下文排除"三层策略
