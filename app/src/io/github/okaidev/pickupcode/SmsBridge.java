@@ -278,19 +278,25 @@ public class SmsBridge {
             }
         } catch (Throwable t) {
             XposedEntry.log("EVENT provider dispatch err: " + t);
+            android.content.Context ctx2 = null;
             try {
-                android.content.Context ctx = obtainContext();
-                if (ctx != null) {
+                ctx2 = obtainContext();
+                if (ctx2 != null) {
                     android.content.Intent i = new android.content.Intent("io.github.okaidev.pickupcode.action.ON_SMS");
                     i.setPackage("io.github.okaidev.pickupcode");
                     i.putExtra("sender", sender);
                     i.putExtra("body", body);
                     i.putExtra("ts", System.currentTimeMillis());
-                    ctx.sendBroadcast(i);
+                    ctx2.sendBroadcast(i);
                     XposedEntry.log("EVENT dispatched (broadcast fallback)");
                 }
             } catch (Throwable t2) {
                 XposedEntry.log("EVENT broadcast fallback err: " + t2);
+            }
+            // v2.7.0：模块 App 转发失败（被 ColorOS 冻结 / 进程不可唤醒）→ 本进程内 su 直写兜底
+            //（默认关闭；需在设置页开启并给系统进程授权 root，见 SystemDirectWriter）
+            if (ctx2 != null) {
+                SystemDirectWriter.fallback(ctx2, sender, body);
             }
         }
     }
