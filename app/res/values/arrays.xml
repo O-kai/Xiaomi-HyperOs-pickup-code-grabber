@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- LSPosed 推荐作用域（v2.1.2 修正）：
+    <!-- LSPosed 推荐作用域（v2.1.2 修正；v2.7.0 ColorOS 适配扩展）：
          android = 系统框架（S1）；com.android.phone = 电话进程（S1 兜底）；
          com.android.mms = 短信应用（S2-S7）；com.android.providers.telephony = 短信库（S8 主通道）；
-         com.miui.notes = 小米笔记（唤醒目标）。
+         com.miui.notes = 小米笔记（MIUI/HyperOS 写入目标）；
+         com.coloros.note = ColorOS 便签（ColorOS 16 写入目标）。
+         未安装的目标 LSPosed 会自动忽略——两家笔记 App 同时声明互不影响。
          注意：系统框架的包名是 android（不是 system）；S8 所在的 providers.telephony 必勾。 -->
     <string-array name="xposed_scope">
         <item>android</item>
@@ -11,5 +13,6 @@
         <item>com.android.mms</item>
         <item>com.android.providers.telephony</item>
         <item>com.miui.notes</item>
+        <item>com.coloros.note</item>
     </string-array>
 </resources>
