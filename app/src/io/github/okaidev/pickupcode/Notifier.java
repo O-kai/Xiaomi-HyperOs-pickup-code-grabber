@@ -14,7 +14,8 @@ import java.util.List;
 
 /**
  * 通知（平台 API，无 androidx 依赖）：
- * 写入待办后弹通知；点击 = 复制取件码到剪贴板 + 打开小米笔记待办。
+ * 写入待办后弹通知；点击 = 复制取件码到剪贴板 + 打开目标待办 App
+ * （v2.7.0：小米笔记 / ColorOS 日历 / ColorOS 便签，由 NotesBackend 当前后端决定）。
  */
 public class Notifier {
 
@@ -63,7 +64,7 @@ public class Notifier {
                 b.addAction(new Notification.Action.Builder(
                         android.R.drawable.ic_menu_agenda, "已取件 " + c, pd).build());
             }
-            Intent notesIntent = ctx.getPackageManager().getLaunchIntentForPackage("com.miui.notes");
+            Intent notesIntent = ctx.getPackageManager().getLaunchIntentForPackage(NotesBackend.targetPkg(ctx));
             if (notesIntent != null) {
                 PendingIntent pn = PendingIntent.getActivity(ctx, 300, notesIntent,
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
