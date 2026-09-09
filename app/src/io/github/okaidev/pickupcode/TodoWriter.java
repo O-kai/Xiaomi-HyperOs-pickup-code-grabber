@@ -33,9 +33,9 @@ public class TodoWriter {
     private static final String PREFS = "dedup";
     private static final int DEDUP_MAX = 500;
 
-    /** 地点提取：到/在 + 路段 + 店/站/柜/点/自提/快递（v2.7.1 扩展快递网点） */
+    /** 地点提取：优先长引导词（已到站/已到达/到达/已到/到/在） + 路段 + 店/站/柜/点/自提/快递 */
     private static final Pattern P_PLACE = Pattern.compile(
-            "(?:到|在)([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:店|站|柜|点|自提|快递))(?=[，。,\\s取来领]|$)");
+            "(?:已到站[，,包到至\\s]*|已到达|到达|已到|到|在)([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:店|站|柜|点|自提|快递))");
 
     /** 最近一次 su/sqlite 执行记录（诊断报告用）：含失败原因与命令输出 */
     private static volatile String lastWriteDiag =

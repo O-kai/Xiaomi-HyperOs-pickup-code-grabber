@@ -104,7 +104,7 @@ public class LauncherActivity extends Activity {
         root.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.7.0 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
+        sub.setText("v2.7.1 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         subTitleView = sub;
@@ -883,7 +883,7 @@ public class LauncherActivity extends Activity {
             android.os.Bundle extras = new android.os.Bundle();
             extras.putString("sender", "test");
             extras.putString("body", "【菜鸟驿站】测试包裹：取件码为" + code
-                    + "，请到XX小区快递驿站门口取件（测试条目，可删除）");
+                    + "，请到XX小区快递驿站取件（测试条目，可删除）");
             extras.putLong("ts", System.currentTimeMillis());
             android.os.Bundle res = getContentResolver().call(
                     android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
