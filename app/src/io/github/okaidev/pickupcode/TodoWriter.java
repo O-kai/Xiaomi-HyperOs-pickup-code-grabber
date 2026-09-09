@@ -33,9 +33,9 @@ public class TodoWriter {
     private static final String PREFS = "dedup";
     private static final int DEDUP_MAX = 500;
 
-    /** 地点提取：到/在 + 路段 + 店/站/柜/点 */
+    /** 地点提取：到/在 + 路段 + 店/站/柜/点/自提/快递（v2.7.1 扩展快递网点） */
     private static final Pattern P_PLACE = Pattern.compile(
-            "(?:到|在)([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:店|站|柜|点|自提))");
+            "(?:到|在)([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:店|站|柜|点|自提|快递))(?=[，。,\\s取来领]|$)");
 
     /** 最近一次 su/sqlite 执行记录（诊断报告用）：含失败原因与命令输出 */
     private static volatile String lastWriteDiag =
@@ -189,7 +189,7 @@ public class TodoWriter {
     public static String extractPlace(String body) {
         Matcher m = P_PLACE.matcher(body == null ? "" : body);
         if (m.find()) return m.group(1);
-        return "未知地点";
+        return "—";
     }
 
     /** 笔记标题（ColorOS rich_notes 的 summary_title 展示用）：取内容首个「｜」前的短句 */
@@ -203,16 +203,19 @@ public class TodoWriter {
     /** 来源识别（v2.7.0 起 public：SystemDirectWriter 兜底直写也用它组内容） */
     public static String resolveSource(String sender, String body) {
         String t = (body == null ? "" : body);
-        if (t.contains("菜鸟") || t.contains("驿站")) return "菜鸟驿站";
-        if (t.contains("丰巢") || t.contains("柜")) return "丰巢快递柜";
-        if (t.contains("京东")) return "京东快递";
-        if (t.contains("顺丰") || t.contains("SF")) return "顺丰速运";
-        if (t.contains("中通")) return "中通快递";
-        if (t.contains("圆通")) return "圆通速递";
-        if (t.contains("韵达")) return "韵达快递";
+        if (t.contains("妈妈驿站")) return "妈妈驿站";
+        if (t.contains("兔喜")) return "兔喜生活";
         if (t.contains("申通")) return "申通快递";
+        if (t.contains("圆通")) return "圆通速递";
+        if (t.contains("中通")) return "中通快递";
+        if (t.contains("顺丰") || t.contains("SF")) return "顺丰速运";
+        if (t.contains("京东")) return "京东快递";
+        if (t.contains("极兔")) return "极兔速递";
+        if (t.contains("韵达")) return "韵达快递";
         if (t.contains("邮政") || t.contains("EMS")) return "中国邮政";
-        return sender == null || sender.isEmpty() ? "快递" : "快递(" + sender + ")";
+        if (t.contains("丰巢") || t.contains("柜")) return "丰巢快递柜";
+        if (t.contains("菜鸟") || t.contains("驿站")) return "菜鸟驿站";
+        return sender == null || sender.isEmpty() ? "—" : sender;
     }
 
     /** 简单 SQL 单引号转义（供 NotesBackend 组 SQL 用） */

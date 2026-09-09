@@ -62,6 +62,8 @@ public class LauncherActivity extends Activity {
     /** v2.7.0：副标题与写入目标选择器文案引用（切换后端时原地刷新） */
     private TextView subTitleView;
     private TextView backendLabelView;
+    /** v2.7.1：冻结免疫直写 UI 动态显隐刷新器 */
+    private Runnable refreshSdwUi;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -462,9 +464,13 @@ public class LauncherActivity extends Activity {
 
         root.addView(spacer(16));
 
-        // ============ v2.7.0：系统直写兜底开关（默认关） ============
+        // ============ v2.7.0：系统直写兜底开关（动态显隐） ============
         // 作用：模块 App 被 ColorOS 冻结时，短信系统进程直接 su 写待办库，保证「划掉后台也能写」。
-        // 代价：需要给系统进程（com.android.providers.telephony）授权 root——会扩大风险面，默认关闭。
+        // 代价：需要给系统进程（com.android.providers.telephony）授权 root。
+        // v2.7.1 动态策略：小米系统下默认隐藏且关闭；ColorOS 下默认显示且开启（可手动关）。
+        LinearLayout sdwContainer = new LinearLayout(this);
+        sdwContainer.setOrientation(LinearLayout.VERTICAL);
+
         LinearLayout sdwRow = new LinearLayout(this);
         sdwRow.setOrientation(LinearLayout.HORIZONTAL);
         sdwRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -478,26 +484,28 @@ public class LauncherActivity extends Activity {
         sdwRow.addView(sdwLabel, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
 
-        boolean sdwOn = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_SYS_DIRECT, false);
         TextView sdwBtn = new TextView(this);
-        sdwBtn.setText(sdwOn ? "已开启 · 点我关闭" : "默认关闭 · 点我开启");
         sdwBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         sdwBtn.setTextColor(Color.WHITE);
-        sdwBtn.setBackgroundColor(Color.parseColor(sdwOn ? "#0FA968" : "#9AA4B2"));
         sdwBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
-        sdwBtn.setOnClickListener(v -> toggleSysDirectWrite(sdwBtn));
         sdwRow.addView(sdwBtn);
-
-        root.addView(sdwRow);
+        sdwContainer.addView(sdwRow);
 
         TextView sdwHint = new TextView(this);
-        sdwHint.setText("⚠️ 开启后需在 Magisk/KernelSU 里给「短信存储（com.android.providers.telephony）"
+        sdwHint.setText("⚠️ 开启后需在 Magisk/KernelSU 里给「短信存储（com.android.providers.telephony）」"
                 + "授权 root——给常驻系统进程授权 root 会扩大风险面，请自行评估。"
-                + "不开启时此代码路径完全不执行（默认与 v2.6.1 行为一致）。");
+                + "小米系统不需要此功能，ColorOS 下划掉后台时生效。");
         sdwHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
         sdwHint.setTextColor(Color.parseColor("#999999"));
         sdwHint.setLineSpacing(dp(2), 1.0f);
-        root.addView(sdwHint);
+        sdwContainer.addView(sdwHint);
+
+        root.addView(sdwContainer);
+
+        // 绑定刷新器并在点击切换后调用
+        refreshSdwUi = () -> updateSdwDisplay(sdwContainer, sdwBtn);
+        sdwBtn.setOnClickListener(v -> toggleSysDirectWrite(sdwBtn));
+        refreshSdwUi.run();
 
         root.addView(spacer(18));
 
@@ -592,6 +600,7 @@ public class LauncherActivity extends Activity {
         // 重建页面成本高（模板编辑态等局部状态），这里直接刷新副标题与选择器文案即可
         if (subTitleView != null) subTitleView.setText("v2.7.0 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
         if (backendLabelView != null) backendLabelView.setText("🎯 写入目标：" + backendLabel());
+        if (refreshSdwUi != null) refreshSdwUi.run();
         refreshHealth();
     }
 
@@ -627,6 +636,46 @@ public class LauncherActivity extends Activity {
                 }
             });
         }).start();
+    }
+
+    /**
+     * v2.7.1：根据系统类型或当前写入目标动态刷新「冻结免疫直写」的显隐与默认值。
+     * - 小米系统 / 小米笔记待办：隐藏且默认关闭，不需要此功能。
+     * - ColorOS 系统 / 日历/便签目标：显示，默认开启（可手动关）。
+     */
+    private void updateSdwDisplay(LinearLayout container, TextView btn) {
+        String currentBackend = NotesBackend.detect(this);
+        boolean isColorOs = NotesBackend.BACKEND_COLOROS_TODO.equals(currentBackend)
+                || NotesBackend.BACKEND_COLOROS_NOTE.equals(currentBackend);
+
+        if (!isColorOs) {
+            // 小米环境：直接隐藏栏目，并确保开关关闭
+            container.setVisibility(View.GONE);
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SYS_DIRECT, false).apply();
+            return;
+        }
+
+        // ColorOS 环境：显示栏目，首次未配置时默认开启
+        container.setVisibility(View.VISIBLE);
+        android.content.SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        boolean sdwOn;
+        if (!sp.contains(KEY_SYS_DIRECT)) {
+            // 首次进入 ColorOS 环境，默认开启并写入同步文件
+            sdwOn = true;
+            sp.edit().putBoolean(KEY_SYS_DIRECT, true).apply();
+            new Thread(() -> {
+                String flag = Repair.TARGET_DIR + "/enable_sys_direct_write";
+                try {
+                    Diagnostics.suExecPublic("mkdir -p " + Repair.TARGET_DIR + "; "
+                            + "echo 1 > " + flag + "; chmod 644 " + flag, 15);
+                } catch (Throwable ignored) { }
+            }).start();
+        } else {
+            sdwOn = sp.getBoolean(KEY_SYS_DIRECT, true);
+        }
+
+        btn.setText(sdwOn ? "已开启 · 点我关闭" : "已关闭 · 点我开启");
+        btn.setBackgroundColor(Color.parseColor(sdwOn ? "#0FA968" : "#9AA4B2"));
     }
 
     /**
