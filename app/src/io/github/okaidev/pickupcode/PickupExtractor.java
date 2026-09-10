@@ -169,13 +169,28 @@ public class PickupExtractor {
         return extractWithRules(activeRules, body);
     }
 
-    /** 提取地点 */
+    /** 提取地点（v2 双策略）：
+     *  策略1：动词夹取——"到/至……取/领取"之间即地点（任意结尾都能匹配）；
+     *  策略2：前缀+后缀词表回退（旧逻辑）；
+     *  均未命中 → "—" */
     public static String extractPlace(String body) {
         if (body == null || body.isEmpty()) return "—";
         ExtractorRules r = activeRules;
-        if (r == null || r.patternPlace == null) return "—";
-        Matcher m = r.patternPlace.matcher(body);
-        if (m.find()) return m.group(1);
+        if (r == null) return "—";
+        // 策略1：夹取
+        if (r.patternPlace != null) {
+            Matcher m = r.patternPlace.matcher(body);
+            if (m.find() && m.group(1) != null && m.group(1).length() >= 2) {
+                return m.group(1);
+            }
+        }
+        // 策略2：后缀词表
+        if (r.patternPlaceFallback != null) {
+            Matcher m2 = r.patternPlaceFallback.matcher(body);
+            if (m2.find() && m2.group(1) != null) {
+                return m2.group(1);
+            }
+        }
         return "—";
     }
 
@@ -243,6 +258,9 @@ public class PickupExtractor {
         if (start > 0 && body.charAt(start - 1) == '*') return true;
         if (after + 1 < body.length() && body.charAt(after) == ':') return true;
         if (P_PHONE.matcher(tok).matches() && tok.length() == 11) return true;
+        // v2：「尾号」上下文排除（"取尾号9100包裹"——尾号不是取件码）
+        String win = window(body, start, start + tok.length(), 8);
+        if (win.contains("尾号")) return true;
         return false;
     }
 

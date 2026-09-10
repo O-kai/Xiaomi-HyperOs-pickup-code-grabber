@@ -21,8 +21,10 @@ public class ExtractorRules {
     public List<String> actionWords = new ArrayList<>();
     public List<String> keywordAnchors = new ArrayList<>();
     public List<String> byWords = new ArrayList<>();
-    public String dashPatternStr = "\\d{1,6}(?:-\\d{1,6}){1,3}";
-    public String alnumPatternStr = "[A-Za-z]?\\d{4,9}";
+    // v2 规则升级：码形状支持单字母前缀段（M-2-5341 / D4-7048 / S3-2043 / 109-6-4006 等）
+    // 首段形态：字母-数字（M-2）｜字母+数字（D4）｜纯数字（109）
+    public String dashPatternStr = "(?:[A-Za-z]-\\d{1,6}|[A-Za-z]?\\d{1,6})(?:-[A-Za-z]?\\d{1,6}){0,3}";
+    public String alnumPatternStr = "[A-Za-z]?\\d{3,9}";
     public List<String> placePrefixes = new ArrayList<>();
     public List<String> placeSuffixes = new ArrayList<>();
 
@@ -35,12 +37,14 @@ public class ExtractorRules {
     public transient Pattern patternDashShape;
     public transient Pattern patternAlnumShape;
     public transient Pattern patternPlace;
+    /** v2：地点回退策略（前缀+后缀词表匹配） */
+    public transient Pattern patternPlaceFallback;
 
     public static ExtractorRules createDefault() {
         ExtractorRules r = new ExtractorRules();
-        r.version = 1;
+        r.version = 2;
         r.minAppVersionCode = 280;
-        r.description = "内置默认提取规则集 v1";
+        r.description = "内置默认提取规则集 v2（字母前缀码形 + 门面房/中心等地点后缀 + 尾号排除）";
 
         r.featureWords.add("驿站"); r.featureWords.add("快递柜"); r.featureWords.add("丰巢");
         r.featureWords.add("菜鸟"); r.featureWords.add("包裹"); r.featureWords.add("取件");
@@ -48,6 +52,7 @@ public class ExtractorRules {
         r.featureWords.add("已到"); r.featureWords.add("送达"); r.featureWords.add("兔喜");
         r.featureWords.add("妈妈驿站"); r.featureWords.add("中邮"); r.featureWords.add("熊猫快收");
         r.featureWords.add("收发室"); r.featureWords.add("快递"); r.featureWords.add("代收");
+        r.featureWords.add("欢猫驿站");
 
         r.actionWords.add("领取"); r.actionWords.add("取出"); r.actionWords.add("凭");
         r.actionWords.add("取件"); r.actionWords.add("取货"); r.actionWords.add("及时");
@@ -56,16 +61,18 @@ public class ExtractorRules {
 
         r.keywordAnchors.add("取件码"); r.keywordAnchors.add("取货码"); r.keywordAnchors.add("提取码");
         r.keywordAnchors.add("自提码"); r.keywordAnchors.add("凭码"); r.keywordAnchors.add("动态取件码");
-        r.keywordAnchors.add("取件号");
+        r.keywordAnchors.add("取件号"); r.keywordAnchors.add("凭取件码");
 
         r.byWords.add("凭"); r.byWords.add("出示");
 
         r.placePrefixes.add("已到站[，,包到至\\s]*"); r.placePrefixes.add("已到达");
         r.placePrefixes.add("到达"); r.placePrefixes.add("已到"); r.placePrefixes.add("到");
-        r.placePrefixes.add("在");
+        r.placePrefixes.add("在"); r.placePrefixes.add("至");
 
         r.placeSuffixes.add("店"); r.placeSuffixes.add("站"); r.placeSuffixes.add("柜");
         r.placeSuffixes.add("点"); r.placeSuffixes.add("自提"); r.placeSuffixes.add("快递");
+        r.placeSuffixes.add("门面房"); r.placeSuffixes.add("小平房"); r.placeSuffixes.add("中心");
+        r.placeSuffixes.add("驿站"); r.placeSuffixes.add("服务"); r.placeSuffixes.add("广场");
 
         r.compile();
         return r;
@@ -141,11 +148,16 @@ public class ExtractorRules {
         patternDashShape = Pattern.compile(dash);
         patternAlnumShape = Pattern.compile("^" + alnum + "$");
 
-        // 地点提取正则
+        // 地点提取正则（v2 双策略）：
+        // 策略1（首选，来自用户洞察）："到/至……取" 动词夹取——地点天然被两个动词包住，
+        //   不依赖结尾词表，任意结尾（门面房/小平房/文化广场东侧…）都能吃进来；
+        // 策略2（回退）：旧"前缀+后缀词"匹配，策略1 未命中时兜底。
         String preOr = String.join("|", placePrefixes);
         String sufOr = String.join("|", placeSuffixes);
-        String pPlace = "(?:" + preOr + ")([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:" + sufOr + "))";
-        patternPlace = Pattern.compile(pPlace);
+        String pPlaceSqueeze = "(?:已到达|到达|已到|到|至)([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?)(?=取|领取|取件|取货|，|。|,|$)";
+        String pPlaceSuffix = "(?:" + preOr + ")([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:" + sufOr + "))";
+        patternPlace = Pattern.compile(pPlaceSqueeze);
+        patternPlaceFallback = Pattern.compile(pPlaceSuffix);
     }
 
     private static List<String> jsonArrayToList(JSONArray arr) {

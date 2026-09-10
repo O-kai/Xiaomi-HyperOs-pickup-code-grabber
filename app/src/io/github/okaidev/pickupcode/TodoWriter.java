@@ -200,9 +200,20 @@ public class TodoWriter {
         return t.length() > 40 ? t.substring(0, 40) : t;
     }
 
-    /** 来源识别（v2.7.0 起 public：SystemDirectWriter 兜底直写也用它组内容） */
+    /** 来源识别（v2.9.1 重构，来自用户洞察）：
+     *  策略1（首选）：取短信开头【】括号内的品牌名——真实来源就是它（欢猫驿站等
+     *               新品牌零规则自动支持，不再依赖关键字猜源）；
+     *  策略2（回退）：无括号时按正文关键字判定（原有逻辑保留）。 */
     public static String resolveSource(String sender, String body) {
         String t = (body == null ? "" : body);
+        // 策略1：【】括号品牌名（限 12 字以内防误吃正文括号）
+        int l = t.indexOf('【');
+        int r = t.indexOf('】');
+        if (l >= 0 && r > l && r - l - 1 <= 12) {
+            String brand = t.substring(l + 1, r).trim();
+            if (!brand.isEmpty()) return brand;
+        }
+        // 策略2：关键字回退
         if (t.contains("妈妈驿站")) return "妈妈驿站";
         if (t.contains("兔喜")) return "兔喜生活";
         if (t.contains("申通")) return "申通快递";

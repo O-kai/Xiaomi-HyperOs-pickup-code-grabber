@@ -77,13 +77,29 @@ public class RulesUpdater {
             if (fetchedJson != null) {
                 try {
                     ExtractorRules candidate = ExtractorRules.fromJson(fetchedJson);
-                    int curVer = PickupExtractor.getActiveRulesVersion();
-                    if (candidate.version > curVer) {
-                        // 候选版本更新，尝试应用并跑冒烟测试
-                        boolean ok = PickupExtractor.applyNewRules(ctx, fetchedJson);
-                        if (ok) {
-                            updated = true;
-                            Log.i(TAG, "RulesUpdater: successfully upgraded rules to v" + candidate.version);
+                    // v2.9.1 安全闸门（可用性/稳定性铁律）：
+                    // 1) 候选规则的 minAppVersionCode 大于当前 App 版本 → 该规则为新引擎设计，老 App 直接忽略（不应用、不覆盖本地）；
+                    // 2) 版本号不增 → 不动；
+                    // 3) applyNewRules 内部还有端侧冒烟门禁兜底（任何一条用例失败即弃用回退）。
+                    int appVer;
+                    try {
+                        appVer = ctx.getPackageManager()
+                                .getPackageInfo(ctx.getPackageName(), 0).versionCode;
+                    } catch (Throwable t) {
+                        appVer = Integer.MAX_VALUE; // 取不到版本号时保守放行（仅本机调试场景）
+                    }
+                    if (candidate.minAppVersionCode > appVer) {
+                        Log.w(TAG, "RulesUpdater: candidate v" + candidate.version
+                                + " requires app >= " + candidate.minAppVersionCode
+                                + ", current " + appVer + " — skip (incompatible)");
+                    } else {
+                        int curVer = PickupExtractor.getActiveRulesVersion();
+                        if (candidate.version > curVer) {
+                            boolean ok = PickupExtractor.applyNewRules(ctx, fetchedJson);
+                            if (ok) {
+                                updated = true;
+                                Log.i(TAG, "RulesUpdater: successfully upgraded rules to v" + candidate.version);
+                            }
                         }
                     }
                 } catch (Throwable t) {

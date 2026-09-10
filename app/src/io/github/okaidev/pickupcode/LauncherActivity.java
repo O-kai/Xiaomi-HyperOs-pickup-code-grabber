@@ -106,7 +106,7 @@ public class LauncherActivity extends Activity {
         root.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.9.0 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
+        sub.setText("v2.9.1 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         subTitleView = sub;

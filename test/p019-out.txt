@@ -1,0 +1,3 @@
+lookLike=true
+extract=[]
+dashPattern=[A-Za-z]?\d{1,6}(?:-[A-Za-z]?\d{1,6}){1,3}
