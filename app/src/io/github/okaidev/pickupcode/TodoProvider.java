@@ -43,7 +43,10 @@ public class TodoProvider extends ContentProvider {
                 Log.i(TAG, "PROVIDER-CALL: 空正文，跳过");
                 return null;
             }
-            if (!PickupExtractor.lookLikePickupSms(body)) {
+            // v2.8.0：预检放宽为「含快递特征词」——提取与漏抓错题本判定都在 handle 内完成
+            // （原 lookLikePickupSms 要求形状 token 存在，会把"有特征词但文案无数字码"的
+            //   真漏抓样本提前短路，导致错题本永远收不到这类记录）
+            if (!PickupExtractor.hasFeatureWords(body)) {
                 Log.i(TAG, "PROVIDER-CALL: 非取件短信，跳过");
                 return null;
             }
