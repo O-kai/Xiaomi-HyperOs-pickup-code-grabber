@@ -15,8 +15,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 待办写入器（P2）：在模块自身进程运行。
@@ -32,10 +30,6 @@ public class TodoWriter {
     private static final String SQLITE = "/data/local/tmp/pickup_sqlite/sqlite3";
     private static final String PREFS = "dedup";
     private static final int DEDUP_MAX = 500;
-
-    /** 地点提取：优先长引导词（已到站/已到达/到达/已到/到/在） + 路段 + 店/站/柜/点/自提/快递 */
-    private static final Pattern P_PLACE = Pattern.compile(
-            "(?:已到站[，,包到至\\s]*|已到达|到达|已到|到|在)([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:店|站|柜|点|自提|快递))");
 
     /** 最近一次 su/sqlite 执行记录（诊断报告用）：含失败原因与命令输出 */
     private static volatile String lastWriteDiag =
@@ -56,7 +50,15 @@ public class TodoWriter {
             return new ArrayList<>();
         }
         List<String> codes = PickupExtractor.extract(body);
-        if (codes.isEmpty()) return codes;
+        if (codes.isEmpty()) {
+            // v2.8.0 错题本捕获：含快递特征词但提取为空 → 记为疑似漏抓样本
+            // （判定用特征词门禁而非 lookLikePickupSms——后者额外要求形状 token 存在，
+            //   会漏掉"有特征词但文案里根本没有数字码"这类真漏抓）
+            if (PickupExtractor.hasFeatureWords(body)) {
+                MissedSmsStore.record(ctx, sender, body);
+            }
+            return codes;
+        }
 
         String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date());
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -185,11 +187,9 @@ public class TodoWriter {
         return s.replace("'", "''").replace("\0", "");
     }
 
-    /** 地点提取（v2.7.0 起 public：SystemDirectWriter 兜底直写也用它组内容） */
+    /** 地点提取（v2.8.0 起委托 PickupExtractor 动态规则引擎处理） */
     public static String extractPlace(String body) {
-        Matcher m = P_PLACE.matcher(body == null ? "" : body);
-        if (m.find()) return m.group(1);
-        return "—";
+        return PickupExtractor.extractPlace(body);
     }
 
     /** 笔记标题（ColorOS rich_notes 的 summary_title 展示用）：取内容首个「｜」前的短句 */

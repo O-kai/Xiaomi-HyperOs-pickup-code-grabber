@@ -23,9 +23,18 @@ public class SmsEventReceiver extends BroadcastReceiver {
         String sender = intent.getStringExtra("sender");
         String body = intent.getStringExtra("body");
         long ts = intent.getLongExtra("ts", System.currentTimeMillis());
+        boolean miss = intent.getBooleanExtra("miss", false);
         Log.i(TAG, "EVENT: sender=" + sender + " ts=" + ts + " body=" + (body == null ? "" : body.substring(0, Math.min(body.length(), 120))));
 
         if (body == null || body.trim().isEmpty()) return;
+
+        // v2.9.0：通知通道转发的「漏抓嫌疑」样本 → 直接记错题本（App 进程有 Context）
+        if (miss) {
+            MissedSmsStore.record(ctx, sender == null ? "" : sender, body);
+            Log.i(TAG, "EVENT: 通知漏抓样本已记录错题本");
+            return;
+        }
+
         if (!PickupExtractor.lookLikePickupSms(body)) {
             Log.i(TAG, "EVENT: 非取件短信，跳过");
             return;

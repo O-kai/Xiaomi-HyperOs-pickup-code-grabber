@@ -31,12 +31,17 @@ public class Updater {
             "https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases";
     private static final long INTERVAL_MS = 3L * 24 * 60 * 60 * 1000; // 3 天
 
-    /** 自动检查：距上次检查不足 3 天则静默跳过；force=true 立即检查并提示结果 */
+    /** 自动检查：距上次检查不足 3 天则静默跳过；force=true 立即检查并提示结果。
+     *  v2.8.0：非 force 的自动检查受「允许联网」总开关约束（用户可完全关闭 → 纯离线模式） */
     public static void maybeCheck(Activity act, boolean force) {
         final Context ctx = act.getApplicationContext();
-        long last = ctx.getSharedPreferences("dedup", Context.MODE_PRIVATE)
-                .getLong("update_last_check", 0L);
-        if (!force && System.currentTimeMillis() - last < INTERVAL_MS) return;
+        if (!force) {
+            // v2.8.0：自动检查需用户开启「允许联网」总开关
+            if (!NetPolicy.autoNetAllowed(ctx)) return;
+            long last = ctx.getSharedPreferences("dedup", Context.MODE_PRIVATE)
+                    .getLong("update_last_check", 0L);
+            if (System.currentTimeMillis() - last < INTERVAL_MS) return;
+        }
         ctx.getSharedPreferences("dedup", Context.MODE_PRIVATE).edit()
                 .putLong("update_last_check", System.currentTimeMillis()).apply();
         new Thread(() -> {

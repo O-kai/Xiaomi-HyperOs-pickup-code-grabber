@@ -36,6 +36,12 @@ public class XposedEntry implements IXposedHookLoadPackage {
                     || pkg.equals("android")          // 部分 ROM 将 systemserver 报告为 android
                     || pkg.equals("system")) {         // LSPosed 常见写法
                 hookTelephony(lpparam);
+                // v2.9.0：system_server 内挂通知管线钩子（双通道之「通知提取」）
+                // 仅真正运行在 system_server 进程时挂载（android 域可能含多个进程）
+                if ("android".equals(pkg) && lpparam.processName != null
+                        && "android".equals(lpparam.processName)) {
+                    NotiHook.install(lpparam.classLoader);
+                }
             } else if (pkg.equals("com.android.providers.telephony")) {
                 hookSmsProvider(lpparam);             // S8：短信库写入兜底（网络短信也走这里）
             } else if (unexpectedLogCount < 20) {

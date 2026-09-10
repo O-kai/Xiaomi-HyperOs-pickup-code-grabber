@@ -68,6 +68,8 @@ public class LauncherActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        PickupExtractor.init(this);
+        RulesUpdater.maybeCheck(this);
         if (android.os.Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -104,7 +106,7 @@ public class LauncherActivity extends Activity {
         root.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.7.1 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
+        sub.setText("v2.9.0 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         subTitleView = sub;
@@ -135,6 +137,42 @@ public class LauncherActivity extends Activity {
 
         root.addView(qqRow);
 
+        // ============ v2.8.0：允许联网开关（离线优先） ============
+        // 关闭后：软件自动更新检查 + 规则自动热更新全部停止（纯离线模式）；
+        // 核心功能（提取/写入/通知/体检）零影响——规则引擎本地三级回退常备。
+        LinearLayout netRow = new LinearLayout(this);
+        netRow.setOrientation(LinearLayout.HORIZONTAL);
+        netRow.setGravity(Gravity.CENTER_VERTICAL);
+        netRow.setPadding(0, dp(2), 0, dp(2));
+
+        TextView netLabel = new TextView(this);
+        netLabel.setText("🌐 允许联网（自动更新软件/规则）");
+        netLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        netLabel.setTextColor(Color.parseColor("#333333"));
+        netLabel.setPadding(0, 0, dp(8), 0);
+        netRow.addView(netLabel, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        final TextView netBtn = new TextView(this);
+        boolean netOn = NetPolicy.autoNetAllowed(this);
+        netBtn.setText(netOn ? "已开启 · 点我关闭" : "已关闭（纯离线） · 点我开启");
+        netBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        netBtn.setTextColor(Color.WHITE);
+        netBtn.setBackgroundColor(Color.parseColor(netOn ? "#0FA968" : "#9AA4B2"));
+        netBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
+        netBtn.setOnClickListener(v -> {
+            boolean next = !NetPolicy.autoNetAllowed(this);
+            NetPolicy.setAutoNetAllowed(this, next);
+            netBtn.setText(next ? "已开启 · 点我关闭" : "已关闭（纯离线） · 点我开启");
+            netBtn.setBackgroundColor(Color.parseColor(next ? "#0FA968" : "#9AA4B2"));
+            Toast.makeText(this, next
+                    ? "已开启自动联网（3 天一次静默检查软件与规则更新）"
+                    : "已进入纯离线模式 ✓\n所有自动联网已停止；核心功能不受影响，\n可在右上角「⋮」手动检查更新",
+                    Toast.LENGTH_LONG).show();
+        });
+        netRow.addView(netBtn);
+        root.addView(netRow);
+
         // ============ v2.7.0：写入目标选择器（多 ROM 支持） ============
         // 自动（按 ROM/已装 App 识别）→ 小米笔记待办 / ColorOS 日历待办 / ColorOS 便签置顶笔记
         LinearLayout backendRow = new LinearLayout(this);
@@ -161,6 +199,43 @@ public class LauncherActivity extends Activity {
         backendRow.addView(backendBtn);
 
         root.addView(backendRow);
+
+        // ============ v2.9.0：通知取件提取开关（双通道，默认关） ============
+        // 开启后 system_server 通知管线内拦截快递 App 通知并提取取件码
+        // （菜鸟/京东/淘宝/拼多多/菜鸟裹裹/顺丰白名单初筛），与短信通道指纹去重合并。
+        // 开关经标志文件同步给 system_server（同冻结免疫直写机制），切换后需重启手机生效。
+        LinearLayout notiRow = new LinearLayout(this);
+        notiRow.setOrientation(LinearLayout.HORIZONTAL);
+        notiRow.setGravity(Gravity.CENTER_VERTICAL);
+        notiRow.setPadding(0, dp(2), 0, dp(2));
+
+        TextView notiLabel = new TextView(this);
+        notiLabel.setText("🔔 通知取件提取（菜鸟/京东/淘宝等 App 通知）");
+        notiLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        notiLabel.setTextColor(Color.parseColor("#333333"));
+        notiLabel.setPadding(0, 0, dp(8), 0);
+        notiRow.addView(notiLabel, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        final TextView notiBtn = new TextView(this);
+        boolean notiOn = isNotiHookFlagOn();
+        notiBtn.setText(notiOn ? "已开启 · 点我关闭" : "默认关闭 · 点我开启");
+        notiBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        notiBtn.setTextColor(Color.WHITE);
+        notiBtn.setBackgroundColor(Color.parseColor(notiOn ? "#0FA968" : "#9AA4B2"));
+        notiBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
+        notiBtn.setOnClickListener(v -> {
+            boolean next = !isNotiHookFlagOn();
+            toggleNotiHookFlag(next);
+            notiBtn.setText(next ? "已开启 · 点我关闭" : "默认关闭 · 点我开启");
+            notiBtn.setBackgroundColor(Color.parseColor(next ? "#0FA968" : "#9AA4B2"));
+            Toast.makeText(this, next
+                    ? "通知取件提取已开启 ✓（重启手机后生效）\n将拦截菜鸟/京东/淘宝/拼多多等 App 的取件通知"
+                    : "通知取件提取已关闭（重启手机后系统侧同步生效）",
+                    Toast.LENGTH_LONG).show();
+        });
+        notiRow.addView(notiBtn);
+        root.addView(notiRow);
 
         statusCard = new TextView(this);
         statusCard.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
@@ -515,12 +590,14 @@ public class LauncherActivity extends Activity {
                 + "不带推荐角标——不是「系统框架」system！），再加 电话、短信、"
                 + "com.android.providers.telephony；小米设备另勾「小米笔记」\n"
                 + "2. 写入目标自动识别（小米笔记待办 / ColorOS 日历待办），也可点上方「切换」手动指定\n"
-                + "3. 收到取件短信后自动写入待办（一码一条，新码置顶）\n"
+                + "3. 收到取件短信后自动写入待办（一码一条，新码置顶）；开启「🔔 通知取件提取」后\n"
+                + "   菜鸟/京东/淘宝/拼多多等 App 的取件通知也能提取（双通道自动去重）\n"
                 + "4. 通知可点击：复制取件码；通知上「已取件」：一键勾选\n"
                 + "5. 需要 root（Magisk/KernelSU）授权一次；sqlite3 缺失时点「一键部署」\n"
                 + "6. 遇到问题：点上方「🔍 排查问题」逐步定位；向导里可顺路"
                 + "「导出诊断报告」发给作者\n"
-                + "7. 交流学习 / 反馈问题：QQ 群 901543676（进群备注「取件码助手」）");
+                + "7. 短信漏抓反馈：右上角「⋮」可打开「疑似漏抓错题本」一键脱敏复制上报\n"
+                + "8. 交流学习 / 反馈问题：QQ 群 901543676（进群备注「取件码助手」）");
         help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         help.setTextColor(Color.parseColor("#888888"));
         help.setLineSpacing(dp(3), 1.0f);
@@ -535,19 +612,67 @@ public class LauncherActivity extends Activity {
     private void showMainMenu(View anchor) {
         PopupMenu pm = new PopupMenu(this, anchor);
         pm.getMenu().add(0, 1, 0, "🏠 项目仓库（GitHub）");
-        pm.getMenu().add(0, 3, 1, "🔍 检查更新");
-        pm.getMenu().add(0, 2, 2, "💰 打赏作者");
+        pm.getMenu().add(0, 3, 1, "🔍 检查软件更新");
+        pm.getMenu().add(0, 4, 2, "⚡ 检查规则更新（热更新）");
+        pm.getMenu().add(0, 5, 3, "📋 疑似漏抓错题本");
+        pm.getMenu().add(0, 2, 4, "💰 打赏作者");
         pm.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
             if (id == 1) openUrl(REPO_URL);
             else if (id == 3) {
-                Toast.makeText(this, "正在检查更新…", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "正在检查软件更新…", Toast.LENGTH_SHORT).show();
                 Updater.maybeCheck(this, true);
+            }
+            else if (id == 4) {
+                Toast.makeText(this, "正在拉取最新规则集…", Toast.LENGTH_SHORT).show();
+                RulesUpdater.checkUpdate(this, true, () -> refreshHealth());
+            }
+            else if (id == 5) {
+                showMissedSmsDialog();
             }
             else if (id == 2) startActivity(new Intent(this, DonateActivity.class));
             return true;
         });
         pm.show();
+    }
+
+    /** v2.8.0：弹窗展示疑似漏抓错题本，支持一键脱敏复制上报 */
+    private void showMissedSmsDialog() {
+        List<MissedSmsStore.Sample> list = MissedSmsStore.getAll(this);
+        if (list.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("📋 疑似漏抓错题本")
+                    .setMessage("当前错题本为空 ✓\n\n当系统收到含有快递特征词但未能提取出取件码的短信时，会自动记录在此处，供您一键脱敏上报排查。")
+                    .setPositiveButton("知道了", null)
+                    .show();
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("本地共捕获 ").append(list.size()).append(" 条疑似漏抓短信：\n\n");
+        for (int i = 0; i < list.size(); i++) {
+            sb.append(i + 1).append(". ").append(MissedSmsStore.sanitize(list.get(i).body)).append("\n\n");
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("📋 疑似漏抓错题本 (" + list.size() + " 条)")
+                .setMessage(sb.toString().trim())
+                .setPositiveButton("📋 复制全部上报文本", (d, w) -> {
+                    String report = MissedSmsStore.formatReport(list);
+                    try {
+                        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                        cm.setPrimaryClip(ClipData.newPlainText("missed_sms_report", report));
+                        Toast.makeText(this, "已复制脱敏上报文本 ✓\n可直接粘贴至 QQ 群或 GitHub Issues", Toast.LENGTH_LONG).show();
+                    } catch (Throwable t) {
+                        Toast.makeText(this, "复制失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNeutralButton("🗑️ 清空", (d, w) -> {
+                    MissedSmsStore.clear(this);
+                    Toast.makeText(this, "错题本已清空", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("关闭", null)
+                .show();
     }
 
     // ==================== v2.7.0：写入目标（多 ROM 后端） ====================
@@ -635,6 +760,33 @@ public class LauncherActivity extends Activity {
                             Toast.LENGTH_SHORT).show();
                 }
             });
+        }).start();
+    }
+
+    /** v2.9.0：读通知钩子标志文件（system_server 侧唯一开关来源，默认关） */
+    private boolean isNotiHookFlagOn() {
+        try {
+            java.io.File f = new java.io.File(Repair.TARGET_DIR + "/enable_noti_hook");
+            if (!f.exists()) return false;
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
+            String line = r.readLine();
+            r.close();
+            return line != null && line.trim().equals("1");
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** v2.9.0：写通知钩子标志文件（su 同步给 system_server 侧） */
+    private void toggleNotiHookFlag(boolean on) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("noti_hook", on).apply();
+        new Thread(() -> {
+            String flag = Repair.TARGET_DIR + "/enable_noti_hook";
+            try {
+                Diagnostics.suExecPublic("mkdir -p " + Repair.TARGET_DIR + "; "
+                        + "echo " + (on ? "1" : "0") + " > " + flag + "; "
+                        + "chmod 644 " + flag, 15);
+            } catch (Throwable ignored) { }
         }).start();
     }
 
@@ -770,9 +922,10 @@ public class LauncherActivity extends Activity {
             runOnUiThread(() -> new AlertDialog.Builder(this)
                     .setTitle("✅ 排查完成")
                     .setMessage("一切 OK！六项检查全部通过。\n\n"
+                            + "当前规则集：v" + PickupExtractor.getActiveRulesVersion() + "\n\n"
                             + "如果还是收不到取件码：\n"
                             + "1. 点「🧪 一键测试」验证写入链路\n"
-                            + "2. 确认短信含取件码（黑名单可能误过滤）\n"
+                            + "2. 查看右上角「⋮ -> 疑似漏抓错题本」一键上报未识别短信\n"
                             + "3. 仍异常 → 导出诊断报告 + QQ 群 901543676（备注「取件码助手」）")
                     .setPositiveButton("知道了", null)
                     .setNeutralButton("📤 导出诊断报告", (d, w) -> exportDiag())
@@ -945,7 +1098,7 @@ public class LauncherActivity extends Activity {
                     statusCard.setText(t2);
                     statusCard.setMaxLines(Integer.MAX_VALUE);
                 } else {
-                    statusCard.setText("✅ 一切正常 · 六项体检全部通过（点开查看详情）");
+                    statusCard.setText("✅ 一切正常 · 六项体检全部通过（规则集: v" + PickupExtractor.getActiveRulesVersion() + " · 点开看详情）");
                     statusCard.setMaxLines(2);
                 }
                 deployBtn.setVisibility(show ? View.VISIBLE : View.GONE);
@@ -960,7 +1113,7 @@ public class LauncherActivity extends Activity {
             statusCard.setText(lastHealthText);
             statusCard.setMaxLines(Integer.MAX_VALUE);
         } else {
-            statusCard.setText("✅ 一切正常 · 六项体检全部通过（点开查看详情）");
+            statusCard.setText("✅ 一切正常 · 六项体检全部通过（规则集: v" + PickupExtractor.getActiveRulesVersion() + " · 点开看详情）");
             statusCard.setMaxLines(2);
         }
     }
