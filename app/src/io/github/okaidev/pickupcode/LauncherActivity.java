@@ -106,7 +106,7 @@ public class LauncherActivity extends Activity {
         root.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.9.1 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
+        sub.setText("v2.9.2 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         subTitleView = sub;
@@ -644,6 +644,7 @@ public class LauncherActivity extends Activity {
                     .setTitle("📋 疑似漏抓错题本")
                     .setMessage("当前错题本为空 ✓\n\n当系统收到含有快递特征词但未能提取出取件码的短信时，会自动记录在此处，供您一键脱敏上报排查。")
                     .setPositiveButton("知道了", null)
+                    .setNeutralButton("✍️ 手动上报", (d, w) -> openGithubIssueManual())
                     .show();
             return;
         }
@@ -662,17 +663,36 @@ public class LauncherActivity extends Activity {
                     try {
                         ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                         cm.setPrimaryClip(ClipData.newPlainText("missed_sms_report", report));
-                        Toast.makeText(this, "已复制脱敏上报文本 ✓\n可直接粘贴至 QQ 群或 GitHub Issues", Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, "已复制脱敏上报文本 ✓\n可直接粘贴至 QQ 群或点击手动上报反馈", Toast.LENGTH_LONG).show();
                     } catch (Throwable t) {
                         Toast.makeText(this, "复制失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 })
-                .setNeutralButton("🗑️ 清空", (d, w) -> {
-                    MissedSmsStore.clear(this);
-                    Toast.makeText(this, "错题本已清空", Toast.LENGTH_SHORT).show();
-                })
+                .setNeutralButton("✍️ 手动上报", (d, w) -> openGithubIssueManual())
                 .setNegativeButton("关闭", null)
                 .show();
+    }
+
+    /** v2.9.2：打开浏览器直接跳到 GitHub Issues 并预填上报模板 */
+    private void openGithubIssueManual() {
+        try {
+            String title = "【短信样本上报】未识别或误识别取件码";
+            String tpl = "### 1. 收到怎样的短信（请自行将姓名、手机号等隐私脱敏）\n"
+                    + "【示例驿站】您的包裹已到站，取件码为...\n\n"
+                    + "### 2. 实际得到了怎样的反馈？\n"
+                    + "- [ ] 毫无反应（未写入待办）\n"
+                    + "- [ ] 错误提取（如将小时、单号误认为取件码）\n"
+                    + "- [ ] 地点或来源识别错误\n\n"
+                    + "具体情况说明：\n\n"
+                    + "### 3. 运行环境\n"
+                    + "- 模块版本：v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName + "\n"
+                    + "- 规则版本：v" + PickupExtractor.getActiveRulesVersion() + "\n"
+                    + "- 当前系统：Android " + android.os.Build.VERSION.RELEASE + " (" + android.os.Build.MANUFACTURER + ")\n";
+            String url = ISSUES_URL + "/new?title=" + Uri.encode(title) + "&body=" + Uri.encode(tpl);
+            openUrl(url);
+        } catch (Throwable t) {
+            openUrl(ISSUES_URL);
+        }
     }
 
     // ==================== v2.7.0：写入目标（多 ROM 后端） ====================

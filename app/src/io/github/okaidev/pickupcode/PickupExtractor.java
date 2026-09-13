@@ -51,7 +51,8 @@ public class PickupExtractor {
             {"【妈妈驿站】取货码5-5-9-13，您有包裹YT764306505052已到苍山下坡圆通快递", "5-5-9-13"},
             {"【申通快递】请凭9-7-0993到苍山老菜场斜对面申通快递取您的快递，详询代收驿站", "9-7-0993"},
             {"【银行】您的验证码 858822，请勿泄露", "-"}, // 反例：验证码不可误提取
-            {"【某App】动态验证码 33-3-0444 请在5分钟内输入", "-"} // 反例
+            {"【某App】动态验证码 33-3-0444 请在5分钟内输入", "-"}, // 反例
+            {"【拼多多】您的商品在代收点已超6小时未取，为避免鲜活商品损坏，请尽快取件。", "-"} // 反例：催取通知不可误提取
     };
 
     /** 初始化规则引擎：优先读持久化目录最新规则，失败则回退 assets 或编译内默认 */
@@ -222,6 +223,11 @@ public class PickupExtractor {
 
         // C: 上下文评分兜底（仅当 A/B 都没抓到时启用）
         if (result.isEmpty() && r.patternAnyToken != null) {
+            // 负向排除闸门：若无明确的 A/B 取件码锚定，但命中负向特征（已超/超时/滞留/损坏等提醒类短信），直接阻断 C 层兜底
+            if (r.patternNegative != null && r.patternNegative.matcher(body).find()) {
+                return new ArrayList<>(result);
+            }
+
             List<String[]> scored = new ArrayList<>();
             Matcher c = r.patternAnyToken.matcher(body);
             while (c.find()) {
@@ -257,6 +263,21 @@ public class PickupExtractor {
         if (after < body.length() && body.charAt(after) == '号') return true;
         if (start > 0 && body.charAt(start - 1) == '*') return true;
         if (after + 1 < body.length() && body.charAt(after) == ':') return true;
+
+        // 排除时长与时间单位：如 "6小时"、"12分钟"、"3天" 等
+        if (after < body.length()) {
+            String tail = body.substring(after, Math.min(body.length(), after + 4));
+            if (tail.startsWith("小时") || tail.startsWith("分钟") || tail.startsWith("天") || tail.startsWith("点")) {
+                return true;
+            }
+        }
+        if (start > 0) {
+            String head = body.substring(Math.max(0, start - 2), start);
+            if (head.endsWith("超") || head.endsWith("满") || head.endsWith("过")) {
+                return true;
+            }
+        }
+
         if (P_PHONE.matcher(tok).matches() && tok.length() == 11) return true;
         // v2：「尾号」上下文排除（"取尾号9100包裹"——尾号不是取件码）
         String win = window(body, start, start + tok.length(), 8);

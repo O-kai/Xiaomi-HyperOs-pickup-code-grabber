@@ -24,6 +24,7 @@ PASS 023  [D2-7762]
 PASS 024  [4-2-02015]
 PASS 025  [109-6-4006]
 PASS 026  [267961]
+PASS 027  []
 
 == PLACE ==
 PASS place [XX小区快递驿站]
@@ -40,5 +41,5 @@ PASS place [森泰首府快递驿站]
 PASS place [理工东苑大门左转快递服务中心二楼]
 PASS place [化工镇云水村委文化广场东侧小平房]
 
-TOTAL CODES: 26 PASS=26 FAIL=0
+TOTAL CODES: 27 PASS=27 FAIL=0
 TOTAL PLACE: 13 PASS=13 FAIL=0

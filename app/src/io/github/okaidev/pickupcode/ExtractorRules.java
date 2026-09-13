@@ -27,6 +27,8 @@ public class ExtractorRules {
     public String alnumPatternStr = "[A-Za-z]?\\d{3,9}";
     public List<String> placePrefixes = new ArrayList<>();
     public List<String> placeSuffixes = new ArrayList<>();
+    // 负向关键词列表：命中则整体直接放弃提取，防止催取/滞留/超时/损坏等非取件通知误抓
+    public List<String> negativeKeywords = new ArrayList<>();
 
     // 编译后的 Pattern 缓存
     public transient Pattern patternKeyword;
@@ -39,12 +41,14 @@ public class ExtractorRules {
     public transient Pattern patternPlace;
     /** v2：地点回退策略（前缀+后缀词表匹配） */
     public transient Pattern patternPlaceFallback;
+    /** v3：负向排除正则（若短信无明确取件码/凭码，但命中负向特征则整体阻断） */
+    public transient Pattern patternNegative;
 
     public static ExtractorRules createDefault() {
         ExtractorRules r = new ExtractorRules();
-        r.version = 2;
-        r.minAppVersionCode = 280;
-        r.description = "内置默认提取规则集 v2（字母前缀码形 + 门面房/中心等地点后缀 + 尾号排除）";
+        r.version = 3;
+        r.minAppVersionCode = 290;
+        r.description = "内置默认提取规则集 v3（正反向规则体系 + 码形增强 + 地点双策略）";
 
         r.featureWords.add("驿站"); r.featureWords.add("快递柜"); r.featureWords.add("丰巢");
         r.featureWords.add("菜鸟"); r.featureWords.add("包裹"); r.featureWords.add("取件");
@@ -74,6 +78,15 @@ public class ExtractorRules {
         r.placeSuffixes.add("门面房"); r.placeSuffixes.add("小平房"); r.placeSuffixes.add("中心");
         r.placeSuffixes.add("驿站"); r.placeSuffixes.add("服务"); r.placeSuffixes.add("广场");
 
+        // 默认负向过滤词
+        r.negativeKeywords.add("已超");
+        r.negativeKeywords.add("超时");
+        r.negativeKeywords.add("滞留");
+        r.negativeKeywords.add("损坏");
+        r.negativeKeywords.add("催取");
+        r.negativeKeywords.add("延期");
+        r.negativeKeywords.add("保管费");
+
         r.compile();
         return r;
     }
@@ -95,6 +108,7 @@ public class ExtractorRules {
 
         r.placePrefixes = jsonArrayToList(obj.optJSONArray("placePrefixes"));
         r.placeSuffixes = jsonArrayToList(obj.optJSONArray("placeSuffixes"));
+        r.negativeKeywords = jsonArrayToList(obj.optJSONArray("negativeKeywords"));
 
         r.compile();
         return r;
@@ -117,6 +131,7 @@ public class ExtractorRules {
 
             obj.put("placePrefixes", listToJsonArray(placePrefixes));
             obj.put("placeSuffixes", listToJsonArray(placeSuffixes));
+            obj.put("negativeKeywords", listToJsonArray(negativeKeywords));
 
             return obj.toString(2);
         } catch (Throwable t) {
@@ -158,6 +173,12 @@ public class ExtractorRules {
         String pPlaceSuffix = "(?:" + preOr + ")([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:" + sufOr + "))";
         patternPlace = Pattern.compile(pPlaceSqueeze);
         patternPlaceFallback = Pattern.compile(pPlaceSuffix);
+
+        if (negativeKeywords != null && !negativeKeywords.isEmpty()) {
+            patternNegative = Pattern.compile(String.join("|", negativeKeywords));
+        } else {
+            patternNegative = null;
+        }
     }
 
     private static List<String> jsonArrayToList(JSONArray arr) {
