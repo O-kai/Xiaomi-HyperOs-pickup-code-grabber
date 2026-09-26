@@ -37,6 +37,15 @@ public class TodoWriter {
 
     public static String getLastWriteDiag() { return lastWriteDiag; }
 
+    /**
+     * v3.0.0：最近一次处理中被去重拦截的指纹（多条以 ; 分隔）
+     * 用途：区分「写入失败」与「命中去重（本就写过了）」——
+     * 两者返回给调用方的 wrote 列表都是空的，若不区分会被误报成失败。
+     */
+    private static volatile String lastDedupHits = "";
+
+    public static String getLastDedupHits() { return lastDedupHits; }
+
     /** 模板模式：0=极简（仅取件码） 1=完整（默认） 2=自定义模板 */
     public static final int MODE_MIN = 0;
     public static final int MODE_FULL = 1;
@@ -44,17 +53,19 @@ public class TodoWriter {
 
     /** 入口：模块进程收到短信事件后处理一条短信 */
     public static List<String> handle(Context ctx, String sender, String body) {
+        // v3.0.0：记录发送方，供用户规则的 senderContains 过滤使用
+        // v3.0.0：发送方以显式参数一路传递到提取引擎（避免并发串号）
         // 黑名单预检（12306/银行/广告等）
         if (isBlacklisted(ctx, body)) {
             Log.i(TAG, "blacklist skip: " + body.substring(0, Math.min(body.length(), 60)));
             return new ArrayList<>();
         }
-        List<String> codes = PickupExtractor.extract(body);
+        List<String> codes = PickupExtractor.extract(sender, body);
         if (codes.isEmpty()) {
             // v2.8.0 错题本捕获：含快递特征词但提取为空 → 记为疑似漏抓样本
             // （判定用特征词门禁而非 lookLikePickupSms——后者额外要求形状 token 存在，
             //   会漏掉"有特征词但文案里根本没有数字码"这类真漏抓）
-            if (PickupExtractor.hasFeatureWords(body)) {
+            if (PickupExtractor.hasFeatureWords(sender, body)) {
                 MissedSmsStore.record(ctx, sender, body);
             }
             return codes;
@@ -67,12 +78,15 @@ public class TodoWriter {
         String customTpl = prefs.getString("todo_custom", "📦 取件码 {code}｜{source}｜{place}｜{time}");
 
         List<String> wrote = new ArrayList<>();
-        String place = extractPlace(body);
+        String place = extractPlace(sender, body);
         String source = resolveSource(sender, body);
+        StringBuilder dedupBuf = new StringBuilder();
         for (String code : codes) {
             String fingerprint = code + "|" + place;
             if (seen.contains(fingerprint)) {
                 Log.i(TAG, "dedup skip: " + fingerprint);
+                if (dedupBuf.length() > 0) dedupBuf.append("; ");
+                dedupBuf.append(fingerprint);
                 continue;
             }
             seen.add(fingerprint);
@@ -85,6 +99,8 @@ public class TodoWriter {
                 Log.e(TAG, "TODO FAIL: " + content);
             }
         }
+
+        lastDedupHits = dedupBuf.toString();
 
         // 持久化去重集合（限制容量）
         while (seen.size() > DEDUP_MAX) {
@@ -187,9 +203,14 @@ public class TodoWriter {
         return s.replace("'", "''").replace("\0", "");
     }
 
-    /** 地点提取（v2.8.0 起委托 PickupExtractor 动态规则引擎处理） */
+    /** 地点提取（委托 PickupExtractor 动态规则引擎处理） */
     public static String extractPlace(String body) {
-        return PickupExtractor.extractPlace(body);
+        return PickupExtractor.extractPlace(null, body);
+    }
+
+    /** 【推荐】地点提取，显式携带发送方（用户规则指定地点时需同一套号码匹配） */
+    public static String extractPlace(String sender, String body) {
+        return PickupExtractor.extractPlace(sender, body);
     }
 
     /** 笔记标题（ColorOS rich_notes 的 summary_title 展示用）：取内容首个「｜」前的短句 */
@@ -200,19 +221,31 @@ public class TodoWriter {
         return t.length() > 40 ? t.substring(0, 40) : t;
     }
 
-    /** 来源识别（v2.9.1 重构，来自用户洞察）：
-     *  策略1（首选）：取短信开头【】括号内的品牌名——真实来源就是它（欢猫驿站等
-     *               新品牌零规则自动支持，不再依赖关键字猜源）；
-     *  策略2（回退）：无括号时按正文关键字判定（原有逻辑保留）。 */
+    /** 取短信中的括号品牌名（限 12 字以内防误吃正文括号）；无则 null */
+    private static String bracketBrand(String text, char open, char close) {
+        int l = text.indexOf(open);
+        if (l < 0) return null;
+        int r = text.indexOf(close, l + 1);
+        if (r <= l) return null;
+        String inner = text.substring(l + 1, r).trim();
+        if (inner.isEmpty() || inner.length() > 12) return null;
+        // 排除明显不是品牌名的内容（含数字/网址/标点的多半是正文）
+        if (inner.contains("http") || inner.contains("www.")) return null;
+        return inner;
+    }
+
+    /** 来源识别（v2.9.1 重构 / v4 增强，来自用户洞察）：
+     *  策略1（首选）：取短信开头的括号品牌名——真实来源就是它
+     *               （同时支持全角【】与半角[]，欢猫驿站/兔喜生活等新品牌零规则自动支持）
+     *  策略2（回退）：无括号时按正文关键字判定 */
     public static String resolveSource(String sender, String body) {
         String t = (body == null ? "" : body);
-        // 策略1：【】括号品牌名（限 12 字以内防误吃正文括号）
-        int l = t.indexOf('【');
-        int r = t.indexOf('】');
-        if (l >= 0 && r > l && r - l - 1 <= 12) {
-            String brand = t.substring(l + 1, r).trim();
-            if (!brand.isEmpty()) return brand;
-        }
+        // 策略1a：全角【】品牌名（限 12 字以内防误吃正文括号）
+        String brand = bracketBrand(t, '【', '】');
+        if (brand != null) return brand;
+        // 策略1b：半角 [] 品牌名（部分驿站短信用 [兔喜生活] 形式）
+        brand = bracketBrand(t, '[', ']');
+        if (brand != null) return brand;
         // 策略2：关键字回退
         if (t.contains("妈妈驿站")) return "妈妈驿站";
         if (t.contains("兔喜")) return "兔喜生活";
@@ -226,6 +259,14 @@ public class TodoWriter {
         if (t.contains("邮政") || t.contains("EMS")) return "中国邮政";
         if (t.contains("丰巢") || t.contains("柜")) return "丰巢快递柜";
         if (t.contains("菜鸟") || t.contains("驿站")) return "菜鸟驿站";
+        // v2.9.5：通知通道传回的 sender 形如「通知:com.cainiao.wireless」，
+        // 直接展示很丑——清洗成可读来源，仍无法识别时统一显示「—」
+        if (sender != null && sender.startsWith("通知:")) {
+            String pkg = sender.substring(3);
+            int dot = pkg.lastIndexOf('.');
+            String guess = dot >= 0 ? pkg.substring(dot + 1) : pkg;
+            return guess.isEmpty() ? "—" : guess;
+        }
         return sender == null || sender.isEmpty() ? "—" : sender;
     }
 

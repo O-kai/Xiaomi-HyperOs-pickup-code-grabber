@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.okaidev.pickupcode"
-    android:versionCode="292"
-    android:versionName="2.9.2">
+    android:versionCode="300"
+    android:versionName="3.0.0">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
 
@@ -51,9 +51,11 @@
             </intent-filter>
         </receiver>
 
+        <!-- v3.0.0：全部页面使用无系统标题栏主题，避免与页面自绘头部重复 -->
         <activity
             android:name=".LauncherActivity"
-            android:exported="true">
+            android:exported="true"
+            android:theme="@style/AppTheme.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -63,6 +65,21 @@
         <!-- 打赏页（v2.5.0）：右上角菜单进入，不对外暴露 -->
         <activity
             android:name=".DonateActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBar" />
+
+        <!-- 用户自定义规则（v3.0.0 高级功能）：仅主界面卡片进入，不对外暴露 -->
+        <activity
+            android:name=".UserRulesActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:label="用户自定义规则" />
+
+        <!-- 一键链路测试（v3.0.0）：主界面按钮进入，验证「识别→写入」全链路 -->
+        <activity
+            android:name=".ChainTestActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:label="一键链路测试" />
     </application>
 </manifest>

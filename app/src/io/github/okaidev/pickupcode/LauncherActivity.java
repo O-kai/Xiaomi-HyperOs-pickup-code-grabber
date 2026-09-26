@@ -21,6 +21,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
@@ -42,9 +43,13 @@ public class LauncherActivity extends Activity {
     private static final String REPO_URL = "https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber";
     private static final String ISSUES_URL = REPO_URL + "/issues";
     private static final String COOLAPK_URL = "https://www.coolapk.com/feed/73558591";
+    /** 黑名单默认关键词（恢复默认时回填用） */
+    private static final String BLACKLIST_DEFAULT = "12306,验证码,余额,充值,账单,银行,优惠券,退订";
     private int currentMode = TodoWriter.MODE_FULL;
     private TextView statusCard;
     private TextView deployBtn;
+    /** v3.0.0：排查入口，仅在体检未全通过时显示（一切正常时不显示，避免多余噪音） */
+    private TextView troubleshootBtn;
     /** v2.5.3：体检卡折叠态（全绿自动收起；null=体检未完成不折叠） */
     private Boolean healthExpanded = null;
     /** 最近一次完整体检文本（展开时还原用） */
@@ -78,10 +83,25 @@ public class LauncherActivity extends Activity {
 
         currentMode = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("todo_mode", TodoWriter.MODE_FULL);
 
+        // v3.0.0：固定头部（不随内容滚动）+ 可滚动内容区
+        // 头部常驻可见：滑动时仍能看到 App 名、版本号、LSPosed 说明与「⋮」菜单
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(Color.WHITE);
+
+        final LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
+        header.setBackgroundColor(Color.WHITE);
+        header.setPadding(dp(18), dp(16), dp(18), dp(8));
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), dp(28), dp(24), dp(24));
+        root.setPadding(dp(18), 0, dp(18), dp(14));
         root.setBackgroundColor(Color.WHITE);
+        // 容器分组（v3.0.0 视觉改版）：控件仍在原处创建，仅改变装配顺序与容器
+        final LinearLayout secStatus = card();      // 体检状态（置顶）
+        final LinearLayout secBasic = card();       // 基础设置
+        secBasic.setPadding(dp(14), dp(3), dp(14), dp(3));
 
         TextView title = new TextView(this);
         title.setText("📦 取件码助手");
@@ -89,34 +109,68 @@ public class LauncherActivity extends Activity {
         title.setTextColor(Color.parseColor("#1A1A1A"));
         title.setTypeface(null, Typeface.BOLD);
 
-        // 右上角「⋮」菜单（v2.5.0）：项目仓库 / 打赏作者
+        // 右上角「⋮」菜单（v2.5.0）：项目仓库 / 检查更新 / 规则更新 / 错题本 / 打赏
         TextView menuBtn = new TextView(this);
         menuBtn.setText("⋮");
-        menuBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
-        menuBtn.setTextColor(Color.parseColor("#444444"));
-        menuBtn.setPadding(dp(10), 0, dp(10), 0);
+        menuBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+        menuBtn.setTextColor(Color.parseColor("#666666"));
+        menuBtn.setPadding(dp(10), 0, 0, 0);
         menuBtn.setOnClickListener(v -> showMainMenu(v));
+
+        // v3.0.0：logo + 名称放大，作为首屏视觉主体
+        // 单行不折行：setSingleLine(true) 强制「📦 取件码助手」保持在同一行
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 25);
+        title.setTextColor(Color.parseColor("#111111"));
+        title.setSingleLine(true);
+        title.setMaxLines(1);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+
+        // 顶部单行三段式：左=logo+名称  中=design 署名  右=⋮ 菜单
+        // 署名保持可点击跳 GitHub，字号与颜色刻意弱化，不与标题争夺视觉重心
+        TextView by = new TextView(this);
+        by.setText("design by ");
+        by.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        by.setTextColor(Color.parseColor("#C4C4C4"));
+        TextView byName = new TextView(this);
+        byName.setText("欧锴（O-kai）");
+        byName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        byName.setTextColor(Color.parseColor("#A8C0E8"));
+        byName.setSingleLine(true);
+        byName.setOnClickListener(v -> openUrl(REPO_URL));
+        LinearLayout byRow = new LinearLayout(this);
+        byRow.setOrientation(LinearLayout.HORIZONTAL);
+        byRow.setGravity(Gravity.BOTTOM | Gravity.END);
+        byRow.setPadding(0, 0, 0, dp(3));
+        byRow.addView(by);
+        byRow.addView(byName);
 
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setOrientation(LinearLayout.HORIZONTAL);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        titleRow.addView(title, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        // 标题 WRAP_CONTENT：按内容宽度自适应，不与署名平分空间 → 保证不折行
+        titleRow.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        // 署名占剩余空间并右对齐
+        titleRow.addView(byRow, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.MATCH_PARENT, 1.0f));
         titleRow.addView(menuBtn);
-        root.addView(titleRow);
+        header.addView(titleRow);
 
         TextView sub = new TextView(this);
-        sub.setText("v2.9.2 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
+        // 版本号直接读包信息（PackageManager），不再在两处各写一份字符串——
+        // 过去就是因为 build.gradle 升了、这里忘了改，导致界面显示旧版本号。
+        sub.setText(appVersionLabel() + " · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(Color.parseColor("#888888"));
         subTitleView = sub;
-        root.addView(sub);
+        header.addView(sub);
 
-        // v2.5.3：开发者 QQ 群——版本号正下方；群号明文展示 + 右侧一键复制按钮
+        // v3.0.0：v2.5.3：开发者 QQ 群——群号明文展示 + 右侧一键复制按钮
+        // 按用户要求上移到标题区（长期可见，便于更多人了解与联系）
         LinearLayout qqRow = new LinearLayout(this);
         qqRow.setOrientation(LinearLayout.HORIZONTAL);
         qqRow.setGravity(Gravity.CENTER_VERTICAL);
-        qqRow.setPadding(0, dp(2), 0, dp(6));
+        qqRow.setPadding(0, dp(2), 0, dp(2));
 
         TextView qqLabel = new TextView(this);
         qqLabel.setText("💬 开发者 QQ 群：901543676（进群备注「取件码助手」）");
@@ -125,7 +179,6 @@ public class LauncherActivity extends Activity {
         qqLabel.setPadding(0, 0, dp(8), 0);
         qqRow.addView(qqLabel, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
-
         TextView qqCopy = new TextView(this);
         qqCopy.setText("📋 复制群号");
         qqCopy.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
@@ -135,6 +188,7 @@ public class LauncherActivity extends Activity {
         qqCopy.setOnClickListener(v -> copyQqGroup());
         qqRow.addView(qqCopy);
 
+        // v3.0.0：QQ群上移至标题区（长期可见）——放在署名下方、设置卡之上
         root.addView(qqRow);
 
         // ============ v2.8.0：允许联网开关（离线优先） ============
@@ -146,8 +200,8 @@ public class LauncherActivity extends Activity {
         netRow.setPadding(0, dp(2), 0, dp(2));
 
         TextView netLabel = new TextView(this);
-        netLabel.setText("🌐 允许联网（自动更新软件/规则）");
-        netLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        netLabel.setText("🌐 允许联网（自动更新）");
+        netLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         netLabel.setTextColor(Color.parseColor("#333333"));
         netLabel.setPadding(0, 0, dp(8), 0);
         netRow.addView(netLabel, new LinearLayout.LayoutParams(0,
@@ -155,7 +209,7 @@ public class LauncherActivity extends Activity {
 
         final TextView netBtn = new TextView(this);
         boolean netOn = NetPolicy.autoNetAllowed(this);
-        netBtn.setText(netOn ? "已开启 · 点我关闭" : "已关闭（纯离线） · 点我开启");
+        netBtn.setText(netOn ? "已开启" : "已关闭");
         netBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         netBtn.setTextColor(Color.WHITE);
         netBtn.setBackgroundColor(Color.parseColor(netOn ? "#0FA968" : "#9AA4B2"));
@@ -163,7 +217,7 @@ public class LauncherActivity extends Activity {
         netBtn.setOnClickListener(v -> {
             boolean next = !NetPolicy.autoNetAllowed(this);
             NetPolicy.setAutoNetAllowed(this, next);
-            netBtn.setText(next ? "已开启 · 点我关闭" : "已关闭（纯离线） · 点我开启");
+            netBtn.setText(next ? "已开启" : "已关闭");
             netBtn.setBackgroundColor(Color.parseColor(next ? "#0FA968" : "#9AA4B2"));
             Toast.makeText(this, next
                     ? "已开启自动联网（3 天一次静默检查软件与规则更新）"
@@ -171,18 +225,18 @@ public class LauncherActivity extends Activity {
                     Toast.LENGTH_LONG).show();
         });
         netRow.addView(netBtn);
-        root.addView(netRow);
+        // v3.0.0：写入目标最重要，排第一；联网/通知提取次之
 
         // ============ v2.7.0：写入目标选择器（多 ROM 支持） ============
         // 自动（按 ROM/已装 App 识别）→ 小米笔记待办 / ColorOS 日历待办 / ColorOS 便签置顶笔记
         LinearLayout backendRow = new LinearLayout(this);
         backendRow.setOrientation(LinearLayout.HORIZONTAL);
         backendRow.setGravity(Gravity.CENTER_VERTICAL);
-        backendRow.setPadding(0, dp(6), 0, dp(2));
+        backendRow.setPadding(0, dp(2), 0, dp(2));
 
         TextView backendLabel = new TextView(this);
         backendLabel.setText("🎯 写入目标：" + backendLabel());
-        backendLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        backendLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         backendLabel.setTextColor(Color.parseColor("#1E6FE8"));
         backendLabel.setPadding(0, 0, dp(8), 0);
         backendLabelView = backendLabel;
@@ -197,9 +251,8 @@ public class LauncherActivity extends Activity {
         backendBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
         backendBtn.setOnClickListener(v -> showBackendPicker(backendLabel));
         backendRow.addView(backendBtn);
-
-        root.addView(backendRow);
-
+        // 注意：backendRow 的 addView 在下方「标题 + netRow/notiRow」之后统一进行，
+        // 以保证卡片内渲染顺序为：标题 → 写入目标 → 允许联网 → 通知取件
         // ============ v2.9.0：通知取件提取开关（双通道，默认关） ============
         // 开启后 system_server 通知管线内拦截快递 App 通知并提取取件码
         // （菜鸟/京东/淘宝/拼多多/菜鸟裹裹/顺丰白名单初筛），与短信通道指纹去重合并。
@@ -210,8 +263,8 @@ public class LauncherActivity extends Activity {
         notiRow.setPadding(0, dp(2), 0, dp(2));
 
         TextView notiLabel = new TextView(this);
-        notiLabel.setText("🔔 通知取件提取（菜鸟/京东/淘宝等 App 通知）");
-        notiLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        notiLabel.setText("🔔 通知取件提取（多平台）");
+        notiLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         notiLabel.setTextColor(Color.parseColor("#333333"));
         notiLabel.setPadding(0, 0, dp(8), 0);
         notiRow.addView(notiLabel, new LinearLayout.LayoutParams(0,
@@ -219,7 +272,7 @@ public class LauncherActivity extends Activity {
 
         final TextView notiBtn = new TextView(this);
         boolean notiOn = isNotiHookFlagOn();
-        notiBtn.setText(notiOn ? "已开启 · 点我关闭" : "默认关闭 · 点我开启");
+        notiBtn.setText(notiOn ? "已开启" : "已关闭");
         notiBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         notiBtn.setTextColor(Color.WHITE);
         notiBtn.setBackgroundColor(Color.parseColor(notiOn ? "#0FA968" : "#9AA4B2"));
@@ -227,7 +280,7 @@ public class LauncherActivity extends Activity {
         notiBtn.setOnClickListener(v -> {
             boolean next = !isNotiHookFlagOn();
             toggleNotiHookFlag(next);
-            notiBtn.setText(next ? "已开启 · 点我关闭" : "默认关闭 · 点我开启");
+            notiBtn.setText(next ? "已开启" : "已关闭");
             notiBtn.setBackgroundColor(Color.parseColor(next ? "#0FA968" : "#9AA4B2"));
             Toast.makeText(this, next
                     ? "通知取件提取已开启 ✓（重启手机后生效）\n将拦截菜鸟/京东/淘宝/拼多多等 App 的取件通知"
@@ -235,43 +288,48 @@ public class LauncherActivity extends Activity {
                     Toast.LENGTH_LONG).show();
         });
         notiRow.addView(notiBtn);
-        root.addView(notiRow);
+        // 渲染顺序：标题必须在所有设置行之前（容器按 addView 顺序渲染）
+        secBasic.addView(cardTitle("⚙️ 基础设置"));
+        secBasic.addView(backendRow);
+        secBasic.addView(netRow);
+        secBasic.addView(notiRow);
+
 
         statusCard = new TextView(this);
-        statusCard.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        statusCard.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         statusCard.setTextColor(Color.parseColor("#333333"));
-        statusCard.setPadding(dp(14), dp(10), dp(14), dp(10));
-        statusCard.setBackgroundColor(Color.parseColor("#F5F6FA"));
+        statusCard.setPadding(dp(14), dp(3), dp(14), dp(3));
+        statusCard.setBackground(roundRect("#F7F8FA"));
         statusCard.setText("⏳ 正在体检（root 检测约需 2-5 秒）…");
         // v2.5.3：体检卡可折叠——全绿时自动收起为一行，点按切换；有 ❌ 自动展开
         statusCard.setOnClickListener(v -> {
             healthExpanded = !healthExpanded;
             applyHealthCollapse();
         });
-        root.addView(statusCard);
+        secStatus.addView(statusCard);
 
         // 排查问题（v2.5.0）：按「未注入 → root 未授权 → 作用域 → 组件」分层定位并给出动作
-        TextView troubleshootBtn = new TextView(this);
+        troubleshootBtn = new TextView(this);
         troubleshootBtn.setText("🔍 排查问题（点不了 / 收不到？点这里）");
         troubleshootBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         troubleshootBtn.setTextColor(Color.WHITE);
-        troubleshootBtn.setBackgroundColor(Color.parseColor("#F0A020"));
-        troubleshootBtn.setPadding(dp(16), dp(10), dp(16), dp(10));
+        troubleshootBtn.setBackground(roundRect("#F0A020"));
+        troubleshootBtn.setPadding(dp(16), dp(11), dp(16), dp(11));
         troubleshootBtn.setGravity(Gravity.CENTER);
         troubleshootBtn.setOnClickListener(v -> runTroubleshoot());
         LinearLayout.LayoutParams tsLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        tsLp.setMargins(dp(0), dp(8), dp(0), dp(0));
+        tsLp.setMargins(dp(0), dp(10), 0, dp(0));
         troubleshootBtn.setLayoutParams(tsLp);
-        root.addView(troubleshootBtn);
+        secStatus.addView(troubleshootBtn);
 
         // 一键部署 sqlite3（v2.2.0）：仅当体检发现 sqlite3 缺失且 root 可用时出现
         deployBtn = new TextView(this);
         deployBtn.setText("🚀 一键部署 sqlite3（自动完成，无需 adb/Termux）");
         deployBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         deployBtn.setTextColor(Color.WHITE);
-        deployBtn.setBackgroundColor(Color.parseColor("#0FA968"));
-        deployBtn.setPadding(dp(16), dp(10), dp(16), dp(10));
+        deployBtn.setBackground(roundRect("#0FA968"));
+        deployBtn.setPadding(dp(16), dp(11), dp(16), dp(11));
         deployBtn.setGravity(Gravity.CENTER);
         deployBtn.setVisibility(View.GONE);
         deployBtn.setOnClickListener(v -> {
@@ -296,30 +354,33 @@ public class LauncherActivity extends Activity {
         });
         LinearLayout.LayoutParams depLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        depLp.setMargins(dp(0), dp(8), dp(0), dp(0));
+        depLp.setMargins(dp(0), dp(8), 0, dp(0));
         deployBtn.setLayoutParams(depLp);
-        root.addView(deployBtn);
+        secStatus.addView(deployBtn);
 
         // v2.5.3：独立的「导出诊断报告」按钮已移除——统一收进「🔍 排查问题」向导
         //（每层结果弹窗都带「📤 导出诊断报告」按钮，避免主界面按钮堆叠）
 
+        // v3.0.0 视觉改版：体检状态置顶（用户最关心的信息第一眼可见）
+        root.addView(secStatus);
+
+        // 基础设置卡（写入目标 / 联网 / 通知提取）
+        root.addView(secBasic);
+
         refreshHealth();
 
-        root.addView(spacer(18));
 
+        // v3.0.0 tpl card wrap
+        final LinearLayout tplBox = card();
+        tplBox.setPadding(dp(14), dp(3), dp(14), dp(3));
         // ============ 模板模式 ============
-        TextView sec = new TextView(this);
-        sec.setText("📝 待办模板");
-        sec.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        sec.setTextColor(Color.parseColor("#1A1A1A"));
-        sec.setTypeface(null, Typeface.BOLD);
-        root.addView(sec);
+        tplBox.addView(cardTitle("📝 待办模板"));
 
         TextView desc = new TextView(this);
         desc.setText("极简：只写取件码｜完整：码+来源+地点+时间｜自定义：模板占位符 {code} {source} {place} {time}");
         desc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         desc.setTextColor(Color.parseColor("#999999"));
-        root.addView(desc);
+        tplBox.addView(desc);
 
         LinearLayout modeRow = new LinearLayout(this);
         modeRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -340,7 +401,7 @@ public class LauncherActivity extends Activity {
                         ? Color.parseColor("#1E6FE8") : Color.parseColor("#EDF1F7"));
             }
         };
-        root.addView(modeRow);
+        tplBox.addView(modeRow);
 
         // ============ 模板效果预览 + 自定义编辑（v2.5.3 交互重构） ============
         // 极简/完整：只读效果预览；自定义：预览 + ✏️编辑 → 输入框 + 💾保存/↩️恢复默认/取消
@@ -352,7 +413,7 @@ public class LauncherActivity extends Activity {
         tplPreview.setPadding(dp(12), dp(8), dp(12), dp(8));
         tplPreview.setBackgroundColor(Color.parseColor("#F0F3F8"));
         tplPreviewCard = tplPreview; // 成员引用：切模式时恢复预览可见性
-        root.addView(tplPreview);
+        tplBox.addView(tplPreview);
 
         // 「✏️ 编辑模板」按钮：仅自定义模式可见
         TextView tplEditBtn = smallButton("✏️ 编辑模板", "#F0A020");
@@ -361,18 +422,18 @@ public class LauncherActivity extends Activity {
         tplEditLp.setMargins(dp(0), dp(6), dp(0), dp(0));
         tplEditBtn.setLayoutParams(tplEditLp);
         tplEditBtn.setVisibility(View.GONE);
-        root.addView(tplEditBtn);
+        tplBox.addView(tplEditBtn);
 
         // 编辑区：输入框 + 按钮行（保存/恢复默认/取消）
         EditText tplEdit = new EditText(this);
         tplEdit.setVisibility(View.GONE);
         tplEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         tplEdit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        tplEdit.setPadding(dp(12), dp(10), dp(12), dp(10));
+        tplEdit.setPadding(dp(12), dp(8), dp(12), dp(8));
         tplEdit.setBackgroundColor(Color.parseColor("#FFFFFF"));
         tplEdit.setHint("自定义模板，占位符：{code} {source} {place} {time}");
         tplEditor = tplEdit; // 成员引用：切模式时收起编辑态
-        root.addView(tplEdit);
+        tplBox.addView(tplEdit);
 
         LinearLayout tplBtnRow = new LinearLayout(this);
         tplBtnRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -384,7 +445,7 @@ public class LauncherActivity extends Activity {
         tplBtnRow.addView(tplReset);
         tplBtnRow.addView(tplCancel);
         tplEditorBtnRow = tplBtnRow; // 成员引用：切模式时收起编辑态
-        root.addView(tplBtnRow);
+        tplBox.addView(tplBtnRow);
 
         // 预览渲染器：按 currentMode 生成效果预览文本 + 编辑入口可见性
         Runnable renderTpl = () -> {
@@ -445,72 +506,167 @@ public class LauncherActivity extends Activity {
             exitTplEdit(tplEdit, tplBtnRow, tplEditBtn, tplPreview, renderTpl);
         });
 
-        root.addView(spacer(16));
+        root.addView(tplBox);
 
-        // ============ 一键测试 ============
+        // ============ 用户自定义规则（v3.0.0 主推功能，放在主界面而非藏进菜单）============
+        // 展示逻辑（按用户要求）：
+        //   未启用 → 收窄成一行，标注「未启用」，不占用首屏空间
+        //   已启用 → 展开，显示规则条数等实际情况
+        boolean urEnabled = false;
+        int urTotal = 0;
+        try {
+            urEnabled = UserRules.isEnabled(this);
+            urTotal = UserRules.loadAll(this).size();
+        } catch (Throwable ignored) { }
+
+        LinearLayout urCard = new LinearLayout(this);
+        urCard.setOrientation(LinearLayout.VERTICAL);
+        urCard.setBackground(roundRect(urEnabled ? "#F0EDFF" : "#F7F8FA"));
+        urCard.setPadding(dp(14), dp(3), dp(14), dp(3));
+
+        LinearLayout urHead = new LinearLayout(this);
+        urHead.setOrientation(LinearLayout.HORIZONTAL);
+        urHead.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout urCol = new LinearLayout(this);
+        urCol.setOrientation(LinearLayout.VERTICAL);
+
+        TextView urTitle = cardTitle("🧩 用户自定义规则（高级选项）");
+        urCol.addView(urTitle);
+
+        final TextView urSub = new TextView(this);
+        urSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        urSub.setTextColor(Color.parseColor("#666666"));
+        urSub.setPadding(0, dp(2), 0, 0);
+        urCol.addView(urSub);
+        urHead.addView(urCol, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        TextView urBadge = new TextView(this);
+        urBadge.setText(urEnabled ? "已启用" : "未启用");
+        urBadge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        urBadge.setTextColor(Color.WHITE);
+        urBadge.setBackground(roundRect(urEnabled ? C_OK : C_TRACK));
+        urBadge.setPadding(dp(10), dp(4), dp(10), dp(4));
+        urHead.addView(urBadge);
+        urCard.addView(urHead);
+
+        // 未启用：只给一句引导；已启用：展开显示实际情况
+        if (urEnabled) {
+            urSub.setText(userRuleSummary());
+            urSub.setVisibility(View.VISIBLE);
+        } else {
+            urSub.setText(urTotal > 0
+                    ? "已写 " + urTotal + " 条规则但未启用，点此开启"
+                    : "官方规则没覆盖到的短信？可为自家驿站单独写一条");
+            urSub.setVisibility(View.VISIBLE);
+        }
+
+        LinearLayout.LayoutParams urLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        urLp.setMargins(0, 0, 0, 0);
+        urCard.setLayoutParams(urLp);
+        urCard.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(this, UserRulesActivity.class));
+            } catch (Throwable t) {
+                Toast.makeText(this, "打开失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+        root.addView(urCard);
+
+        // ============ 一键链路测试（v3.0.0：合并原「一键测试」+「手动输入短信测试」）============
+        // 设计：把「填入示例 → 解析 → 写入」拆成可感知的分步流程，
+        //      让用户既能一键跑通全链路，也能用真实短信验证规则是否匹配。
+        //      全程不消耗真实短信、不产生任何费用。
         TextView testBtn = new TextView(this);
-        testBtn.setText("🧪 一键测试（不消耗短信）");
+        testBtn.setText("🧪 一键链路测试（不消耗短信 · 分步验证）");
         testBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         testBtn.setTextColor(Color.WHITE);
-        testBtn.setBackgroundColor(Color.parseColor("#1E6FE8"));
+        testBtn.setBackground(roundRect("#1E6FE8"));
         testBtn.setPadding(dp(16), dp(12), dp(16), dp(12));
         testBtn.setGravity(Gravity.CENTER);
-        testBtn.setOnClickListener(v -> runSelfTest());
+        LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        testLp.setMargins(0, dp(12), 0, 0);
+        testBtn.setLayoutParams(testLp);
+        testBtn.setOnClickListener(v -> {
+            // 先做体检预检（分级提示，不全量阻断），通过后进入链路测试页
+            precheckThenOpenChainTest();
+        });
         root.addView(testBtn);
 
-        root.addView(spacer(16));
 
-        // ============ 黑名单（预览 + 修改/保存） ============
-        TextView blLabel = new TextView(this);
-        blLabel.setText("🚫 黑名单关键词");
-        blLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        blLabel.setTextColor(Color.parseColor("#1A1A1A"));
-        blLabel.setTypeface(null, Typeface.BOLD);
-        root.addView(blLabel);
+        // ============ 黑名单（预览 + 修改/保存 + 恢复默认）============
+        // v3.0.0：整块归统进灰底圆角卡片，标题/预览/编辑/按钮全部在卡内，与其他模块视觉统一
+        final LinearLayout blCard = card();
+        blCard.setPadding(dp(14), dp(3), dp(14), dp(3));
+
+        blCard.addView(cardTitle("🚫 黑名单关键词"));
 
         TextView blPreview = new TextView(this);
         blPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         blPreview.setTextColor(Color.parseColor("#666666"));
         blPreview.setPadding(dp(12), dp(8), dp(12), dp(8));
-        blPreview.setBackgroundColor(Color.parseColor("#F0F3F8"));
-        root.addView(blPreview);
+        blPreview.setBackground(roundRect("#FFFFFF"));
+        blCard.addView(blPreview);
 
         EditText blEdit = new EditText(this);
         blEdit.setVisibility(View.GONE);
         blEdit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        blEdit.setPadding(dp(12), dp(10), dp(12), dp(10));
-        blEdit.setBackgroundColor(Color.parseColor("#FFFFFF"));
+        blEdit.setPadding(dp(12), dp(8), dp(12), dp(8));
+        blEdit.setBackground(roundRect("#FFFFFF"));
         blEdit.setHint("逗号分隔，如：12306,验证码,银行");
-        root.addView(blEdit);
+        LinearLayout.LayoutParams blEditLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        blEditLp.setMargins(0, dp(4), 0, 0);
+        blEdit.setLayoutParams(blEditLp);
+        blCard.addView(blEdit);
 
         LinearLayout blBtnRow = new LinearLayout(this);
         blBtnRow.setOrientation(LinearLayout.HORIZONTAL);
         blBtnRow.setVisibility(View.GONE);
+        blBtnRow.setPadding(0, dp(6), 0, 0);
+        // 编辑态三按钮：保存 / 恢复默认 / 取消（与「待办模板自定义」完全一致）
         TextView blSave = smallButton("💾 保存", "#1E6FE8");
+        TextView blReset = smallButton("↩️ 恢复默认", "#9AA4B2");
         TextView blCancel = smallButton("取消", "#9AA4B2");
-        blBtnRow.addView(blSave);
-        blBtnRow.addView(blCancel);
-        root.addView(blBtnRow);
+        blBtnRow.addView(blSave, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        blBtnRow.addView(blReset, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        blBtnRow.addView(blCancel, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        blCard.addView(blBtnRow);
 
+        // 常态按钮行：仅「修改」——与「待办模板自定义」交互一致（先点修改，再编辑，再保存/恢复默认/取消）
+        LinearLayout blActionRow = new LinearLayout(this);
+        blActionRow.setOrientation(LinearLayout.HORIZONTAL);
+        blActionRow.setPadding(0, dp(6), 0, 0);
         TextView blModify = smallButton("✏️ 修改", "#F0A020");
-        // 独立整行按钮：必须 MATCH_PARENT（smallButton 默认 weight 布局只适合横向行）
-        LinearLayout.LayoutParams blModifyLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        blModifyLp.setMargins(dp(0), dp(6), dp(0), dp(0));
-        blModify.setLayoutParams(blModifyLp);
-        root.addView(blModify);
+        blActionRow.addView(blModify, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        blCard.addView(blActionRow);
+        root.addView(blCard);
 
         final Runnable[] refreshBlacklistUi = new Runnable[1];
         refreshBlacklistUi[0] = () -> {
             String list = getSharedPreferences(PREFS, MODE_PRIVATE)
-                    .getString("blacklist", "12306,验证码,余额,充值,账单,银行,优惠券,退订");
+                    .getString("blacklist", BLACKLIST_DEFAULT);
             blPreview.setText("当前：\n" + list.replace(",", "，"));
+            // 进入编辑态：整行按钮隐藏，显示编辑框 + 保存/取消
             blModify.setOnClickListener(v -> {
                 blEdit.setText(list);
                 blEdit.setVisibility(View.VISIBLE);
                 blBtnRow.setVisibility(View.VISIBLE);
-                blModify.setVisibility(View.GONE);
+                blActionRow.setVisibility(View.GONE);
                 blPreview.setVisibility(View.GONE);
+            });
+            // v3.0.0：编辑态内的「恢复默认」——与「待办模板自定义」行为一致：
+            // 只把输入框内容重置为默认值并停留在编辑态，由用户点「保存」才真正写入。
+            blReset.setOnClickListener(v -> {
+                blEdit.setText(BLACKLIST_DEFAULT);
+                blEdit.setSelection(blEdit.getText().length());
+                Toast.makeText(this, "已填入默认关键词，点「保存」生效", Toast.LENGTH_SHORT).show();
             });
             blSave.setOnClickListener(v -> {
                 String newList = blEdit.getText().toString().trim();
@@ -524,20 +680,19 @@ public class LauncherActivity extends Activity {
                 }
                 blEdit.setVisibility(View.GONE);
                 blBtnRow.setVisibility(View.GONE);
-                blModify.setVisibility(View.VISIBLE);
+                blActionRow.setVisibility(View.VISIBLE);
                 blPreview.setVisibility(View.VISIBLE);
                 refreshBlacklistUi[0].run();
             });
             blCancel.setOnClickListener(v -> {
                 blEdit.setVisibility(View.GONE);
                 blBtnRow.setVisibility(View.GONE);
-                blModify.setVisibility(View.VISIBLE);
+                blActionRow.setVisibility(View.VISIBLE);
                 blPreview.setVisibility(View.VISIBLE);
             });
         };
         refreshBlacklistUi[0].run();
 
-        root.addView(spacer(16));
 
         // ============ v2.7.0：系统直写兜底开关（动态显隐） ============
         // 作用：模块 App 被 ColorOS 冻结时，短信系统进程直接 su 写待办库，保证「划掉后台也能写」。
@@ -553,7 +708,7 @@ public class LauncherActivity extends Activity {
 
         TextView sdwLabel = new TextView(this);
         sdwLabel.setText("🛡 冻结免疫直写（ColorOS 划掉后台仍可写入）");
-        sdwLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        sdwLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         sdwLabel.setTextColor(Color.parseColor("#333333"));
         sdwLabel.setPadding(0, 0, dp(8), 0);
         sdwRow.addView(sdwLabel, new LinearLayout.LayoutParams(0,
@@ -582,7 +737,6 @@ public class LauncherActivity extends Activity {
         sdwBtn.setOnClickListener(v -> toggleSysDirectWrite(sdwBtn));
         refreshSdwUi.run();
 
-        root.addView(spacer(18));
 
         TextView help = new TextView(this);
         help.setText("📖 使用说明\n"
@@ -598,17 +752,74 @@ public class LauncherActivity extends Activity {
                 + "「导出诊断报告」发给作者\n"
                 + "7. 短信漏抓反馈：右上角「⋮」可打开「疑似漏抓错题本」一键脱敏复制上报\n"
                 + "8. 交流学习 / 反馈问题：QQ 群 901543676（进群备注「取件码助手」）");
+        // v3.0.0：「更多设置」折叠区已移除——
+        // 排查问题 / 一键部署 sqlite3 改为直接挂在体检卡下方按需显示，
+        // 体检全绿时两者都隐藏，不会留下空壳区块。
+
         help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         help.setTextColor(Color.parseColor("#888888"));
         help.setLineSpacing(dp(3), 1.0f);
         root.addView(help);
 
+        // ===== v3.0.0：固定头部 + 可滚动内容区 =====
+        // 头部下方一条极淡分隔线：滚动时内容从线下方经过，视觉上明确头部是独立的一层
+        View headerDivider = new View(this);
+        headerDivider.setBackgroundColor(Color.parseColor("#EEEEEE"));
+        header.addView(headerDivider, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
+        page.addView(header);
+
         ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
         scroll.addView(root);
-        setContentView(scroll);
+        page.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f));
+        setContentView(page);
     }
 
-    /** 右上角菜单（v2.5.0）：项目仓库 / 打赏作者 */
+    /** 用户规则一句话摘要（首页入口用） */
+    private String userRuleSummary() {
+        try {
+            boolean on = UserRules.isEnabled(this);
+            int total = UserRules.loadAll(this).size();
+            int enabled = 0;
+            for (UserRules.Rule r : UserRules.loadAll(this)) if (r.enabled) enabled++;
+            if (total == 0) {
+                return "官方规则没覆盖到的短信？可为自家驿站单独写一条（当前 0 条）";
+            }
+            return "共 " + total + " 条，已启用 " + enabled + " 条｜"
+                    + (on ? "已开启" : "已关闭");
+        } catch (Throwable t) {
+            return "为自家驿站 / 学校自提柜写专属提取规则";
+        }
+    }
+
+    /** 圆角背景（卡片容器用） */
+    private android.graphics.drawable.Drawable roundRect(String color) {
+        android.graphics.drawable.GradientDrawable gd =
+                new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        gd.setColor(Color.parseColor(color));
+        gd.setCornerRadius(dp(14));
+        return gd;
+    }
+
+    /**
+     * 当前版本标签（直接读包信息）
+     * 版本号只在 AndroidManifest / build.gradle 里维护一份，
+     * 界面一律从这里取，杜绝「安装包是新版本、界面却显示旧版本号」这类不一致。
+     */
+    private String appVersionLabel() {
+        try {
+            return "v" + getPackageManager()
+                    .getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable t) {
+            return "v?";
+        }
+    }
+
+    /** 右上角菜单：项目仓库 / 检查更新 / 规则更新 / 错题本 / 打赏
+     *  v3.0.0：用户自定义规则已上移到主界面卡片，菜单不再重复入口 */
     private void showMainMenu(View anchor) {
         PopupMenu pm = new PopupMenu(this, anchor);
         pm.getMenu().add(0, 1, 0, "🏠 项目仓库（GitHub）");
@@ -743,7 +954,9 @@ public class LauncherActivity extends Activity {
         Toast.makeText(this, "写入目标已切换：\n" + name
                 + "\n（下次收到取件短信即写入新目标；可点「🧪 一键测试」立即验证）", Toast.LENGTH_LONG).show();
         // 重建页面成本高（模板编辑态等局部状态），这里直接刷新副标题与选择器文案即可
-        if (subTitleView != null) subTitleView.setText("v2.7.0 · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
+        if (subTitleView != null) {
+            subTitleView.setText(appVersionLabel() + " · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
+        }
         if (backendLabelView != null) backendLabelView.setText("🎯 写入目标：" + backendLabel());
         if (refreshSdwUi != null) refreshSdwUi.run();
         refreshHealth();
@@ -769,7 +982,7 @@ public class LauncherActivity extends Activity {
                         + "chmod 644 " + flag, 15);
             } catch (Throwable ignored) { }
             runOnUiThread(() -> {
-                btn.setText(target ? "已开启 · 点我关闭" : "默认关闭 · 点我开启");
+                btn.setText(target ? "已开启" : "已关闭");
                 btn.setBackgroundColor(Color.parseColor(target ? "#0FA968" : "#9AA4B2"));
                 if (target) {
                     Toast.makeText(this, "已开启冻结免疫直写 ✓\n"
@@ -846,7 +1059,7 @@ public class LauncherActivity extends Activity {
             sdwOn = sp.getBoolean(KEY_SYS_DIRECT, true);
         }
 
-        btn.setText(sdwOn ? "已开启 · 点我关闭" : "已关闭 · 点我开启");
+        btn.setText(sdwOn ? "已开启" : "已关闭");
         btn.setBackgroundColor(Color.parseColor(sdwOn ? "#0FA968" : "#9AA4B2"));
     }
 
@@ -1049,34 +1262,147 @@ public class LauncherActivity extends Activity {
 
     private static String nz(String s) { return s == null ? "" : s; }
 
-    /** 一键测试：随机取件码（永不撞去重）→ 走完整链路 */
-    private void runSelfTest() {
-        try {
-            String code = "99-9-" + String.format("%04d", new Random().nextInt(10000));
-            android.os.Bundle extras = new android.os.Bundle();
-            extras.putString("sender", "test");
-            extras.putString("body", "【菜鸟驿站】测试包裹：取件码为" + code
-                    + "，请到XX小区快递驿站取件（测试条目，可删除）");
-            extras.putLong("ts", System.currentTimeMillis());
-            android.os.Bundle res = getContentResolver().call(
-                    android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
-                    "onSms", null, extras);
-            String r = res == null ? "未响应" : res.getString("result");
-            String[] msg = r == null ? new String[]{"未响应"} : r.replace("[", "").replace("]", "").split(",");
-            String wrote = msg.length == 0 || msg[0].isEmpty() ? "无" : String.join(",", msg);
-            if (wrote.equals("无") || wrote.equals("未响应")) {
-                // v2.1.2：失败时直接给出断在哪一步（TodoWriter 记录的具体原因）
-                String diag = TodoWriter.getLastWriteDiag();
-                if (diag.length() > 140) diag = diag.substring(0, 140) + "…";
-                Toast.makeText(this, "测试失败：" + wrote + "\n原因：" + diag
-                        + "\n（详查：点「🔍 排查问题」→ 向导里可导出诊断报告）", Toast.LENGTH_LONG).show();
-                refreshHealth();
-            } else {
-                Toast.makeText(this, "测试成功：已写入待办 " + wrote + "（可删除）", Toast.LENGTH_LONG).show();
-                refreshHealth();
+        /**
+     * 展示解析结果（不写库）
+     *
+     * 【v3.0.0】支持传入发送方：用户规则可能限定了号码（精确/前缀/包含匹配），
+     * 若不带发送方，带号码限制的规则永远测不出来，用户会误判「规则没生效」。
+     * 因此手动测试界面提供可选的发送方输入框，以真实复现号码场景。
+     */
+    private void showParseResult(String sms) {
+        showParseResult(sms, null);
+    }
+
+    private void showParseResult(String sms, String sender) {
+        List<String> codes = PickupExtractor.extract(sender, sms);
+        String place = TodoWriter.extractPlace(sender, sms);
+        String source = TodoWriter.resolveSource(sender == null || sender.isEmpty() ? "10086" : sender, sms);
+        boolean hit = !codes.isEmpty();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("规则版本：v").append(PickupExtractor.getActiveRulesVersion()).append("\n");
+        if (sender != null && !sender.trim().isEmpty()) {
+            sb.append("发送方：").append(sender.trim()).append("\n");
+        }
+        sb.append("\n取件码：").append(hit ? String.join("、", codes) : "未识别到").append("\n");
+        sb.append("来  源：").append(nz(source)).append("\n");
+        sb.append("地  点：").append(nz(place)).append("\n\n");
+        if (hit) {
+            sb.append("✅ 识别成功。\n\n");
+            sb.append("若要验证完整写入链路（会真实写入待办），可点下方「确实写入这条」。");
+        } else {
+            sb.append("❌ 未能识别到取件码。\n\n");
+            sb.append("常见原因：\n"
+                    + "· 短信模板较特殊（属正常情况，规则无法覆盖所有地方驿站文案）\n"
+                    + "· 你配了「发送方范围」但这里没填发送方 → 号码规则无法命中\n\n");
+            sb.append("欢迎点「✍️ 手动上报」把这条短信反馈给作者，下一版即可针对性适配！");
+        }
+
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(hit ? "✅ 解析结果" : "❌ 解析结果")
+                .setMessage(sb.toString())
+                .setPositiveButton("知道了", null);
+        if (hit) {
+            b.setNeutralButton("确实写入这条", (d, w) -> {
+                try {
+                    android.os.Bundle extras = new android.os.Bundle();
+                    extras.putString("sender", "manual-test");
+                    extras.putString("body", sms);
+                    extras.putLong("ts", System.currentTimeMillis());
+                    getContentResolver().call(
+                            android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
+                            "onSms", null, extras);
+                    Toast.makeText(this, "已走真实链路写入（如有提示重复，说明指纹去重已生效）",
+                            Toast.LENGTH_LONG).show();
+                } catch (Throwable t) {
+                    Toast.makeText(this, "写入失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
+        } else {
+            b.setNeutralButton("✍️ 手动上报", (d, w) -> openGithubIssueManual());
+        }
+        b.show();
+    }
+
+    /** 一键测试与「填入示例」共用的短信模板（%s = 取件码），保证两处文案完全一致 */
+    private static final String SELF_TEST_SMS_TEMPLATE =
+            "【菜鸟驿站】测试包裹：取件码为%s，请到XX小区快递驿站取件（测试条目，可删除）";
+
+    /**
+     * 🧪 一键链路测试（v3.0.0）—— 合并原「一键测试」与「手动输入短信测试」
+     *
+     * 分工：LauncherActivity 只负责「体检预检」，实际三步流程在 ChainTestActivity 完成。
+     * （实测 AlertDialog 承载 EditText + 多按钮时触摸会被 window 吞掉，独立 Activity 稳定）
+     */
+    private void precheckThenOpenChainTest() {
+        new Thread(() -> {
+            final java.util.List<String> blocking = new ArrayList<>();
+            final java.util.List<String> warning = new ArrayList<>();
+            try {
+                for (Diagnostics.Check c : Diagnostics.healthCheck(this)) {
+                    if (c.ok) continue;
+                    // 分级：只把「直接影响写入链路」的算阻断项，其余仅提示、不打断
+                    if (isBlockingCheck(c.title)) {
+                        blocking.add("❌ " + c.title + "：" + c.detail);
+                    } else {
+                        warning.add("⚠️ " + c.title + "：" + c.detail);
+                    }
+                }
+            } catch (Throwable t) {
+                blocking.add("❌ 体检执行异常：" + t.getMessage());
             }
+            runOnUiThread(() -> showPrecheckResult(blocking, warning));
+        }).start();
+    }
+
+    private void showPrecheckResult(java.util.List<String> blocking,
+                                    java.util.List<String> warning) {
+        if (blocking.isEmpty() && warning.isEmpty()) {
+            openChainTest();
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        if (!blocking.isEmpty()) {
+            sb.append("以下问题可能影响写入环节：\n\n");
+            for (String s : blocking) sb.append(s).append("\n");
+        }
+        if (!warning.isEmpty()) {
+            sb.append("\n").append(blocking.isEmpty() ? "以下提示不影响测试：\n\n"
+                    : "其他提示（不影响测试）：\n\n");
+            for (String s : warning) sb.append(s).append("\n");
+        }
+        sb.append("\n\n仍想先试试完整流程？点「继续测试」。");
+        if (!blocking.isEmpty()) {
+            sb.append("\n若确认是环境问题，点「去排查」按向导逐项处理。");
+        }
+
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(blocking.isEmpty() ? "✅ 可以测试" : "🩺 体检未全通过")
+                .setMessage(sb.toString().trim())
+                .setPositiveButton("继续测试", (d, w) -> openChainTest())
+                .setNegativeButton(blocking.isEmpty() ? "取消" : "知道了", null);
+        if (!blocking.isEmpty()) {
+            b.setNeutralButton("去排查", (d, w) -> runTroubleshoot());
+        }
+        b.show();
+    }
+
+    /**
+     * 判断某项体检是否为「阻断项」
+     * 只有这三项不通会真正导致写入失败；其余（通知权限、作用域比对等）
+     * 不影响手动测试跑通，不该因此打断用户。
+     */
+    private boolean isBlockingCheck(String title) {
+        if (title == null) return false;
+        return title.contains("root") || title.contains("Root")
+                || title.contains("sqlite3") || title.contains("笔记库");
+    }
+
+    private void openChainTest() {
+        try {
+            startActivity(new Intent(this, ChainTestActivity.class));
         } catch (Throwable t) {
-            Toast.makeText(this, "测试异常：" + t.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "打开失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1084,6 +1410,10 @@ public class LauncherActivity extends Activity {
     private void refreshHealth() {
         statusCard.setText("⏳ 正在体检…");
         deployBtn.setVisibility(View.GONE);
+        // v3.0.0：排查入口随体检状态智能显隐——
+        //   一切正常 → 隐藏（一切正常时不需要"排查"，那是多余的噪音）
+        //   有问题   → 显示（此时它才是真正需要被看见的入口）
+        if (troubleshootBtn != null) troubleshootBtn.setVisibility(View.GONE);
         new Thread(() -> {
             String text;
             boolean needDeploy = false;
@@ -1122,6 +1452,11 @@ public class LauncherActivity extends Activity {
                     statusCard.setMaxLines(2);
                 }
                 deployBtn.setVisibility(show ? View.VISIBLE : View.GONE);
+                // v3.0.0：排查入口只在体检未通过时出现；
+                // 全绿时隐藏——一切正常就不该摆一个"排查问题"在那儿
+                if (troubleshootBtn != null) {
+                    troubleshootBtn.setVisibility(ok ? View.GONE : View.VISIBLE);
+                }
             });
         }).start();
     }
@@ -1242,11 +1577,78 @@ public class LauncherActivity extends Activity {
         b.setText(label);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         b.setTextColor(Color.WHITE);
-        b.setBackgroundColor(Color.parseColor(bg));
-        b.setPadding(dp(12), dp(8), dp(12), dp(8));
+        b.setBackground(roundRect(bg));
+        b.setPadding(dp(10), dp(8), dp(10), dp(8));
         b.setGravity(Gravity.CENTER);
-        b.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        // 注意：不要在这里 setLayoutParams —— 调用方 addView 时传的参数会覆盖它，
+        // 宽度权重会丢失导致按钮塌缩、触摸区域错位（踩过的坑）
         return b;
+    }
+
+    // ================================================================
+    //  v3.0.0 视觉系统 —— 统一色板 / 卡片 / 分组 / 按钮
+    //  设计原则：简单大方、信息分层、状态可视
+    // ================================================================
+    private static final String C_PRIMARY = "#1E6FE8";   // 主操作
+    private static final String C_ACCENT = "#7A5AF8";    // 用户规则（本次主推）
+    private static final String C_OK = "#0FA968";        // 正常 / 复制
+    private static final String C_WARN = "#F0A020";      // 待处理
+    private static final String C_DANGER = "#D93025";    // 失败 / 删除
+    private static final String C_TEXT = "#1A1A1A";
+    private static final String C_SUB = "#888888";
+    private static final String C_CARD = "#F7F8FA";
+    private static final String C_TRACK = "#9AA4B2";     // 关闭态 / 次要按钮
+
+    /** 卡片容器：圆角 + 浅底 + 间距 */
+    private LinearLayout card() {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(roundRect(C_CARD));
+        c.setPadding(dp(14), dp(3), dp(14), dp(3));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(8), 0, dp(8));
+        c.setLayoutParams(lp);
+        return c;
+    }
+
+    /** 卡片内分组标题 */
+    private TextView groupTitle(LinearLayout box, String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        t.setTextColor(Color.parseColor(C_TEXT));
+        t.setTypeface(null, Typeface.BOLD);
+        t.setPadding(dp(2), 0, 0, dp(6));
+        box.addView(t);
+        return t;
+    }
+
+    /** 卡片内说明文字 */
+    private TextView groupDesc(LinearLayout box, String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        t.setTextColor(Color.parseColor(C_SUB));
+        t.setLineSpacing(dp(2), 1.0f);
+        t.setPadding(dp(2), 0, 0, dp(6));
+        box.addView(t);
+        return t;
+    }
+
+    /**
+     * 统一卡片标题（v3.0.0）
+     * 所有灰色模块统一走这里：标题直接放进卡片内部第一个子控件，
+     * 不再额外套一层容器（避免双重 padding 与额外 margin 造成的空隙）
+     */
+    private TextView cardTitle(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        t.setTextColor(Color.parseColor(C_TEXT));
+        t.setTypeface(null, Typeface.BOLD);
+        t.setPadding(dp(2), 0, 0, dp(2));
+        return t;
     }
 
     private int dp(int v) {

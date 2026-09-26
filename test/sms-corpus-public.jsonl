@@ -1,0 +1,18 @@
+{"sms": "【菜鸟驿站】您有3个包裹到站，取件码为16-4-9626, 15-3-2194, 16-3-0906，凭码取件", "expectCodes": ["16-4-9626", "15-3-2194", "16-3-0906"], "expectSource": "菜鸟驿站", "expectPlace": null, "isCounterExample": false}
+{"sms": "【丰巢】凭22-2-3579到华润万家旁丰巢柜取件", "expectCodes": ["22-2-3579"], "expectSource": "丰巢", "expectPlace": "华润万家旁丰巢柜", "isCounterExample": false}
+{"sms": "【妈妈驿站】取货码2-2-7508，您有极兔快递包裹，已到新创村沙咀里132号", "expectCodes": ["2-2-7508"], "expectSource": "妈妈驿站", "expectPlace": null, "isCounterExample": false}
+{"sms": "【兔喜生活】您有包裹已到达兴龙湾30栋兔喜店，取件码为2-3-05025，地址:兴龙湾30号楼102", "expectCodes": ["2-3-05025"], "expectSource": "兔喜生活", "expectPlace": null, "isCounterExample": false}
+{"sms": "【圆通快递】凭1-2-21003到森泰首府快递驿站取尾号0236包裹", "expectCodes": ["1-2-21003"], "expectSource": "圆通快递", "expectPlace": "森泰首府快递驿站", "isCounterExample": false}
+{"sms": "【中通快递】凭9-1-21006到森泰首府快递驿站取尾号0107包裹", "expectCodes": ["9-1-21006"], "expectSource": "中通快递", "expectPlace": "森泰首府快递驿站", "isCounterExample": false}
+{"sms": "【南京百米需】您的中通包裹已到x镇x村xx号菜鸟驿站3号柜284号格口，取件码4869-9777", "expectCodes": ["4869-9777"], "expectSource": "南京百米需", "expectPlace": "x镇x村xx号菜鸟驿站3号柜284号格口", "isCounterExample": false}
+{"sms": "【邮侠】凭取件码1681-5191到x镇x村xx号菜鸟驿站2号柜365号格口,询。", "expectCodes": ["1681-5191"], "expectSource": "邮侠", "expectPlace": "x镇x村xx号菜鸟驿站2号柜365号格口", "isCounterExample": false}
+{"sms": "[兔喜生活]请凭552577至同兴冠寓3号楼1号兔喜快递柜取件，免费存24小时", "expectCodes": ["552577"], "expectSource": "兔喜生活", "expectPlace": "同兴冠寓3号楼1号兔喜快递柜", "isCounterExample": false}
+{"sms": "【妈妈驿站】3个包裹，取货码2-5-7077，2-5-7075，2-3-4346，中峰乡信用社斜对面圆通速递妈妈驿站", "expectCodes": ["2-5-7077", "2-5-7075", "2-3-4346"], "expectSource": "妈妈驿站", "expectPlace": "中峰乡信用社斜对面圆通速递妈妈驿站", "isCounterExample": false}
+{"sms": "【中通快递】凭M-2-5341到福源折扣店取尾号9100包裹", "expectCodes": ["M-2-5341"], "expectSource": "中通快递", "expectPlace": "福源折扣店", "isCounterExample": false}
+{"sms": "【中邮驿站】您的邮政包裹已到，取件码A88123，请及时领取", "expectCodes": ["A88123"], "expectSource": "中邮驿站", "expectPlace": null, "isCounterExample": false}
+{"sms": "【银行】您的验证码 858822，请勿泄露", "expectCodes": [], "expectSource": null, "expectPlace": null, "isCounterExample": true}
+{"sms": "【拼多多】您的商品在代收点已超6小时未取，为避免鲜活商品损坏，请尽快取件。", "expectCodes": [], "expectSource": null, "expectPlace": null, "isCounterExample": true}
+{"sms": "【中国移动卡券提醒】尊敬的159****<已脱敏>客户，您的一张话费券已到账，请前往中国移动APP查看，或戳我直达：https://<已脱敏>/.../3Oa0Hw", "expectCodes": [], "expectSource": null, "expectPlace": null, "isCounterExample": true}
+{"sms": "【蜂鸟配送】您的订单已经送达，宿舍楼下外卖架位置，淘宝闪购搜索719987，再搜94666还可领叠加红包，如有问题请联系骑手", "expectCodes": [], "expectSource": null, "expectPlace": null, "isCounterExample": true}
+{"sms": "[e测试]双节特惠:生物SEM、激光共聚焦、Tunel荧光等低至6折券已到您账户，拒收请回复R", "expectCodes": [], "expectSource": null, "expectPlace": null, "isCounterExample": true}
+{"sms": "尊敬的客户，您在积分商城兑换的订单1064已发货，物流小可邮政快递包裹，单号123123123也可查看物流信息：https://<已脱敏>/...", "expectCodes": [], "expectSource": null, "expectPlace": null, "isCounterExample": true}

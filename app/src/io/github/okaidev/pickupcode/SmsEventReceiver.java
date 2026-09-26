@@ -20,6 +20,14 @@ public class SmsEventReceiver extends BroadcastReceiver {
     public void onReceive(Context ctx, Intent intent) {
         if (intent == null || !ACTION.equals(intent.getAction())) return;
 
+        // v3.0.0 架构修复：通知通道广播同样可能在模块进程冷启动时到达，
+        // 与 TodoProvider 一致——进程入口先初始化规则引擎（热更规则 + 用户规则）
+        try {
+            PickupExtractor.init(ctx);
+        } catch (Throwable t) {
+            Log.w(TAG, "Receiver init rules skipped: " + t);
+        }
+
         String sender = intent.getStringExtra("sender");
         String body = intent.getStringExtra("body");
         long ts = intent.getLongExtra("ts", System.currentTimeMillis());
@@ -35,7 +43,7 @@ public class SmsEventReceiver extends BroadcastReceiver {
             return;
         }
 
-        if (!PickupExtractor.lookLikePickupSms(body)) {
+        if (!PickupExtractor.lookLikePickupSms(sender, body)) {
             Log.i(TAG, "EVENT: 非取件短信，跳过");
             return;
         }

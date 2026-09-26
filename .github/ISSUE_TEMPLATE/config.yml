@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 QQ 交流群（901543676）
+    url: https://qm.qq.com/q/oiwiaOmwia
+    about: 日常问题、意见建议、玩机交流都可群里聊（进群备注「取件码助手」）
+  - name: 📖 用户自定义规则参考手册
+    url: https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/blob/main/docs/user-rules-guide.md
+    about: 想自己写规则适配你家驿站？先看这份手册（含四层发送方匹配与完整示例）

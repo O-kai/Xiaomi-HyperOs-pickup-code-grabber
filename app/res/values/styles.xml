@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      v3.0.0：使用无标题栏主题
+      原因：默认主题会带一个系统 ActionBar（黑底白字显示应用名），
+      与页面内自绘的「📦 取件码助手」标题重复且割裂。
+      去掉后由页面自绘固定头部承担标题职责，滑动时始终可见。
+    -->
+    <style name="AppTheme.NoActionBar" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>

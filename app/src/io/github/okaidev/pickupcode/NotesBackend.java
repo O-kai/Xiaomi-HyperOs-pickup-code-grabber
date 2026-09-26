@@ -158,7 +158,7 @@ public class NotesBackend {
                     + " 'color_skin_white', 'color_skin_white', 0, 0,"
                     + " '{\"encryptStatus\":-1,\"featureList\":[],\"moveOutFromPaintFolder\":0,\"pageResults\":[]}',"
                     + " 0, 1, 0, NULL, NULL, NULL, 0, 0, NULL, '[]',"
-                    + " '" + t + "', '" + esc + "', '', '', '[]', 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, '', '', 0, 0);\n";
+                    + " '" + t + "', '" + esc + "', '', '', '[]', 0, 0, 0, 0, 0, 0, 0, 0, 3, '', '', 0, 0);\n";
         }
         if (BACKEND_COLOROS_TODO.equals(b)) {
             // 日历待办：字段约定来自日历 App 亲手建的两条样本（无提醒快捷待办）

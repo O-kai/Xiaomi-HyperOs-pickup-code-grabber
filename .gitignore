@@ -38,3 +38,15 @@ backup/
 *.tmp
 .DS_Store
 Thumbs.db
+
+# ---------- 脱机回归测试产物 ----------
+# 源码（*.java）与用例（sms-cases.txt / sms-corpus-public.jsonl）要提交，产物不提交
+*.class
+test/*-out.txt
+test/reg-result.txt
+test/place_res*.txt
+test/out/
+
+# ---------- 内部实验代码（不对外发布）----------
+# 未启用/未公开的内部实验实现，仅本地留存备查，不进公开仓库
+experimental-disabled/

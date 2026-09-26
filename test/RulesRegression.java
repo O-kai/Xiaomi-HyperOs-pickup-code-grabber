@@ -7,28 +7,51 @@ import java.nio.file.Paths;
 import java.util.List;
 
 /**
- * v2.8.0 动态规则引擎脱机回归：
- * 动态编译 PickupExtractor + ExtractorRules（无 Android 依赖问题——两者都不 import android.*，
- * 检查：PickupExtractor 引了 android.util.Log 与 android.content.Context！
- * 因此用源码替换法：把 Log/Context 相关调用打桩后再编译。
+ * 动态规则引擎脱机回归（v3.0.0）
+ *
+ * 运行方式（需要 JDK + Android SDK 的 android.jar）：
+ *   javac -encoding UTF-8 RulesRegression.java
+ *   java RulesRegression
+ *
+ * 说明：
+ *  - 用 android.jar 作 classpath 编译（android.jar 提供 org.json 与 Android API 声明），
+ *    纯逻辑路径（提取/校验）在 JVM 下可直接运行，不需真机；
+ *  - 依赖链：PickupExtractor → UserRules → {Repair, Diagnostics, TodoWriter, ...}
+ *    所以必须把整条依赖链一起编译，否则会 COMPILE FAIL；
+ *  - 结果写入 reg-result.txt。
  */
 public class RulesRegression {
+    /** 参与编译的源文件（新增依赖时记得同步这里） */
+    static final String[] NEED = {
+            "ExtractorRules.java", "PickupExtractor.java", "UserRules.java",
+            "TodoWriter.java", "MissedSmsStore.java", "NotesBackend.java",
+            "Repair.java", "Diagnostics.java"
+    };
+
     public static void main(String[] args) throws Exception {
-        Path srcDir = Paths.get("D:\\project\\Xiaomi-HyperOs-pickup-code-grabber\\app\\src\\io\\github\\okaidev\\pickupcode");
-        Path tmp = Files.createTempDirectory("v280reg");
+        // 允许用环境变量/参数覆盖仓库路径，便于其他贡献者在自己的机器上跑
+        String repo = (args.length > 0) ? args[0]
+                : (System.getenv("PICKUP_REPO") != null ? System.getenv("PICKUP_REPO")
+                : "D:\\project\\Xiaomi-HyperOs-pickup-code-grabber");
+        Path srcDir = Paths.get(repo, "app", "src", "io", "github", "okaidev", "pickupcode");
+        Path tmp = Files.createTempDirectory("v300reg");
 
-        // 1) ExtractorRules + PickupExtractor：直接用 android.jar（org.json + 完整 API）编译，零打桩
-        Files.copy(srcDir.resolve("ExtractorRules.java"), tmp.resolve("ExtractorRules.java"));
-        Files.copy(srcDir.resolve("PickupExtractor.java"), tmp.resolve("PickupExtractor.java"));
+        for (String f : NEED) {
+            Files.copy(srcDir.resolve(f), tmp.resolve(f));
+        }
 
-        String androidJar = "D:\\project\\_build-tools\\sdk\\platforms\\android-34\\android.jar";
-        Process c = Runtime.getRuntime().exec(new String[]{"javac", "-encoding", "UTF-8",
-                "-cp", androidJar,
-                "-d", tmp.toString(), tmp.resolve("ExtractorRules.java").toString(), tmp.resolve("PickupExtractor.java").toString()});
+        String androidJar = (args.length > 1) ? args[1]
+                : System.getenv().getOrDefault("ANDROID_JAR",
+                "D:\\project\\_build-tools\\sdk\\platforms\\android-34\\android.jar");
+
+        StringBuilder cmd = new StringBuilder("javac -encoding UTF-8 -nowarn -cp ")
+                .append(androidJar).append(" -d ").append(tmp);
+        for (String f : NEED) cmd.append(" ").append(tmp.resolve(f));
+
+        Process c = Runtime.getRuntime().exec(cmd.toString());
         if (c.waitFor() != 0) {
             System.out.println("COMPILE FAIL:");
             byte[] err = c.getErrorStream().readAllBytes();
-            Files.write(Paths.get("reg-err.txt"), err);
             System.out.println(new String(err, java.nio.charset.StandardCharsets.UTF_8));
             System.exit(2);
         }

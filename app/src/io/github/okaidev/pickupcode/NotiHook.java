@@ -46,6 +46,17 @@ public class NotiHook {
     /** 模块入口调用：在 system_server 注册通知管线钩子 */
     public static void install(ClassLoader sysCl) {
         try {
+            // v3.0.0：system_server 冷启动时先加载用户规则（从 root 同步文件读）
+            // 否则通知通道的冷启动场景会静默使用编译内置规则，用户规则不生效
+            try {
+                PickupExtractor.loadUserRules(null,
+                        UserRules.loadForSystemProcess());
+                XposedBridge.log(TAG + ": user rules loaded: "
+                        + PickupExtractor.userRuleCount());
+            } catch (Throwable t) {
+                XposedBridge.log(TAG + ": load user rules skipped: " + t);
+            }
+
             Class<?> nms = XposedHelpers.findClass(
                     "com.android.server.notification.NotificationManagerService", sysCl);
             XposedBridge.hookAllMethods(nms, "enqueueNotificationInternal", new XC_MethodHook() {
@@ -80,9 +91,13 @@ public class NotiHook {
 
             String text = buildText(n);
             if (text == null || text.isEmpty()) return;
-            if (!PickupExtractor.hasFeatureWords(text)) return;
+            // v3.0.0：通知通道没有真实发送号码，用「通知:包名」作为匹配依据，
+            // 用户若对通知来源做了号码规则，可用包含匹配（如包名片段）覆盖
+            // ⚠️ 本方法运行在 system_server 多线程环境，sender 必须显式传参，不可存全局
+            String notiSender = "通知:" + pkg;
+            if (!PickupExtractor.hasFeatureWords(notiSender, text)) return;
 
-            List<String> codes = PickupExtractor.extract(text);
+            List<String> codes = PickupExtractor.extract(notiSender, text);
             if (codes.isEmpty()) {
                 // 漏抓嫌疑：错题本（system_server 无 Context 写 prefs → 经广播转发给模块 App 记录）
                 NotiRelay.relayMissed(param, pkg, text);

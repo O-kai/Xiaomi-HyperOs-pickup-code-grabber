@@ -81,11 +81,18 @@ public class SystemDirectWriter {
         try {
             if (!enabled(ctx)) return;
             if (ctx == null || body == null || body.trim().isEmpty()) return;
+            // v3.0.0：本方法运行在系统进程（providers.telephony），需从 root 同步文件加载用户规则，
+            // 否则冷启动兜底路径会静默使用编译内置规则
+            try {
+                if (PickupExtractor.userRuleCount() == 0) {
+                    PickupExtractor.loadUserRules(null, UserRules.loadForSystemProcess());
+                }
+            } catch (Throwable ignored) { }
             for (String kw : DEFAULT_BLACKLIST) {
                 if (body.contains(kw)) return;
             }
-            if (!PickupExtractor.lookLikePickupSms(body)) return;
-            List<String> codes = PickupExtractor.extract(body);
+            if (!PickupExtractor.lookLikePickupSms(sender, body)) return;
+            List<String> codes = PickupExtractor.extract(sender, body);
             if (codes.isEmpty()) return;
 
             String fp = sender + "|" + body.hashCode();
