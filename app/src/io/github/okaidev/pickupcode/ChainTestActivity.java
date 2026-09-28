@@ -156,10 +156,14 @@ public class ChainTestActivity extends Activity {
             Toast.makeText(this, "请先输入或粘贴短信内容", Toast.LENGTH_SHORT).show();
             return;
         }
+        // v3.0.1：先清空溯源，再解析——否则会显示"上一条"规则的名字
+        UserRules.clearLastHit();
         List<String> codes = PickupExtractor.extract(sms);
         String place = TodoWriter.extractPlace(sms);
         String source = TodoWriter.resolveSource("10086", sms);
         boolean hit = !codes.isEmpty();
+        // v3.0.1：区分"官方规则"与"用户自定义规则"，并显示具体规则名
+        String hitUserRule = PickupExtractor.getLastHitUserRuleName();
 
         LinearLayout page = pageBase();
         TextView t2 = new TextView(this);
@@ -181,14 +185,21 @@ public class ChainTestActivity extends Activity {
         card.setLayoutParams(clp);
         page.addView(card);
 
-        addResultRow(card, "规则版本", "v" + PickupExtractor.getActiveRulesVersion());
+        // v3.0.1：明示本次用的是官方规则还是哪条用户自定义规则
+        addResultRow(card, "规则来源", hitUserRule != null
+                ? "🧩 用户自定义规则 · " + hitUserRule
+                : "📘 官方规则集 v" + PickupExtractor.getActiveRulesVersion());
         addResultRow(card, "取件码", hit ? String.join("、", codes) : "未识别到");
         addResultRow(card, "来  源", nz(source));
         addResultRow(card, "地  点", nz(place));
 
         TextView note = new TextView(this);
         note.setText(hit
-                ? "✅ 识别成功。下一步可写入待办，验证完整链路（去重 + 通知）。"
+                ? (hitUserRule != null
+                    ? "✅ 识别成功（由你的自定义规则「" + hitUserRule + "」匹配）。\n\n"
+                        + "下一步可写入待办，验证完整链路（去重 + 通知）。"
+                    : "✅ 识别成功（由官方规则集匹配）。\n\n"
+                        + "下一步可写入待办，验证完整链路（去重 + 通知）。")
                 : "❌ 没能识别到取件码。\n\n"
                 + "可能是短信模板较特殊，官方规则没覆盖到。\n"
                 + "这正是「🧩 用户自定义规则」该出手的场景。\n"

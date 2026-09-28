@@ -67,6 +67,9 @@ public class LauncherActivity extends Activity {
     /** v2.7.0：副标题与写入目标选择器文案引用（切换后端时原地刷新） */
     private TextView subTitleView;
     private TextView backendLabelView;
+    /** v3.0.1：用户规则卡片引用（从设置页返回时原地刷新状态，避免内外显示不一致） */
+    private TextView urSubView;
+    private TextView urBadgeView;
     /** v2.7.1：冻结免疫直写 UI 动态显隐刷新器 */
     private Runnable refreshSdwUi;
 
@@ -533,32 +536,32 @@ public class LauncherActivity extends Activity {
         TextView urTitle = cardTitle("🧩 用户自定义规则（高级选项）");
         urCol.addView(urTitle);
 
-        final TextView urSub = new TextView(this);
-        urSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        urSub.setTextColor(Color.parseColor("#666666"));
-        urSub.setPadding(0, dp(2), 0, 0);
-        urCol.addView(urSub);
+        urSubView = new TextView(this);
+        urSubView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        urSubView.setTextColor(Color.parseColor("#666666"));
+        urSubView.setPadding(0, dp(2), 0, 0);
+        urCol.addView(urSubView);
         urHead.addView(urCol, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
 
-        TextView urBadge = new TextView(this);
-        urBadge.setText(urEnabled ? "已启用" : "未启用");
-        urBadge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        urBadge.setTextColor(Color.WHITE);
-        urBadge.setBackground(roundRect(urEnabled ? C_OK : C_TRACK));
-        urBadge.setPadding(dp(10), dp(4), dp(10), dp(4));
-        urHead.addView(urBadge);
+        urBadgeView = new TextView(this);
+        urBadgeView.setText(urEnabled ? "已启用" : "未启用");
+        urBadgeView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        urBadgeView.setTextColor(Color.WHITE);
+        urBadgeView.setBackground(roundRect(urEnabled ? C_OK : C_TRACK));
+        urBadgeView.setPadding(dp(10), dp(4), dp(10), dp(4));
+        urHead.addView(urBadgeView);
         urCard.addView(urHead);
 
         // 未启用：只给一句引导；已启用：展开显示实际情况
         if (urEnabled) {
-            urSub.setText(userRuleSummary());
-            urSub.setVisibility(View.VISIBLE);
+            urSubView.setText(userRuleSummary());
+            urSubView.setVisibility(View.VISIBLE);
         } else {
-            urSub.setText(urTotal > 0
+            urSubView.setText(urTotal > 0
                     ? "已写 " + urTotal + " 条规则但未启用，点此开启"
                     : "官方规则没覆盖到的短信？可为自家驿站单独写一条");
-            urSub.setVisibility(View.VISIBLE);
+            urSubView.setVisibility(View.VISIBLE);
         }
 
         LinearLayout.LayoutParams urLp = new LinearLayout.LayoutParams(
@@ -1487,6 +1490,23 @@ public class LauncherActivity extends Activity {
         handleDone(getIntent());
         refreshHealth(); // v2.6.0：直接调用（updateStatus 壳已删）
         Updater.maybeCheck(this, false);
+        // v3.0.1：用户规则页可能改过开关/规则，回到主界面必须刷新卡片状态，
+        // 否则会出现「里面已启用、外面还显示未启用」的不同步
+        refreshUserRuleCard();
+    }
+
+    /** 刷新首页「用户自定义规则」卡片（状态徽章 + 摘要文案） */
+    private void refreshUserRuleCard() {
+        if (urBadgeView == null) return;
+        try {
+            boolean on = UserRules.isEnabled(this);
+            int total = UserRules.loadAll(this).size();
+            urBadgeView.setText(on ? "已启用" : "未启用");
+            urBadgeView.setBackground(roundRect(on ? C_OK : C_TRACK));
+            if (urSubView != null) {
+                urSubView.setText(userRuleSummary());
+            }
+        } catch (Throwable ignored) { }
     }
 
     /** 通知点击：复制取件码 + 打开当前后端对应的待办 App（v2.7.0：跳转包名动态化） */

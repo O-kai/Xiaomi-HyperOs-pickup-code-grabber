@@ -386,111 +386,126 @@ public class UserRulesActivity extends Activity {
         final EditText etPlaceRegex = field(box, "⑦ 地点正则（可选，一般不用）",
                 r.placeRegex, "地点格式特殊时才用，例：至(.+?取件)");
 
-        // 测试样本区（可增删多组）
+        // 测试样本区（v3.0.1 简化为单条必填）
+        // 之前支持无限添加却没有删除入口，且自测失败后整页消失导致要重填 —— 一并简化。
         final LinearLayout tcBox = new LinearLayout(this);
         tcBox.setOrientation(LinearLayout.VERTICAL);
         box.addView(tcBox);
-        final List<EditText> tcSms = new ArrayList<>();
-        final List<EditText> tcExpect = new ArrayList<>();
 
-        final Runnable[] self = new Runnable[1];
-        Runnable renderCases = new Runnable() {
-            @Override public void run() {
-                tcBox.removeAllViews();
-                TextView h = new TextView(UserRulesActivity.this);
-                h.setText("测试样本 *（至少 1 条，自测通过后才能启用）");
-                h.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-                h.setTextColor(Color.parseColor("#1A1A1A"));
-                h.setPadding(0, dp(8), 0, dp(4));
-                tcBox.addView(h);
-                for (int i = 0; i < Math.max(tcSms.size(), 1); i++) {
-                    LinearLayout row = new LinearLayout(UserRulesActivity.this);
-                    row.setOrientation(LinearLayout.VERTICAL);
-                    final EditText es = new EditText(UserRulesActivity.this);
-                    es.setHint("粘贴真实短信原文");
-                    es.setText(i < tcSms.size() ? tcSms.get(i).getText() : "");
-                    es.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-                    final EditText ee = new EditText(UserRulesActivity.this);
-                    ee.setHint("期望提取到的取件码");
-                    ee.setText(i < tcExpect.size() ? tcExpect.get(i).getText() : "");
-                    ee.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-                    if (i >= tcSms.size()) { tcSms.add(es); tcExpect.add(ee); }
-                    row.addView(es);
-                    row.addView(ee);
-                    tcBox.addView(row);
-                }
-                TextView add = new TextView(UserRulesActivity.this);
-                add.setText("➕ 再加一条测试样本");
-                add.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-                add.setTextColor(Color.parseColor("#1E6FE8"));
-                add.setPadding(0, dp(8), 0, 0);
-                add.setOnClickListener(v -> {
-                    tcSms.add(new EditText(UserRulesActivity.this));
-                    tcExpect.add(new EditText(UserRulesActivity.this));
-                    if (self[0] != null) self[0].run();
-                });
-                tcBox.addView(add);
-            }
-        };
-        self[0] = renderCases;
-        for (UserRules.TestCase t : r.testCases) {
-            final EditText es = new EditText(this); es.setText(t.sms); es.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            final EditText ee = new EditText(this); ee.setText(t.expectCode); ee.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            tcSms.add(es); tcExpect.add(ee);
+        TextView tcTitle = new TextView(this);
+        tcTitle.setText("测试样本 ★必填（必须自测通过才能保存）");
+        tcTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tcTitle.setTextColor(Color.parseColor("#1A1A1A"));
+        tcTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tcTitle.setPadding(0, dp(12), 0, dp(4));
+        tcBox.addView(tcTitle);
+
+        final EditText tcSms = new EditText(this);
+        tcSms.setHint("粘贴一条真实短信原文");
+        tcSms.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tcSms.setMinLines(2);
+        tcSms.setMaxLines(5);
+        tcSms.setGravity(Gravity.TOP | Gravity.START);
+        tcSms.setPadding(dp(10), dp(8), dp(10), dp(8));
+        tcSms.setBackground(roundRect("#FFFFFF"));
+        tcBox.addView(tcSms);
+
+        final EditText tcExpect = new EditText(this);
+        tcExpect.setHint("这条短信应该提取到的取件码（多个码用 ; 分隔）");
+        tcExpect.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tcExpect.setSingleLine(true);
+        tcExpect.setPadding(dp(10), dp(8), dp(10), dp(8));
+        tcExpect.setBackground(roundRect("#FFFFFF"));
+        LinearLayout.LayoutParams tcExpLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tcExpLp.setMargins(0, dp(6), 0, 0);
+        tcExpect.setLayoutParams(tcExpLp);
+        tcBox.addView(tcExpect);
+
+        // 兼容已有规则：把第一条样本回填（多余的历史样本不再展示，但保存时仍保留）
+        if (r.testCases != null && !r.testCases.isEmpty()) {
+            tcSms.setText(r.testCases.get(0).sms);
+            tcExpect.setText(r.testCases.get(0).expectCode);
         }
-        renderCases.run();
+        final UserRules.TestCase firstKept = (r.testCases != null && !r.testCases.isEmpty())
+                ? r.testCases.get(0) : null;
 
-        new AlertDialog.Builder(this)
+        // 关键：整个编辑区必须放在 ScrollView 里。
+        // 否则测试样本加到第 3 条以后，下面的内容会被挤出对话框可视区（显示不全/点不到）。
+        ScrollView boxScroll = new ScrollView(this);
+        boxScroll.setPadding(dp(4), 0, dp(4), 0);
+        boxScroll.addView(box);
+
+        // v3.0.1：不用 setPositiveButton（它点击后会自动 dismiss，导致自测失败时
+        // 整页消失、用户辛苦填的内容全丢）。改为 show() 后接管按钮，
+        // 校验不通过时保持编辑页打开，用户可原地修改后再次自测。
+        final AlertDialog dlg = new AlertDialog.Builder(this)
                 .setTitle(isNew ? "➕ 新建规则" : "✏️ 编辑规则")
-                .setView(box)
-                .setPositiveButton("🧪 自测并保存", (d, w) -> {
-                    r.name = etName.getText().toString().trim();
-                    r.senderMode = mode[0];
-                    r.senderValue = UserRules.MODE_ANY.equals(mode[0])
-                            ? "" : senderEt.getText().toString().trim();
-                    r.senderContains = "";   // 新结构，不再使用旧字段
-                    r.codeRegex = etCode.getText().toString().trim();
-                    r.codeGroup = parseInt(etCodeGroup.getText().toString(), 1);
-                    r.source = etSource.getText().toString().trim();
-                    r.place = etPlace.getText().toString().trim();
-                    r.placeRegex = etPlaceRegex.getText().toString().trim();
-                    r.testCases = new ArrayList<>();
-                    for (int i = 0; i < tcSms.size(); i++) {
-                        String sms = tcSms.get(i).getText().toString().trim();
-                        String exp = tcExpect.get(i).getText().toString().trim();
-                        if (!sms.isEmpty()) r.testCases.add(new UserRules.TestCase(sms, exp));
-                    }
-                    String quick = UserRules.quickValidate(r);
-                    if (quick != null) {
-                        new AlertDialog.Builder(this).setTitle("❌ 规则不合规")
-                                .setMessage(quick + "\n\n请按提示修正后重试。")
-                                .setPositiveButton("知道了", null).show();
-                        return;
-                    }
-                    UserRules.VerifyResult vr = UserRules.verify(r);
-                    if (!vr.ok) {
-                        new AlertDialog.Builder(this).setTitle("❌ 自测未通过（已阻止保存）")
-                                .setMessage(vr.message
-                                        + "\n\n请对照上面的差异修正正则或期望值后重新保存。\n"
-                                        + "需要灵感可点「🎓 参考案例」。")
-                                .setPositiveButton("🎓 参考案例", (dd, ww) -> showExamples())
-                                .setNegativeButton("知道了", null).show();
-                        return;
-                    }
-                    r.enabled = true;
-                    if (isNew) rules.add(r);
-                    String err = UserRules.saveAll(this, rules);
-                    if (err != null) {
-                        Toast.makeText(this, "保存失败：" + err, Toast.LENGTH_LONG).show();
-                        return;
-                    }
-                    PickupExtractor.loadUserRules(this, UserRules.loadAll(this));
-                    Toast.makeText(this, "规则已保存并启用 ✓\n" + vr.message, Toast.LENGTH_LONG).show();
-                    recreate();
-                })
+                .setView(boxScroll)
+                .setPositiveButton("🧪 自测并保存", null)
                 .setNeutralButton("🎓 参考案例", (d, w) -> showExamples())
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+
+        dlg.setOnShowListener(d -> {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                r.name = etName.getText().toString().trim();
+                r.senderMode = mode[0];
+                r.senderValue = UserRules.MODE_ANY.equals(mode[0])
+                        ? "" : senderEt.getText().toString().trim();
+                r.senderContains = "";   // 新结构，不再使用旧字段
+                r.codeRegex = etCode.getText().toString().trim();
+                r.codeGroup = parseInt(etCodeGroup.getText().toString(), 1);
+                r.source = etSource.getText().toString().trim();
+                r.place = etPlace.getText().toString().trim();
+                r.placeRegex = etPlaceRegex.getText().toString().trim();
+                // v3.0.1：单条测试样本（必填）
+                String sSms = tcSms.getText().toString().trim();
+                String sExp = tcExpect.getText().toString().trim();
+                r.testCases = new ArrayList<>();
+                if (!sSms.isEmpty()) {
+                    r.testCases.add(new UserRules.TestCase(sSms, sExp));
+                } else if (firstKept != null) {
+                    r.testCases.add(firstKept);   // 未改动时保留历史样本
+                }
+
+                String quick = UserRules.quickValidate(r);
+                if (quick != null) {
+                    new AlertDialog.Builder(this).setTitle("❌ 规则不合规")
+                            .setMessage(quick + "\n\n请按提示原地修改后再点「自测并保存」。")
+                            .setPositiveButton("继续修改", null).show();
+                    return;
+                }
+                UserRules.VerifyResult vr = UserRules.verify(r);
+                if (!vr.ok) {
+                    // 关键：不再关闭编辑页，用户可继续修改正则/期望值
+                    new AlertDialog.Builder(this).setTitle("❌ 自测未通过")
+                            .setMessage(vr.message
+                                    + "\n\n请在上方按提示修正正则或期望值，然后再次点「🧪 自测并保存」。\n"
+                                    + "没思路可点「🎓 参考案例」。")
+                            .setPositiveButton("继续修改", null)
+                            .setNeutralButton("参考案例", (dd, ww) -> showExamples())
+                            .show();
+                    return;
+                }
+                r.enabled = true;
+                if (isNew) rules.add(r);
+                String err = UserRules.saveAll(this, rules);
+                if (err != null) {
+                    Toast.makeText(this, "保存失败：" + err, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                // 保存成功即自动开启总开关，避免"已保存但功能未启用"的状态不一致
+                if (!UserRules.isEnabled(this)) {
+                    UserRules.setEnabled(this, true);
+                }
+                PickupExtractor.loadUserRules(this, UserRules.loadAll(this));
+                dlg.dismiss();
+                Toast.makeText(this, "规则已保存并启用 ✓\n" + vr.message, Toast.LENGTH_LONG).show();
+                recreate();
+            });
+        });
+        dlg.show();
     }
 
     private EditText field(LinearLayout box, String label, String value, String hint) {
@@ -533,9 +548,11 @@ public class UserRulesActivity extends Activity {
                 + "· 只写 [0-9]+ 而短信里有多个数字 → 会抓到单号/金额/时间\n"
                 + "  ✓ 正确做法：用上下文词把数字框住，如 取件码([0-9-]+)\n\n"
                 + "【💡 调试技巧】\n"
-                + "· 写完点「🧪 自测并保存」，系统会用你粘贴的样本真实跑一遍\n"
-                + "· 自测不通过会逐条告诉你「第几条、期望什么、实际什么」，照着改即可\n"
-                + "· 不确定的写法先在「✍️ 手动输入短信测试」里试官方规则效果";
+                + "· 「测试样本」必填：粘贴一条真实短信 + 写下期望的取件码\n"
+                + "  （短信里多个码时，用 ; 分隔，如 16-4-9626;15-3-2194）\n"
+                + "· 自测不通过时编辑页会保留，直接改正则再点一次「🧪 自测并保存」\n"
+                + "· 「捕获组」= 第几个小括号 () 包住的内容\n"
+                + "  例：取货码([A-Za-z0-9-]+) → 取件码就是第 1 组";
         new AlertDialog.Builder(this)
                 .setTitle("🎓 参考案例")
                 .setMessage(msg)
@@ -589,9 +606,13 @@ public class UserRulesActivity extends Activity {
                     if (!ok.isEmpty()) {
                         for (UserRules.Rule r : ok) rules.add(r);
                         String err = UserRules.saveAll(this, rules);
+                        // 导入成功同样自动开启总开关，保持与「新建规则」一致的行为
+                        if (err == null && !UserRules.isEnabled(this)) {
+                            UserRules.setEnabled(this, true);
+                        }
                         PickupExtractor.loadUserRules(this, UserRules.loadAll(this));
                         recreate();
-                        Toast.makeText(this, "成功导入 " + ok.size() + " 条规则"
+                        Toast.makeText(this, "成功导入 " + ok.size() + " 条规则并已启用"
                                 + (err == null ? " ✓" : "（部分保存失败：" + err + "）"), Toast.LENGTH_LONG).show();
                     }
                     if (bad.length() > 0) {
@@ -619,6 +640,16 @@ public class UserRulesActivity extends Activity {
         t.setLayoutParams(lp);
         t.setOnClickListener(l);
         return t;
+    }
+
+    /** 圆角背景（输入框 / 卡片用） */
+    private android.graphics.drawable.Drawable roundRect(String color) {
+        android.graphics.drawable.GradientDrawable gd =
+                new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        gd.setColor(Color.parseColor(color));
+        gd.setCornerRadius(dp(10));
+        return gd;
     }
 
     private int dp(int v) {

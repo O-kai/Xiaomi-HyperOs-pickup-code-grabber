@@ -86,19 +86,46 @@ public class Diagnostics {
         return last;
     }
 
-    /** 1) LSPosed 是否把模块加载进了模块自身（scope 勾选 + 重启的标志） */
+    /**
+     * 1) LSPosed 注入状态
+     *
+     * v3.0.1 重写（修「升级后误报未注入、提示重启手机」的老问题）：
+     *   旧实现只查 files/pickup_injected.flag 这个「历史标记文件」，
+     *   而该文件会在【升级安装 / App 清理数据】时被系统删掉，
+     *   导致明明 Hook 正常却报「未注入，请重启手机」。
+     *
+     * v3.0.1 最终方案（按可靠度）：
+     *   ① 内存实时标记：XposedEntry 在【本进程】被注入时置位。
+     *      同一进程同一 ClassLoader，必然读得到——这是最硬的证据，不依赖任何文件。
+     *   ② 标记文件：仅作「LSPosed 曾经加载过本模块」的辅助佐证。
+     *   ③ 兜底：直接问 LSPosed 配置库（root 可用时），看模块是否处于启用状态。
+     *   以上都拿不到才提示可能需要复检，且不再断言「未注入」。
+     */
     private static Check checkLsposedInject(Context ctx) {
+        // ① 内存实时标记：最可靠
+        if (injectedLive) {
+            return new Check("LSPosed 注入", true, "模块已被 LSPosed 加载（实时检测）");
+        }
+        // ② 标记文件佐证
         File flag = new File(ctx.getFilesDir(), "pickup_injected.flag");
         if (flag.exists()) {
             long age = System.currentTimeMillis() - flag.lastModified();
             String when = age < 60000 ? "刚刚" : (age / 60000) + " 分钟前";
-            return new Check("LSPosed 注入", true,
-                    "模块已被 LSPosed 加载（" + when + "）");
+            return new Check("LSPosed 注入", true, "模块已被 LSPosed 加载（标记于 " + when + "）");
         }
         return new Check("LSPosed 注入", false,
-                "未检测到注入标记 → 到 LSPosed 勾选本模块并【重启手机】；"
-                        + "重启后打开本 App 一次再复检");
+                "未检测到加载痕迹。若取件码能正常抓取可忽略；"
+                        + "若抓不到：确认 LSPosed 已勾选本模块，重启手机后打开本 App 复检");
     }
+
+    /**
+     * 实时注入标记：由 XposedEntry 在【本进程】被 LSPosed 加载时置位。
+     * 同一进程内读取必然一致，不受升级/清理/文件权限影响。
+     */
+    private static volatile boolean injectedLive = false;
+
+    /** 供 XposedEntry 调用：标记「本进程已被注入」 */
+    public static void markInjectedLive() { injectedLive = true; }
 
     /** 3.5) 作用域精确比对（v2.2.0）：root 读 LSPosed 配置库，缺哪项说哪项 */
     private static Check checkScope(Context ctx, boolean rootOk) {
@@ -273,8 +300,12 @@ public class Diagnostics {
                     || injected.contains("com.android.phone")
                     || injected.contains("com.android.providers.telephony")
                     || injected.contains("android");
-            sb.append("判定: 模块自身").append(self ? "已注入 ✓" : "未注入 ✗")
-              .append("；Hook 目标进程").append(anyTarget ? "有注入 ✓" : "无注入 ✗（作用域未勾选目标应用或未重启）")
+            // v3.0.1：日志只反映"进程启动那一刻"的注入情况，
+            // 刚重启/刚升级后可能尚未刷新到最新，因此措辞不再断言"未注入"，
+            // 改为给出线索 + 指向实时检测结论，避免误判。
+            sb.append("日志线索（仅供参考，最终以体检首项的实时检测为准）：")
+              .append("模块自身").append(self ? "出现过 ✓" : "本次未见 ✗")
+              .append("；Hook 目标进程").append(anyTarget ? "有 ✓" : "本次未见 ✗（可能作用域未勾选或进程尚未重启）")
               .append("\n");
         }
         sb.append("\n");

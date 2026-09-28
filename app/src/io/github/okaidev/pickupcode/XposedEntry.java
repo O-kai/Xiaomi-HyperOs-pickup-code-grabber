@@ -23,8 +23,13 @@ public class XposedEntry implements IXposedHookLoadPackage {
         String pkg = lpparam.packageName;
         log("handleLoadPackage: pkg=" + pkg + " process=" + lpparam.processName);
         if (pkg == null) return;
-        // 模块自身进程：写入"已被 LSPosed 注入"标记（诊断报告用），然后返回
+        // 模块自身进程：置位「本进程已被注入」内存标记 + 写文件佐证，然后返回
+        // v3.0.1：内存标记是体检判定的首要依据——同进程同 ClassLoader 必然读得到，
+        // 不像文件那样会被升级安装 / 清理数据删掉（那正是之前误报「未注入」的根因）。
         if (pkg.equals("io.github.okaidev.pickupcode")) {
+            try {
+                Diagnostics.markInjectedLive();
+            } catch (Throwable ignored) { }
             writeSelfInjectMarker(lpparam);
             return;
         }
@@ -60,7 +65,15 @@ public class XposedEntry implements IXposedHookLoadPackage {
         try {
             if (lpparam.appInfo == null || lpparam.appInfo.dataDir == null) return;
             java.io.File f = new java.io.File(lpparam.appInfo.dataDir, "files/pickup_injected.flag");
-            if (!f.getParentFile().exists()) return; // files 目录未建则跳过（onCreate 时 App 自己会建）
+            // v3.0.1 修复：files 目录可能尚未创建（App 还没启动过），
+            // 旧实现直接 return，导致标记永远写不上 → 体检误报「未注入，请重启手机」。
+            // 这里主动创建目录后再写。
+            java.io.File dir = f.getParentFile();
+            if (dir != null && !dir.exists()) dir.mkdirs();
+            if (dir != null && !dir.exists()) {
+                log("self-inject marker skipped: files dir not ready");
+                return;
+            }
             java.io.FileWriter w = new java.io.FileWriter(f, false);
             w.write(String.valueOf(System.currentTimeMillis()));
             w.close();

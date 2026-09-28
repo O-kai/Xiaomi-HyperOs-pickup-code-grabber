@@ -340,10 +340,14 @@ public class PickupExtractor {
         if (body == null || body.isEmpty() || r == null) return new ArrayList<>(result);
 
         // ===== v3.0.0：用户自定义规则优先（仅提取层，权限边界见 UserRules 类头注释）=====
+        // v3.0.1：tryMatch 返回的 [0] 可能是多个码（";" 分隔），这里逐个加入 → 每个码写一条待办
         String[] userHit = UserRules.tryMatch(userRuleCache, sender, body);
         if (userHit != null && userHit[0] != null && !userHit[0].trim().isEmpty()) {
-            result.add(userHit[0].trim());
-            return new ArrayList<>(result);
+            for (String c : userHit[0].split(";")) {
+                String t = c.trim();
+                if (!t.isEmpty()) result.add(t);
+            }
+            if (!result.isEmpty()) return new ArrayList<>(result);
         }
 
         // ===== Tier0-A：快递特征门禁 =====
@@ -492,6 +496,15 @@ public class PickupExtractor {
 
     /** 已载入的用户规则数量（供诊断/日志展示） */
     public static int userRuleCount() { return userRuleCache == null ? 0 : userRuleCache.size(); }
+
+    /**
+     * v3.0.1：本次提取是否命中了「用户自定义规则」（而非官方规则集）
+     * 命中时可用 getLastHitUserRuleName() 取到具体规则名，用于向用户明示"用了哪条规则"
+     */
+    public static boolean hitUserRule() { return UserRules.lastHitRuleName() != null; }
+
+    /** v3.0.1：最近命中的用户规则名（null 表示走的是官方规则） */
+    public static String getLastHitUserRuleName() { return UserRules.lastHitRuleName(); }
 
     private static String readFileToString(File f) throws Exception {
         try (FileInputStream fis = new FileInputStream(f)) {

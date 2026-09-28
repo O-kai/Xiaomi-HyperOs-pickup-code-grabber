@@ -304,14 +304,24 @@ public class UserRules {
     /**
      * 防线1：危险构造静态拦截
      * 目标：拦截可能引发「灾难性回溯」的正则结构
+     *
+     * 【v3.0.1 修正误伤】原先的规则会把「多码簇」这种安全写法一并拦掉，例如
+     *   (?:[,，、;；][A-Za-z0-9-]+)*        ← 分隔符驱动，确定字符，安全
+     *   ([A-Za-z0-9-]+)+                    ← 内外重叠，指数级回溯，危险
+     * 真正的灾难性回溯要求「内外层匹配同一段可变文本」。因此下面改为按类型区分：
+     *   · 危险：连续同类量词 (x+)+ (x*)+ (x+)* (x*)*、量词叠加 a+*、相邻 .*
+     *   · 安全：量词包裹的是「分隔符/字面量」等确定字符，如 (?:[,;][0-9]+)*
      */
     private static final String[][] DANGEROUS_PATTERNS = {
-            // 嵌套量词：(a+)+ / (a*)* / (a+)* 等
-            {"\\(\\s*[:=!]?[^()]*[+*][^()]*\\)\\s*[+*]", "存在嵌套量词（如 (x+) ），可能导致指数级回溯使短信处理卡死"},
-            // 连续两个以上量词
-            {"[+*]\\s*[+*]", "量词重复叠加，可能导致灾难性回溯"},
-            // 多个 .* 相邻
-            {".\\*.*\\*", "多个 .* 相邻，可能导致灾难性回溯"},
+            // (x+)+ / (x+)* / (x*)+ / (x*)*  —— 量词套量词且内外可能是同一段文本
+            // 用负向前瞻排除「安全的多码簇写法」：内层若以确定字符（分隔符/字面量）开头，
+            // 且内部量词作用于不同字符集，则不构成回溯源。
+            {"\\((?!(?:\\?[:=!]|\\s*[,，、;；/、]))[^()]{0,80}[+*]\\)[+*]",
+                    "存在嵌套量词（如 (x+)），可能导致指数级回溯使短信处理卡死"},
+            // 量词直接叠加：a+* / a*+ / a++（放过 (?i) (?=) 这类标志位）
+            {"(?<!\\?)[+*](?<!\\\\)[+*]", "量词重复叠加（如 a+*），可能导致灾难性回溯"},
+            // 相邻的 .*
+            {"\\.\\*[^)]{0,4}\\.\\*", "相邻的 .* 可能导致灾难性回溯"},
     };
 
     static String scanDangerous(String regex) {
@@ -407,7 +417,9 @@ public class UserRules {
             long t0 = System.nanoTime();
             String got;
             try {
-                got = matchCode(r, tc.sms);
+                // v3.0.1 多码支持：自测同样按多码校验（与实际提取行为一致）
+                List<String> gotList = matchCodes(r, tc.sms);
+                got = gotList.isEmpty() ? "" : String.join(";", gotList);
             } catch (Throwable t) {
                 res.details.add("第 " + (i + 1) + " 条样本：执行异常 " + t.getMessage());
                 continue;
@@ -496,7 +508,11 @@ public class UserRules {
 
     /**
      * 用户规则优先匹配：命中则返回该规则提取的结果，否则返回 null 交回默认引擎
-     * 返回数组：[0]=code  [1]=source  [2]=place
+     * 返回数组：[0]=codes(多码以 ";" 分隔，与官方引擎行为一致)  [1]=source  [2]=place
+     *
+     * 【多码支持 v3.0.1】一条短信里出现多个取件码时（如「取件码为 1-2-3456, 7-8-9012」），
+     *   与官方引擎的「多码簇」行为保持一致：按 ,，、;； 及空白拆分，逐个提取，
+     *   最终以 ";" 连接返回，由调用方拆成多条待办。
      *
      * 【优先级规则 v3.0.0】按「具体度」排序，号码专属规则优先于全局规则：
      *   EXACT(3) > PREFIX(2) > CONTAINS(1) > 任意全局规则(0)
@@ -508,16 +524,20 @@ public class UserRules {
         for (Rule r : sortedBySpecificity(rules)) {
             if (!r.enabled || !r.compiledOk || r.pCode == null) continue;
             if (!senderMatches(r, sender)) continue;
-            String code = null;
-            try {
-                code = matchCode(r, sms);
-            } catch (Throwable ignored) { }
-            if (code == null || code.isEmpty()) continue;
 
+            List<String> codes;
+            try {
+                codes = matchCodes(r, sms);
+            } catch (Throwable ignored) {
+                codes = new ArrayList<>();
+            }
+            if (codes.isEmpty()) continue;
+
+            String first = codes.get(0);
             String source = null;
             String place = null;
             if (r.source != null && !r.source.trim().isEmpty()) {
-                source = interpolate(r.source, code, r, sms);
+                source = interpolate(r.source, first, r, sms);
             }
             if (r.placeRegex != null && r.pPlace != null) {
                 try {
@@ -531,11 +551,61 @@ public class UserRules {
                 } catch (Throwable ignored) { }
             }
             if ((place == null || place.isEmpty()) && r.place != null && !r.place.trim().isEmpty()) {
-                place = interpolate(r.place, code, r, sms);
+                place = interpolate(r.place, first, r, sms);
             }
-            return new String[]{code, source, place};
+            lastHitRule = r;   // 溯源：记录本次命中的是哪条用户规则（供 UI 展示"用了哪条规则"）
+            return new String[]{String.join(";", codes), source, place};
         }
+        lastHitRule = null;
         return null;
+    }
+
+    /**
+     * v3.0.1：最近一次 tryMatch 命中的用户规则（null = 未命中任何用户规则，走官方规则）
+     * 用于「一键链路测试」等场景展示"本次解析用的是官方规则还是你的哪条规则"
+     */
+    private static volatile Rule lastHitRule;
+
+    /** 最近命中的用户规则名称；未命中返回 null */
+    public static String lastHitRuleName() {
+        Rule r = lastHitRule;
+        return (r == null) ? null : safeName(r);
+    }
+
+    /** 清除溯源记录（每次新一轮解析前调用，避免显示上一条的结果） */
+    public static void clearLastHit() { lastHitRule = null; }
+
+    /**
+     * 按规则提取【全部】取件码（多码簇）
+     *
+     * 两种情形都能正确工作：
+     *  1) 正则本身一次匹配多个码：codeRegex = 取件码为?([A-Za-z0-9-]+([、,，;；][A-Za-z0-9-]+)*)
+     *     → 捕获组里是「1-2-3456, 7-8-9012」整串，这里按分隔符再拆开
+     *  2) 正则只能匹配单个码：codeRegex = 取件码\s*([A-Za-z0-9-]+)
+     *     → 这里对全文反复 find()，把所有匹配都收集起来
+     *
+     * 拆分分隔符与官方引擎 addCluster 完全一致：[,，、;；\s]+
+     */
+    static List<String> matchCodes(Rule r, String sms) {
+        List<String> out = new ArrayList<>();
+        if (r == null || r.pCode == null || sms == null) return out;
+
+        Matcher m = r.pCode.matcher(sms);
+        while (m.find()) {
+            int g = r.codeGroup;
+            String v = (g >= 0 && g <= m.groupCount()) ? m.group(g) : null;
+            if (v == null) continue;
+            v = v.trim();
+            if (v.isEmpty()) continue;
+            // 簇内再按分隔符拆分（覆盖"正则一次抓到多个码"的情形）
+            for (String part : v.split("[,，、;；\\s]+")) {
+                String t = part.trim();
+                if (!t.isEmpty() && !out.contains(t)) out.add(t);
+            }
+            // 防止病态正则导致死循环（零宽匹配场景）
+            if (m.end() == m.start()) break;
+        }
+        return out;
     }
 
     /**
