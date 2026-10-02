@@ -64,9 +64,9 @@ public class ExtractorRules {
 
     public static ExtractorRules createDefault() {
         ExtractorRules r = new ExtractorRules();
-        r.version = 4;
+        r.version = 5;
         r.minAppVersionCode = 293;
-        r.description = "内置默认提取规则集 v4（严格码形 + 正反双向闸门 + 三层判定 + 排除语义上下文）";
+        r.description = "内置默认提取规则集 v5（补齐取件凭证叫法变体：提货码/取货号/提货号/收货码/取件密码；严格码形 + 正反双向闸门 + 四层判定 + 排除语义上下文）";
 
         // ===== 快递特征词（Tier0 门禁：短信必须命中其一才可能是取件短信）=====
         r.featureWords.add("驿站"); r.featureWords.add("快递柜"); r.featureWords.add("丰巢");
@@ -85,9 +85,13 @@ public class ExtractorRules {
         r.actionWords.add("出示");
 
         // ===== TierA 强锚点（关键词后紧跟码，最高置信）=====
-        r.keywordAnchors.add("取件码"); r.keywordAnchors.add("取货码"); r.keywordAnchors.add("提取码");
-        r.keywordAnchors.add("自提码"); r.keywordAnchors.add("凭码"); r.keywordAnchors.add("动态取件码");
-        r.keywordAnchors.add("取件号"); r.keywordAnchors.add("凭取件码");
+        r.keywordAnchors.add("取件码"); r.keywordAnchors.add("取货码"); r.keywordAnchors.add("提货码");
+        r.keywordAnchors.add("提取码"); r.keywordAnchors.add("自提码"); r.keywordAnchors.add("凭码");
+        r.keywordAnchors.add("动态取件码"); r.keywordAnchors.add("取件号"); r.keywordAnchors.add("凭取件码");
+        // v5：补齐取件凭证叫法变体——不同驿站/柜机厂商对"码"的叫法不统一
+        // （实测：【递管家】用「提货码」、部分柜机用「取货号/提货号/收货码/取件密码」）
+        r.keywordAnchors.add("取货号"); r.keywordAnchors.add("提货号");
+        r.keywordAnchors.add("收货码"); r.keywordAnchors.add("取件密码");
 
         // ===== TierB 凭/出示 + 码 =====
         r.byWords.add("凭"); r.byWords.add("出示");
