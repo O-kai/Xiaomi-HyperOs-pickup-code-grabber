@@ -268,12 +268,30 @@ public class UserRules {
         for (Rule r : loadAll(ctx)) {
             if (r.enabled && r.compiledOk) active.add(r);
         }
+        // v3.1.0 修正三：同步给系统进程前剥掉「测试样本」。
+        // 测试样本是用户粘贴的真实短信原文（含姓名/手机号/住址），而同步文件是
+        // /data/local/tmp 下 chmod 644 的全局可读文件。系统进程只用规则做匹配，
+        // 从不读 testCases（tryMatch 不访问该字段），所以剥掉不影响任何功能，
+        // 却能避免把用户隐私明文落到全局可读位置。
+        final List<Rule> syncSafe = new ArrayList<>();
+        for (Rule r : active) {
+            Rule c = copyWithoutSamples(r);
+            if (c != null) syncSafe.add(c);
+        }
         new Thread(() -> {
             try {
-                String json = enabled ? serialize(active) : "[]";
+                // v3.1.0：整个 JSON 做 Base64 后再写文件（写入命令走 Diagnostics.suExec，
+                // 其内部会把命令行里的双引号替换成单引号；用户正则里出现双引号时
+                // 到了系统进程就变成另一个正则，不报错、只是安静地提不出码）。
+                // 同时改为「先写 tmp 再原子改名」：非原子写时系统进程可能读到半截内容，
+                // 导致用户自定义规则在通知通道静默失效。
+                String json = enabled ? serialize(syncSafe) : "[]";
+                String b64 = android.util.Base64.encodeToString(
+                        json.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
                 Diagnostics.suExecPublic("mkdir -p " + SYNC_DIR + "; "
-                        + "cat > " + SYNC_FILE + " << 'PICKUP_EOF'\n" + json + "\nPICKUP_EOF\n"
-                        + "chmod 644 " + SYNC_FILE, 20);
+                        + "cat > " + SYNC_FILE + ".tmp << 'PICKUP_EOF'\n" + b64 + "\nPICKUP_EOF\n"
+                        + "chmod 644 " + SYNC_FILE + ".tmp; "
+                        + "mv -f " + SYNC_FILE + ".tmp " + SYNC_FILE, 20);
             } catch (Throwable t) {
                 Log.w(TAG, "sync to system process failed: " + t);
             }
@@ -286,9 +304,21 @@ public class UserRules {
         try {
             File f = new File(SYNC_FILE);
             if (!f.exists()) return out;
-            String json = readFile(f);
-            if (json == null || json.trim().isEmpty()) return out;
-            JSONArray arr = new JSONArray(json);
+            String raw = readFile(f);
+            if (raw == null || raw.trim().isEmpty()) return out;
+            String text = raw.trim();
+            // v3.1.0 修正二：写入端改为 Base64。这里做「先新后旧」的双格式兼容，
+            // 以免升级后老文件（明文 JSON）读不出来。
+            char head = text.charAt(0);
+            if (head != '{' && head != '[') {
+                try {
+                    text = new String(android.util.Base64.decode(text,
+                            android.util.Base64.DEFAULT), StandardCharsets.UTF_8);
+                } catch (Throwable e) {
+                    Log.w(TAG, "loadForSystemProcess: 不是合法 Base64，按明文再试一次");
+                }
+            }
+            JSONArray arr = new JSONArray(text);
             for (int i = 0; i < arr.length(); i++) {
                 Rule r = parseRule(arr.getJSONObject(i));
                 if (r != null && compileRule(r) == null) out.add(r);
@@ -718,6 +748,36 @@ public class UserRules {
             compileRule(r);
             return r;
         } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 复制一条规则但抹掉测试样本（用于同步给系统进程）。
+     * 系统进程只拿规则做匹配，从不读 testCases，因此抹掉不影响功能。
+     * 目的是避免把用户粘贴的真实短信原文（可能含姓名/手机号/住址）
+     * 写进 /data/local/tmp 下 chmod 644 的全局可读文件。
+     */
+    private static Rule copyWithoutSamples(Rule src) {
+        try {
+            Rule c = new Rule();
+            c.id = src.id;
+            c.name = src.name;
+            c.codeRegex = src.codeRegex;
+            c.codeGroup = src.codeGroup;
+            c.source = src.source;
+            c.place = src.place;
+            c.placeRegex = src.placeRegex;
+            c.placeGroup = src.placeGroup;
+            c.senderMode = src.senderMode;
+            c.senderValue = src.senderValue;
+            c.senderContains = src.senderContains;
+            c.enabled = src.enabled;
+            c.compiledOk = src.compiledOk;
+            c.testCases = new ArrayList<>();
+            return c;
+        } catch (Throwable t) {
+            Log.w(TAG, "copyWithoutSamples failed: " + t);
             return null;
         }
     }

@@ -54,6 +54,33 @@ public class SystemDirectWriter {
     private static volatile String lastFingerprint = "";
     private static volatile long lastWriteAt = 0L;
 
+    /**
+     * v3.1.0：跨进程配置快照（官方规则 / 黑名单 / 模板 / 写入目标）的进程内缓存。
+     * 兜底通道每条短信都会走到本方法，若每次都读文件 + 重新解析 + 重跑 21 条冒烟用例会明显拖慢，
+     * 故做缓存。但【不能永久缓存】——com.android.providers.telephony 是长驻进程，
+     * 可存活数天，用户改了设置后不重启就永远读不到新值。
+     * 因此改为：按 TTL 过期（30 分钟）后重读，既避免每次开销，又不会长期吃陈旧配置。
+     */
+    private static volatile ProcessSync.State stateCache = null;
+    private static volatile long stateCacheAt = 0L;
+    private static final long STATE_CACHE_TTL_MS = 30L * 60 * 1000;
+
+    /** v3.1.0：读取并缓存跨进程配置快照（按 TTL 过期，见 stateCache 注释） */
+    private static ProcessSync.State loadStateOnce() {
+        ProcessSync.State c = stateCache;
+        if (c != null && System.currentTimeMillis() - stateCacheAt < STATE_CACHE_TTL_MS) {
+            return c;
+        }
+        synchronized (SystemDirectWriter.class) {
+            if (stateCache == null
+                    || System.currentTimeMillis() - stateCacheAt >= STATE_CACHE_TTL_MS) {
+                stateCache = ProcessSync.load();
+                stateCacheAt = System.currentTimeMillis();
+            }
+        }
+        return stateCache;
+    }
+
     /** 兜底写入总开关（见类注释）：读 /data/local/tmp 标志，回落 APK assets 默认值 */
     public static boolean enabled(Context ctx) {
         Boolean c = enabledCache;
@@ -88,8 +115,36 @@ public class SystemDirectWriter {
                     PickupExtractor.loadUserRules(null, UserRules.loadForSystemProcess());
                 }
             } catch (Throwable ignored) { }
-            for (String kw : DEFAULT_BLACKLIST) {
-                if (body.contains(kw)) return;
+            // v3.1.0 P1/P3：官方规则与用户偏好（黑名单/模板）此前在本进程是编译内置/硬编码的，
+            // 与用户在 App 里的设置不一致。这里一次性拉齐：
+            //   · 官方规则 → 用 ProcessSync 同步快照（短信通道热更到哪一版，这里就是哪一版）
+            //   · 黑名单   → 用用户实际配置（读不到才回落默认 8 词）
+            //   · 模板     → 用用户选的模式与自定义模板（此前这里写死 MODE_FULL）
+            ProcessSync.State st = loadStateOnce();
+            PickupExtractor.initForSystemProcess(st != null ? st.rulesJson : null);
+            String[] blacklist = DEFAULT_BLACKLIST;
+            int mode = TodoWriter.MODE_FULL;
+            String customTpl = null;
+            if (st != null) {
+                // v3.1.0：分隔符与 TodoWriter.isBlacklisted 保持一致（原先此处少了 、 和 ；，
+                // 用户用「、」或「;」分隔的黑名单词在兜底通道会被当成一个整词而静默失效）。
+                // v3.1.0：快照里只要有 blacklist 字段就照用，哪怕它是空串。
+                // 此前「空串 → 回落默认 8 词」，与用户在设置页看到的承诺矛盾——
+                // 清空黑名单时 App 明确 Toast「所有短信不再被关键词过滤」，
+                // 而兜底通道仍在按 8 词过滤。只有快照字段【缺失】（旧版本文件）才回落默认。
+                if (st.blacklist != null) {
+                    blacklist = st.blacklist.trim().isEmpty()
+                            ? new String[0]
+                            : st.blacklist.split("[,，、;；\\s]+");
+                }
+                mode = st.todoMode;
+                if (st.customTpl != null && !st.customTpl.trim().isEmpty()) {
+                    customTpl = st.customTpl;
+                }
+            }
+            for (String kw : blacklist) {
+                if (kw == null || kw.trim().isEmpty()) continue;
+                if (body.contains(kw.trim())) return;
             }
             if (!PickupExtractor.lookLikePickupSms(sender, body)) return;
             List<String> codes = PickupExtractor.extract(sender, body);
@@ -102,16 +157,23 @@ public class SystemDirectWriter {
                 return;
             }
 
-            String backend = NotesBackend.propsBackend();
+            // v3.1.0：优先用用户在设置页手动指定的写入目标（来自 ProcessSync 快照）。
+            // 没有指定时才按 ROM 属性推断——否则用户把目标改成与推断不同的那个时，
+            // 主通道和兜底通道会写进两个不同的库，用户在其中一个 App 里看不到。
+            String backend = (st != null && st.backend != null && !st.backend.trim().isEmpty())
+                    ? st.backend.trim()
+                    : NotesBackend.propsBackend();
             String db = NotesBackend.dbPathOf(backend);
             String source = TodoWriter.resolveSource(sender, body);
-            String place = TodoWriter.extractPlace(body);
+            // v3.1.0 P3：此处原先调用 extractPlace(body) 不传 sender，
+            // 导致「带发送方范围的用户规则」在兜底通道取不到地点 → 与短信通道不一致
+            String place = TodoWriter.extractPlace(sender, body);
             String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date());
 
             StringBuilder sql = new StringBuilder(".timeout 5000\n");
             int wrote = 0;
             for (String code : codes) {
-                String content = TodoWriter.buildContent(TodoWriter.MODE_FULL, null, code, source, place, time);
+                String content = TodoWriter.buildContent(mode, customTpl, code, source, place, time);
                 String title = TodoWriter.buildTitle(code, content);
                 if (exists(ctx, backend, db, code)) {
                     XposedEntry.log("SYS-WRITE dedup skip: " + code);
@@ -124,7 +186,7 @@ public class SystemDirectWriter {
 
             lastFingerprint = fp;
             lastWriteAt = now;
-            int rc = runSqlFile(ctx, sql.toString());
+            int rc = runSqlFile(ctx, sql.toString(), backend);
             XposedEntry.log("SYS-WRITE backend=" + backend + " codes=" + wrote + " rc=" + rc);
         } catch (Throwable t) {
             XposedEntry.log("SYS-WRITE err: " + t);
@@ -137,8 +199,15 @@ public class SystemDirectWriter {
         return out != null && out.trim().matches("\\d+") && !out.trim().equals("0");
     }
 
-    /** 写 SQL 文件并 su sqlite3 执行；返回 0=成功，-1=失败 */
-    private static int runSqlFile(Context ctx, String sql) {
+    /**
+     * 写 SQL 文件并 su sqlite3 执行；返回 0=成功，-1=失败
+     *
+     * v3.1.0：backend 改为显式传入。
+     * 此前本方法内部用 NotesBackend.propsBackend() 再算一次库路径，
+     * 而调用方 fallback() 用的是 ProcessSync 快照里的用户手选目标——
+     * 两者不一致时会「查重查 A 库、INSERT 打进 B 库」，用户手动改过写入目标就必现。
+     */
+    private static int runSqlFile(Context ctx, String sql, String backend) {
         try {
             File dir = ctx.getFilesDir();
             File sqlFile = new File(dir, "sys_direct.sql");
@@ -146,9 +215,12 @@ public class SystemDirectWriter {
                 fos.write(sql.getBytes("UTF-8"));
             }
             String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"};
-            String db = NotesBackend.dbPathOf(NotesBackend.propsBackend());
+            String effBackend = (backend == null || backend.trim().isEmpty())
+                    ? NotesBackend.propsBackend() : backend.trim();
+            String db = NotesBackend.dbPathOf(effBackend);
+            XposedEntry.log("SYS-WRITE backend=" + effBackend + " db=" + db);
             for (String suBin : suBins) {
-                String cmd = suBin + " -M -c \"id; " + NotesBackend.chmodCmdOf(NotesBackend.propsBackend())
+                String cmd = suBin + " -M -c \"id; " + NotesBackend.chmodCmdOf(effBackend)
                         + "LD_LIBRARY_PATH=" + LIBS + " " + SQLITE + " " + db
                         + " < " + sqlFile.getAbsolutePath() + "\"";
                 Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd});

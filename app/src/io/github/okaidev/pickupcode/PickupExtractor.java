@@ -81,8 +81,19 @@ public class PickupExtractor {
                 String json = readFileToString(localRules);
                 ExtractorRules candidate = ExtractorRules.fromJson(json);
                 if (runSmokeTest(candidate)) {
-                    activeRules = candidate;
-                    Log.i(TAG, "PickupExtractor: loaded custom rules v" + candidate.version);
+                    // v3.1.0 P2：升级 APK 后，若新包 assets 自带更高版本规则，
+                    // 旧的本地缓存会把它「压住」——离线/弱网用户永远读不到新规则。
+                    // 这里读一次 assets 做版本比较，版本更高则改用 assets 并回写缓存。
+                    ExtractorRules assetRules = readAssetRules(ctx);
+                    if (assetRules != null && assetRules.version > candidate.version) {
+                        activeRules = assetRules;
+                        writeLocalRules(ctx, readAssetRulesRaw(ctx));
+                        Log.i(TAG, "PickupExtractor: asset rules v" + assetRules.version
+                                + " newer than cache v" + candidate.version + " — upgraded");
+                    } else {
+                        activeRules = candidate;
+                    }
+                    Log.i(TAG, "PickupExtractor: loaded custom rules v" + activeRules.version);
                     return;
                 } else {
                     Log.w(TAG, "PickupExtractor: cached rules failed smoke test, fallback to default");
@@ -96,6 +107,7 @@ public class PickupExtractor {
                 ExtractorRules candidate = ExtractorRules.fromJson(json);
                 if (runSmokeTest(candidate)) {
                     activeRules = candidate;
+                    writeLocalRules(ctx, json);
                     Log.i(TAG, "PickupExtractor: loaded asset rules v" + candidate.version);
                     return;
                 }
@@ -103,6 +115,63 @@ public class PickupExtractor {
 
         } catch (Throwable t) {
             Log.e(TAG, "PickupExtractor init rules err: " + t);
+        }
+        activeRules = ExtractorRules.createDefault();
+    }
+
+    /** 读 assets 规则（仅用于版本比较，失败返回 null） */
+    private static ExtractorRules readAssetRules(Context ctx) {
+        try (InputStream is = ctx.getAssets().open("rules/rules.json")) {
+            String json = readStreamToString(is);
+            ExtractorRules r = ExtractorRules.fromJson(json);
+            return runSmokeTest(r) ? r : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 读 assets 规则原文（用于回写缓存） */
+    private static String readAssetRulesRaw(Context ctx) {
+        try (InputStream is = ctx.getAssets().open("rules/rules.json")) {
+            return readStreamToString(is);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 写本地规则缓存（失败静默，缓存只是加速手段） */
+    private static void writeLocalRules(Context ctx, String json) {
+        if (ctx == null || json == null) return;
+        try {
+            File f = new File(ctx.getFilesDir(), RULES_FILE_NAME);
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(f)) {
+                fos.write(json.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "PickupExtractor: write local rules failed: " + t);
+        }
+    }
+
+    /**
+     * 系统进程初始化（v3.1.0 P1）：
+     * system_server / providers.telephony 没有 Context，读不到 SharedPreferences 与 assets，
+     * 此前只能用编译内置默认规则，导致「官方规则热更了、通知通道仍在用旧规则」的组合债。
+     * 这里从 ProcessSync 同步文件里加载官方规则快照；失败一律回落内置默认，绝不抛异常。
+     */
+    public static synchronized void initForSystemProcess(String rulesJson) {
+        try {
+            if (rulesJson != null && !rulesJson.trim().isEmpty()) {
+                ExtractorRules candidate = ExtractorRules.fromJson(rulesJson);
+                if (runSmokeTest(candidate)) {
+                    activeRules = candidate;
+                    Log.i(TAG, "PickupExtractor: system process loaded synced rules v"
+                            + candidate.version);
+                    return;
+                }
+                Log.w(TAG, "PickupExtractor: synced rules failed smoke test, use builtin");
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "PickupExtractor: initForSystemProcess failed: " + t);
         }
         activeRules = ExtractorRules.createDefault();
     }
@@ -356,18 +425,22 @@ public class PickupExtractor {
         }
 
         // ===== TierA：关键词锚定（取件码/取货码…）=====
+        // v3.1.0：改走带位置的 addCluster，让 TierA 也能做语义排除
         if (r.patternKeyword != null) {
             Matcher a = r.patternKeyword.matcher(body);
             while (a.find()) {
-                addCluster(result, r, a.group(1));
+                addCluster(result, r, a.group(1), a.start(1), a.end(1), body);
             }
         }
 
         // ===== TierB：凭/出示 + 码 =====
+        // v3.1.0：同上，改走带位置的语义排除
         if (r.patternBy != null) {
             Matcher b = r.patternBy.matcher(body);
             while (b.find()) {
-                addIfValid(result, r, b.group(1));
+                String tok = b.group(1);
+                if (tok == null) continue;
+                addIfValidSemantic(result, r, tok, b.start(1), b.end(1), body);
             }
         }
 
@@ -408,6 +481,27 @@ public class PickupExtractor {
         return new ArrayList<>(result);
     }
 
+    /** v3.1.0：带原文位置参数的版本，TierA/B 用它做语义排除 */
+    private static void addCluster(Set<String> out, ExtractorRules r, String cluster,
+                                  int clusterStart, int clusterEnd, String body) {
+        if (cluster == null) return;
+        int off = 0;
+        for (String tok : cluster.split("[,，、;；\\s]+")) {
+            // 定位该 token 在原文中的偏移，供 isExcludedToken 判断前后文
+            int idx = (clusterStart >= 0 && body != null)
+                    ? body.indexOf(tok, Math.max(0, clusterStart)) : -1;
+            if (idx < 0) idx = -1;
+            if (idx >= 0) {
+                addIfValidSemantic(out, r, tok, idx, idx + tok.length(), body);
+            } else {
+                // 定位不到（例如原文大小写或空白与捕获组不一致）→ 保守放行，维持旧行为
+                addIfValid(out, r, tok);
+            }
+            off += tok.length();
+        }
+    }
+
+    /** 不带位置的旧版本（TierD 仍走它——TierD 本来就自己调 isExcludedToken） */
     private static void addCluster(Set<String> out, ExtractorRules r, String cluster) {
         if (cluster == null) return;
         for (String tok : cluster.split("[,，、;；\\s]+")) {
@@ -415,8 +509,27 @@ public class PickupExtractor {
         }
     }
 
+    /**
+     * v3.1.0 修复：TierA / TierB 此前只做 validCode（形状检查），完全绕过 isExcludedToken（语义排除）。
+ * 后果是 excludeTailWords / excludeHeadWords / 掩码手机号 / URL 这些排除规则
+ * 对「最自信的那一类短信」恰好完全失效，而锚点短信正是用户投诉抓错码的主要来源。
+ * 实测反例（修复前 TierA 会误提）：
+ *   「…3号柜284号格口，取件码284」      → 误取 284（其实是格口号）
+ *   「…取件码为123123123」              → 误取 123123123（其实是订单号）
+ *   「…取件码为159****6739」            → 误取 159（掩码手机号前半段）
+ * 现在 TierA/TierB 的每个候选都走一遍语义排除（传入其在原文中的位置）。
+ */
     private static void addIfValid(Set<String> out, ExtractorRules r, String tok) {
-        if (tok != null && validCode(r, tok)) out.add(tok);
+        if (tok == null || !validCode(r, tok)) return;
+        out.add(tok);
+    }
+
+    /** v3.1.0：带原文位置的语义排除版（TierA / TierB 使用） */
+    private static void addIfValidSemantic(Set<String> out, ExtractorRules r, String tok,
+                                           int start, int end, String body) {
+        if (tok == null || !validCode(r, tok)) return;
+        if (isExcludedToken(r, tok, start, end, body)) return;
+        out.add(tok);
     }
 
     /**

@@ -33,28 +33,45 @@ public class NotiHook {
     private static final String TAG = "PICKUPDEBUG";
     private static final String FLAG_FILE = "/data/local/tmp/pickup_sqlite/enable_noti_hook";
 
-    /** 快递/电商通知白名单（v1：主流大厂，按需热扩） */
-    private static final List<String> PKG_WHITELIST = new ArrayList<>(java.util.Arrays.asList(
+    /**
+     * 快递/电商通知白名单（v1：主流大厂，按需热扩）
+     * v3.1.0：改为 public 常量，供 ProcessSync 同步给系统进程，并支持用户在设置页追加包名。
+     */
+    public static final String[] BUILTIN_PKGS = {
             "com.cainiao.wireless",     // 菜鸟
             "com.cainiao.guoguo",       // 菜鸟裹裹
             "com.jingdong.app.mall",    // 京东
             "com.taobao.taobao",        // 淘宝
             "com.xunmeng.pinduoduo",    // 拼多多
             "com.sf.cdsibm"             // 顺丰
-    ));
+    };
+
+    /** 运行时白名单 = 内置 + 用户追加（v3.1.0 P4） */
+    private static final List<String> PKG_WHITELIST = new ArrayList<>(java.util.Arrays.asList(BUILTIN_PKGS));
 
     /** 模块入口调用：在 system_server 注册通知管线钩子 */
     public static void install(ClassLoader sysCl) {
         try {
             // v3.0.0：system_server 冷启动时先加载用户规则（从 root 同步文件读）
-            // 否则通知通道的冷启动场景会静默使用编译内置规则，用户规则不生效
+            // v3.1.0：同时加载「官方规则集 + 黑名单/模板偏好」快照（ProcessSync），
+            // 否则通知通道会用编译内置旧规则跑，出现「短信已修好、通知还在漏抓」的组合债
             try {
-                PickupExtractor.loadUserRules(null,
-                        UserRules.loadForSystemProcess());
-                XposedBridge.log(TAG + ": user rules loaded: "
-                        + PickupExtractor.userRuleCount());
+                ProcessSync.State st = ProcessSync.load();
+                PickupExtractor.initForSystemProcess(st != null ? st.rulesJson : null);
+                PickupExtractor.loadUserRules(null, UserRules.loadForSystemProcess());
+                if (st != null && st.notiPkgs != null && !st.notiPkgs.trim().isEmpty()) {
+                    synchronized (PKG_WHITELIST) {
+                        PKG_WHITELIST.clear();
+                        for (String p : st.notiPkgs.split("[,，\\s]+")) {
+                            String t = p.trim();
+                            if (!t.isEmpty() && !PKG_WHITELIST.contains(t)) PKG_WHITELIST.add(t);
+                        }
+                    }
+                }
+                XposedBridge.log(TAG + ": user rules loaded: " + PickupExtractor.userRuleCount()
+                        + " / official rules v" + PickupExtractor.getActiveRulesVersion());
             } catch (Throwable t) {
-                XposedBridge.log(TAG + ": load user rules skipped: " + t);
+                XposedBridge.log(TAG + ": load rules skipped: " + t);
             }
 
             Class<?> nms = XposedHelpers.findClass(
