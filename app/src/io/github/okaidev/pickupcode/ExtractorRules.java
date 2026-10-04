@@ -161,6 +161,19 @@ public class ExtractorRules {
         r.placeSuffixes = jsonArrayToList(obj.optJSONArray("placeSuffixes"));
         r.negativeKeywords = jsonArrayToList(obj.optJSONArray("negativeKeywords"));
 
+        // v3.1.0：三个「不能为空」的词表在此做兜底，与下面 excludeTail/Head 的处理方式一致。
+        // compile() 里已改为对空表抛异常（防止规则损坏后门禁失效），
+        // 这里先回落到内置默认，避免一个手滑的空数组就让整份热更规则被拒。
+        if (r.featureWords == null || r.featureWords.isEmpty()) {
+            r.featureWords = createDefault().featureWords;
+        }
+        if (r.placeSuffixes == null || r.placeSuffixes.isEmpty()) {
+            r.placeSuffixes = createDefault().placeSuffixes;
+        }
+        if (r.placePrefixes == null || r.placePrefixes.isEmpty()) {
+            r.placePrefixes = createDefault().placePrefixes;
+        }
+
         // ===== v4 新增字段：缺失时回落到内置默认（保证老 rules.json 也能安全加载）=====
         List<String> tail = jsonArrayToList(obj.optJSONArray("excludeTailWords"));
         r.excludeTailWords = tail.isEmpty() ? createDefault().excludeTailWords : tail;
@@ -230,6 +243,17 @@ public class ExtractorRules {
         if (extraFeatureWords != null && !extraFeatureWords.isEmpty()) {
             feat.append("|").append(String.join("|", extraFeatureWords));
         }
+        // v3.1.0：特征词表为空时不能放行。
+        // Pattern.compile("") 会变成「匹配一切」，Tier0 门禁就此消失——
+        // 实测此时「您的收货码为654321」「您的停车码为223344」「缴费凭证号882311」
+        // 这类完全无关的短信都会被提出来，且 hasFeatureWords 对每条短信都返回 true，
+        // 把错题本灌满无关短信。更糟的是冒烟测试只跑 extractWithRules、不测门禁语义，
+        // 实测 runSmokeTest 在这种情况下仍返回 true（拦不住）。
+        // 因此这里直接抛异常：fromJson 会失败 → 调用方回退到内置默认规则（安全方向）。
+        if (feat.length() == 0) {
+            throw new IllegalArgumentException("featureWords 与 extraFeatureWords 不能同时为空"
+                    + "（否则 Tier0 特征门禁会失效，退化成匹配一切）");
+        }
         patternFeature = Pattern.compile(feat.toString());
         patternAction = Pattern.compile(String.join("|", actionWords));
 
@@ -248,6 +272,13 @@ public class ExtractorRules {
         // 策略2（回退）：旧"前缀+后缀词"匹配，策略1 未命中时兜底。
         String preOr = String.join("|", placePrefixes);
         String sufOr = String.join("|", placeSuffixes);
+        // v3.1.0：前后缀词表任一为空时，策略2 会退化成 (?:)(...)(?:)，
+        // 即「匹配任意 2~30 个汉字」——短信里随便一段中文都会被当成地点。
+        // 与 featureWords 同理，这里直接拒绝加载，让规则回落到内置默认。
+        if (placeSuffixes == null || placeSuffixes.isEmpty()) {
+            throw new IllegalArgumentException("placeSuffixes 不能为空"
+                    + "（否则地点回退策略会退化成匹配任意中文）");
+        }
         String pPlaceSqueeze = "(?:已到达|到达|已到|到|至)([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?)(?=取|领取|取件|取货|，|。|,|$)";
         String pPlaceSuffix = "(?:" + preOr + ")([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:" + sufOr + "))";
         patternPlace = Pattern.compile(pPlaceSqueeze);

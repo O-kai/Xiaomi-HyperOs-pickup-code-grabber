@@ -43,15 +43,43 @@ public class SmsEventReceiver extends BroadcastReceiver {
             return;
         }
 
-        if (!PickupExtractor.lookLikePickupSms(sender, body)) {
+        // v3.1.0：门禁强度与 TodoProvider 对齐。
+        // 此前这里用 lookLikePickupSms（特征词「且」存在形状 token），比 TodoProvider 的
+        // hasFeatureWords（只要特征词）更严一层，导致同一条短信在两条通道上的结果不一致：
+        // 「有快递特征词但文案里根本没有数字码」的短信，在这条通道被直接丢弃，
+        // 而在另一条通道会记进错题本。统一为 hasFeatureWords，
+        // 既保证两通道一致，也让漏抓样本能被错题本收集到（丢进去提取不出码 → 记错题本）。
+        if (!PickupExtractor.hasFeatureWords(sender, body)) {
             Log.i(TAG, "EVENT: 非取件短信，跳过");
             return;
         }
 
-        List<String> wrote = TodoWriter.handle(ctx, sender, body);
-        if (!wrote.isEmpty()) {
-            Log.i(TAG, "EVENT: 已写入待办 " + wrote);
-        }
-        // P3 起：通知栏提示 + 点击复制
+        // v3.1.0：BroadcastReceiver.onReceive 在【主线程】执行，而 TodoWriter.handle 内部要跑
+        // su + sqlite3（最多 5 条 SQL × 5 个 su 路径），耗时可达数秒 → 直接 ANR。
+        // 改用 goAsync() 把处理挪到后台线程，并在 onReceive 返回前调用 finish()。
+        // （另一条主通道 TodoProvider 跑在 Binder 线程池，本身就不阻塞主线程。）
+        final PendingResult pending = goAsync();
+        new Thread(() -> {
+            try {
+                List<String> wrote = TodoWriter.handle(ctx, sender, body);
+                if (!wrote.isEmpty()) {
+                    Log.i(TAG, "EVENT: 已写入待办 " + wrote);
+                } else {
+                    String dedup = TodoWriter.getLastDedupHits();
+                    if (dedup != null && !dedup.trim().isEmpty()) {
+                        Log.i(TAG, "EVENT: 全部命中去重 " + dedup);
+                    } else {
+                        String diag = TodoWriter.getLastWriteDiag();
+                        Log.e(TAG, "EVENT: 写入失败: " + diag);
+                        Notifier.notifyWriteFailed(ctx,
+                                diag == null || diag.trim().isEmpty() ? "原因未知" : diag);
+                    }
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "EVENT handle err: " + t);
+            } finally {
+                pending.finish();
+            }
+        }).start();
     }
 }

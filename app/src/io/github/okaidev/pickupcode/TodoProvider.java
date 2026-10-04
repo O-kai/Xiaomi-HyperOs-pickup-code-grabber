@@ -35,9 +35,21 @@ public class TodoProvider extends ContentProvider {
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
         if (METHOD_MARK_DONE.equals(method) && arg != null && !arg.isEmpty()) {
-            String sql = NotesBackend.markDoneSql(getContext(), arg);
+            // v3.1.0 安全加固：本 Provider 为 exported=true 且无 android:permission
+            // （加权限会阻断 LSPosed 从系统进程唤醒，那是核心功能，不能动），只能靠入参校验自保。
+            // 否则任意 App 传 arg="%" 会得到 LIKE '%%'，批量标记用户全部未完成待办。
+            String code = arg.trim();
+            boolean valid = code.length() <= 20 && code.indexOf('-') > 0
+                    && code.matches("[A-Za-z0-9-]+");
+            if (!valid) {
+                Log.w(TAG, "MARK_DONE(call) 拒绝非法入参: " + code);
+                Bundle bad = new Bundle();
+                bad.putInt("rc", -2);
+                return bad;
+            }
+            String sql = NotesBackend.markDoneSql(getContext(), code);
             int rc = TodoWriter.runSql(getContext(), sql);
-            Log.i(TAG, "MARK_DONE(call): code=" + arg + " rc=" + rc);
+            Log.i(TAG, "MARK_DONE(call): code=" + code + " rc=" + rc);
             Bundle r = new Bundle();
             r.putInt("rc", rc);
             return r;
@@ -64,6 +76,21 @@ public class TodoProvider extends ContentProvider {
                 Log.i(TAG, "PROVIDER-CALL: 已写入待办 " + wrote);
                 // 通知（点击复制 + 打开便签）
                 Notifier.notifyCodes(getContext(), wrote, null);
+            } else {
+                // v3.1.0：写入失败/全部命中去重时给出反馈。
+                //   此前两条路径都静默——用户只看到「待办里什么都没有」，
+                //   既不知道是没抓到还是写失败，也无从排查（目标表不存在、
+                //   root 未授权、sqlite3 缺失…）。这里区分两种情况告知用户。
+                String dedup = TodoWriter.getLastDedupHits();
+                if (dedup != null && !dedup.trim().isEmpty()) {
+                    // 命中去重：本来就写过，不是故障，不打扰
+                    Log.i(TAG, "PROVIDER-CALL: 全部命中去重 " + dedup);
+                } else {
+                    String diag = TodoWriter.getLastWriteDiag();
+                    Log.e(TAG, "PROVIDER-CALL: 提取到取件码但写入失败: " + diag);
+                    Notifier.notifyWriteFailed(getContext(),
+                            diag == null || diag.trim().isEmpty() ? "原因未知" : diag);
+                }
             }
             Bundle r = new Bundle();
             r.putString("result", wrote.toString());

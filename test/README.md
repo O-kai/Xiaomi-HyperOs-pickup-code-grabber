@@ -8,9 +8,32 @@
 | 文件 | 说明 |
 |---|---|
 | `RulesRegression.java` | **官方规则引擎回归**：跑 `sms-cases.txt` 全部用例 + 冒烟自检 |
+| `TierExclusionTest.java` | **语义排除回归（v3.1.0 新增，21 项）**：锁住「TierA/TierB 不得绕过 `isExcludedToken`」。一半用例验证该拦的拦住（格口号/金额/尾号/订单号/掩码手机号），一半验证真码不被误伤——**这组是红线，加新规则时最容易踩坏的地方** |
 | `UserRulesTest.java` | **用户自定义规则安全测试**：危险正则拦截 / 强制自测 / 50ms 熔断 / 四层发送方匹配 / 优先级 / 导入导出往返 |
+| `check_rules_consistency.py` | **规则三副本一致性校验**（改规则后必跑，见下） |
 | `sms-cases.txt` | 官方规则用例集（`ID｜期望码｜短信原文`，期望为 `-` 表示反例） |
 | `sms-corpus-public.jsonl` | **公开脱敏语料集**（18 条，正例 12 / 反例 6），供研究与二次开发 |
+
+## ⚠️ 改规则后必跑：一致性校验
+
+官方规则在仓库里有**三份副本**，必须完全一致：
+
+| 副本 | 作用 | 漏改的后果 |
+|---|---|---|
+| `rules/rules.json` | 远端热更源 | 用户拿不到新规则 |
+| `app/assets/rules/rules.json` | APK 内置兜底 | 断网用户用旧规则 |
+| `ExtractorRules.java` 的 `createDefault()` | 编译进代码的默认值 | **系统进程（通知/冻结兜底通道）永远跑旧规则** |
+
+第三份最隐蔽：系统进程没有 `Context`，读不到前两份，只能用编译进去的这份。
+漏改它时**短信通道是好的、界面完全看不出异常**，只有通知取件会悄悄漏抓。
+
+```bash
+python test/check_rules_consistency.py
+```
+
+脚本会一次性核对：字节级一致性、隐藏字符（BOM/零宽/NBSP/全角空格）、
+`version` / `minAppVersionCode` / `keywordAnchors` 三处对齐情况。
+退出码 `0` 表示一致，`1` 表示有问题（提交前请先修掉）。
 
 ## 环境准备
 

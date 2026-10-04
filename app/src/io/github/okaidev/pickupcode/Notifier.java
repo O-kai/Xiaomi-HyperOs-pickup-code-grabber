@@ -79,4 +79,52 @@ public class Notifier {
             Log.e(TAG, "notify err: " + t);
         }
     }
+
+    /**
+     * v3.1.0：写入失败通知。
+     *
+     * 此前「提取到取件码但没写进待办」是完全静默的，用户只看到待办里什么都没有，
+     * 分不清是没抓到还是写失败，也无从下手。常见原因：目标待办表不存在（用户从没建过）、
+     * root 未授权、sqlite3 未部署——这些都需要用户自己动手处理，给出提示才有意义。
+     *
+     * 用独立 notification id，避免覆盖正常取件通知；点击直达主界面（可展开体检卡）。
+     */
+    public static void notifyWriteFailed(Context ctx, String reason) {
+        if (ctx == null) return;
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                NotificationChannel ch = new NotificationChannel("pickup_error", "写入失败提示",
+                        NotificationManager.IMPORTANCE_DEFAULT);
+                ch.setDescription("取件码已识别但未能写入待办时提醒");
+                ctx.getSystemService(NotificationManager.class).createNotificationChannel(ch);
+            }
+            String text = reason != null && !reason.trim().isEmpty() ? reason.trim() : "原因未知";
+            if (text.length() > 160) text = text.substring(0, 160) + "…";
+
+            Intent open = new Intent(ctx, LauncherActivity.class);
+            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            PendingIntent pi = PendingIntent.getActivity(ctx, 500, open,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+            Notification.Builder b = (Build.VERSION.SDK_INT >= 26)
+                    ? new Notification.Builder(ctx, "pickup_error")
+                    : new Notification.Builder(ctx);
+            b.setSmallIcon(ctx.getApplicationInfo().icon);
+            b.setContentTitle("⚠️ 取件码已识别，但未能写入待办");
+            b.setContentText(text);
+            b.setStyle(new Notification.BigTextStyle().bigText(
+                    text + "\n\n可打开模块点「🔍 排查问题」按向导处理，"
+                            + "或点上方体检卡查看详情。"));
+            b.setContentIntent(pi);
+            b.setAutoCancel(true);
+            b.setOngoing(false);
+
+            NotificationManager nm =
+                    (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            nm.notify(1002, b.build());
+            Log.w(TAG, "NOTIFY-FAIL: " + text);
+        } catch (Throwable t) {
+            Log.e(TAG, "notifyWriteFailed err: " + t);
+        }
+    }
 }

@@ -75,8 +75,16 @@ public class RulesRegression {
         boolean smokeOk = (boolean) smoke.invoke(null, defaultRules);
         System.out.println("SmokeTest on defaults: " + (smokeOk ? "PASS" : "FAIL"));
 
-        // 18 条语料回归
-        List<String> lines = Files.readAllLines(Paths.get("D:\\project\\Xiaomi-HyperOs-pickup-code-grabber\\test\\sms-cases.txt"), java.nio.charset.StandardCharsets.UTF_8);
+        // 28 条用例回归
+        // v3.1.0：此前这里硬编码了绝对路径，换机器/换目录就跑不了（repo 参数形同虚设）。
+        // 改为优先用命令行传入的 repo 参数，其次退回本文件所在目录的上一级。
+        Path repoPath = Paths.get(repo);
+        Path cases = repoPath.resolve("test").resolve("sms-cases.txt");
+        if (!Files.exists(cases)) {
+            cases = Paths.get("sms-cases.txt");
+        }
+        System.out.println("用例文件: " + cases);
+        List<String> lines = Files.readAllLines(cases, java.nio.charset.StandardCharsets.UTF_8);
         int pass = 0, fail = 0, total = 0;
         StringBuilder report = new StringBuilder();
         for (String raw : lines) {
