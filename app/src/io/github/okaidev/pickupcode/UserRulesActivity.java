@@ -8,7 +8,9 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -386,6 +388,40 @@ public class UserRulesActivity extends Activity {
         final EditText etPlaceRegex = field(box, "⑦ 地点正则（可选，一般不用）",
                 r.placeRegex, "地点格式特殊时才用，例：至(.+?取件)");
 
+        // ---- ⑧ 地点取第几个捕获组（Rule.placeGroup）----
+        // 此前该字段只能靠「导入别人的规则」才会出现非默认值，编辑页没有入口 → 用户改不了。
+        // 只在 ⑦ 非空时显示：地点正则都没填，捕获组无从谈起（UserRules 里也只在
+        // placeRegex 非空时才会读 placeGroup）。
+        TextView placeGroupLabel = new TextView(this);
+        placeGroupLabel.setText("⑧ 地点取第几个捕获组");
+        placeGroupLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        placeGroupLabel.setTextColor(Color.parseColor("#1A1A1A"));
+        placeGroupLabel.setPadding(0, dp(8), 0, 0);
+        box.addView(placeGroupLabel);
+
+        final EditText etPlaceGroup = new EditText(this);
+        etPlaceGroup.setText(String.valueOf(Math.max(0, r.placeGroup)));   // 编辑已有规则时回填
+        etPlaceGroup.setHint("1=第一个小括号（默认）；0=整个匹配");
+        etPlaceGroup.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        etPlaceGroup.setSingleLine(true);
+        etPlaceGroup.setInputType(InputType.TYPE_CLASS_NUMBER);
+        box.addView(etPlaceGroup);
+
+        final int pgVisOn = (r.placeRegex != null && !r.placeRegex.trim().isEmpty())
+                ? View.VISIBLE : View.GONE;
+        placeGroupLabel.setVisibility(pgVisOn);
+        etPlaceGroup.setVisibility(pgVisOn);
+        etPlaceRegex.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void afterTextChanged(Editable s) {
+                boolean on = s != null && s.toString().trim().length() > 0;
+                int vis = on ? View.VISIBLE : View.GONE;
+                placeGroupLabel.setVisibility(vis);
+                etPlaceGroup.setVisibility(vis);
+            }
+        });
+
         // 测试样本区（v3.0.1 简化为单条必填）
         // 之前支持无限添加却没有删除入口，且自测失败后整页消失导致要重填 —— 一并简化。
         final LinearLayout tcBox = new LinearLayout(this);
@@ -459,6 +495,27 @@ public class UserRulesActivity extends Activity {
                 r.source = etSource.getText().toString().trim();
                 r.place = etPlace.getText().toString().trim();
                 r.placeRegex = etPlaceRegex.getText().toString().trim();
+                // ⑧ 地点捕获组：空 = 1（默认）；非法值必须明确提示，不能静默吞掉
+                // （静默回落 1 会让用户以为自己改了 2，实际存的是 1，比报错更难排查）
+                String pgRaw = etPlaceGroup.getText().toString().trim();
+                if (pgRaw.isEmpty()) {
+                    r.placeGroup = 1;
+                } else {
+                    int pg;
+                    try {
+                        pg = Integer.parseInt(pgRaw);
+                    } catch (Throwable t) {
+                        Toast.makeText(this, "⑧「地点取第几个捕获组」必须是数字（0 或 1…）",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    if (pg < 0) {
+                        Toast.makeText(this, "⑧「地点取第几个捕获组」不能是负数",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    r.placeGroup = pg;
+                }
                 // v3.0.1：单条测试样本（必填）
                 String sSms = tcSms.getText().toString().trim();
                 String sExp = tcExpect.getText().toString().trim();

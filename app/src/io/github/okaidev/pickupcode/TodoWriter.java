@@ -73,14 +73,22 @@ public class TodoWriter {
 
         String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date());
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        Set<String> seen = new LinkedHashSet<>(prefs.getStringSet("seen", new LinkedHashSet<>()));
-        int mode = prefs.getInt("todo_mode", MODE_FULL);
-        String customTpl = prefs.getString("todo_custom", "📦 取件码 {code}｜{source}｜{place}｜{time}");
 
         List<String> wrote = new ArrayList<>();
         String place = extractPlace(sender, body);
         String source = resolveSource(sender, body);
         StringBuilder dedupBuf = new StringBuilder();
+
+        // v3.1.0：整个去重集合的读-改-写必须在同一个锁内。
+        // 此前只把「改+写」放进锁里，而 `prefs.getStringSet("seen")` 的「读」留在锁外 ——
+        // 两条通道真并发时（T1/T2 都在对方落盘前读到同一份旧集合），
+        // 后写的会把先写的指纹整个抹掉，同一个取件码被判「未见过」而写两条待办。
+        // 这是唯一一道跨进程去重防线（短信通道 / 通知通道 / 兜底通道都会汇合到这里），
+        // 必须读改写全在同一临界区。
+        synchronized (DEDUP_LOCK) {
+        Set<String> seen = new LinkedHashSet<>(prefs.getStringSet("seen", new LinkedHashSet<>()));
+        int mode = prefs.getInt("todo_mode", MODE_FULL);
+        String customTpl = prefs.getString("todo_custom", "📦 取件码 {code}｜{source}｜{place}｜{time}");
         for (String code : codes) {
             String fingerprint = code + "|" + place;
             if (seen.contains(fingerprint)) {
@@ -97,6 +105,13 @@ public class TodoWriter {
                 Log.i(TAG, "TODO OK: " + content);
             } else {
                 Log.e(TAG, "TODO FAIL: " + content);
+                // v3.1.0 修复：写入失败必须把指纹撤掉。
+                // 否则一次 su 授权超时 / sqlite3 异常，就会让这个取件码被去重永久挡掉——
+                // 用户再也收不到这条提醒，且界面上看不出任何异常。
+                seen.remove(fingerprint);
+                if (lastWriteDiag == null || lastWriteDiag.isEmpty()) {
+                    lastWriteDiag = "写入失败（原因未记录）";
+                }
             }
         }
 
@@ -112,7 +127,29 @@ public class TodoWriter {
                 .putStringSet("seen", seen)
                 .putInt("todo_mode", mode)
                 .apply();
+        } // end synchronized
         return wrote;
+    }
+
+    /** v3.1.0：去重集合读-改-写的锁（跨通道并发写入的唯一防线） */
+    private static final Object DEDUP_LOCK = new Object();
+
+    /**
+     * v3.1.0：su + sqlite3 单次执行的超时上限。
+     * 没有它，一旦 su 卡在授权弹窗就会永久挂死调用线程；而写库发生在 DEDUP_LOCK 内，
+     * 挂死还会连带锁死后续所有短信处理。
+     */
+    private static final long SU_TIMEOUT_MS = 15_000L;
+
+    /** 超时销毁进程后读取残余输出（此时流随时会 EOF，不能再阻塞等） */
+    private static void drainQuietly(java.io.InputStream in, StringBuilder sb) {
+        try {
+            java.io.BufferedReader br = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(in, "UTF-8"));
+            String line;
+            int n = 0;
+            while ((line = br.readLine()) != null && n++ < 40) sb.append(line).append("\n");
+        } catch (Throwable ignored) { }
     }
 
     /** 按模板构建待办内容 */
@@ -153,9 +190,18 @@ public class TodoWriter {
 
     /** 统一 SQL 执行器（返回输出；多路径 su 尝试） */
     public static String runSqlForOutput(Context ctx, String sql) {
+        // v3.1.0：临时文件名唯一化。
+        //   此前所有路径共用固定名 todo_sql.sql，而写入本方法的两条调用方互不排斥：
+        //     · writeTodo（static synchronized，锁 TodoWriter.class）
+        //     · runSql/runSqlForOutput（无锁，来自 TodoProvider 的 Binder 线程与 LauncherActivity 主线程）
+        //   new FileOutputStream 是 O_TRUNC，两边会互相抹掉对方刚写的 SQL。
+        //   最坏情况：handle() 的 INSERT 脚本被 markDone 的脚本顶掉 → sqlite 返回 0 →
+        //   writeTodo 判定成功 → 去重指纹照常落盘 → 该待办永远不会被写入、也永远不重试。
+        //   改为「每次唯一文件名 + 用完即删」，彻底消除共享文件。
+        File sqlFile = null;
         try {
             File dir = ctx.getFilesDir();
-            File sqlFile = new File(dir, "todo_sql.sql");
+            sqlFile = new File(dir, "todo_sql_" + System.nanoTime() + ".sql");
             try (FileOutputStream fos = new FileOutputStream(sqlFile)) {
                 fos.write(sql.getBytes("UTF-8"));
             }
@@ -168,9 +214,28 @@ public class TodoWriter {
                 Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd});
                 StringBuilder out = new StringBuilder();
                 StringBuilder err = new StringBuilder();
-                drain(p.getInputStream(), out);
-                drain(p.getErrorStream(), err);
-                int code = p.waitFor();
+                // v3.1.0：这里必须超时。
+                //  ① 无超时且 drain() 在 waitFor() 之前 —— su 卡在 Magisk/KernelSU 授权弹窗时
+                //     流不关闭、drain 不返回、waitFor 永远等不到，调用线程会被永久挂死。
+                //  ② 写库发生在 DEDUP_LOCK 内，一旦挂死锁永不释放，
+                //     后续所有短信全部阻塞（Receiver 在主线程 → App ANR；Provider 在 Binder 线程 → 短信入库卡住）。
+                final Process proc = p;
+                final boolean[] done = {false};
+                Thread killer = new Thread(() -> {
+                    try { proc.waitFor(); } catch (Throwable ignored) { }
+                    done[0] = true;
+                });
+                killer.start();
+                killer.join(SU_TIMEOUT_MS);
+                if (!done[0]) {
+                    try { p.destroyForcibly(); } catch (Throwable ignored) { }
+                    drainQuietly(p.getInputStream(), out);
+                    drainQuietly(p.getErrorStream(), err);
+                    lastWriteDiag = "写入超时（" + (SU_TIMEOUT_MS / 1000) + "秒）：可能是 root 未授权或授权弹窗未处理";
+                    Log.e(TAG, "su attempt(" + suBin + ") timed out " + SU_TIMEOUT_MS + "ms");
+                    continue;
+                }
+                int code = p.exitValue();
                 Log.i(TAG, "sqlite exit=" + code + " out=" + out.toString().trim()
                         + " err=" + err.toString().trim());
                 if (code == 0) {
@@ -188,6 +253,11 @@ public class TodoWriter {
             lastWriteDiag = "runSqlForOutput 异常: " + t;
             Log.e(TAG, "runSqlForOutput err: " + t);
             return null;
+        } finally {
+            // v3.1.0：唯一化临时文件必须用完即删，否则 filesDir 会越积越多
+            if (sqlFile != null) {
+                try { sqlFile.delete(); } catch (Throwable ignored) { }
+            }
         }
     }
 

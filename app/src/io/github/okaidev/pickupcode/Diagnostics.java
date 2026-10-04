@@ -28,11 +28,13 @@ import java.util.regex.Pattern;
  *  1) healthCheck：四项部署体检（LSPosed 注入 / root / sqlite3 / 笔记库），逐项给结论与修复指引
  *  2) collectReport：一步生成完整诊断报告（设备信息 + 体检 + 写库失败原因 + PICKUPDEBUG 日志
  *     [root 提取，含被 Hook 进程] + LSPosed modules.log + 注入进程清单）
- *  3) sanitize：报告自动脱敏（手机号 / 取件码）
+ *  3) sanitize：报告自动脱敏（手机号 / 身份证 / 取件码 / 短信里的短信号）
  *  4) export：保存到 Download/pickup_diag_*.txt 并拉起系统分享
  *
- * 隐私约束：报告不读取、不包含短信正文与笔记内容；仅结构级探针（count / 表名 / 日志行），
- * 且对日志中的手机号、取件码做正则脱敏。
+ * 隐私约束（v3.2.0 更正）：本模块自己打的 PICKUPDEBUG 日志里【确实含短信正文片段】
+ *   （SmsEventReceiver 的 "EVENT: … body=…"、TodoWriter 的 "blacklist skip: …"），
+ *   报告整段引用这些日志，所以必须假设「短信正文会出现在报告里」，靠 sanitize 做兜底脱敏。
+ *   待办库/笔记库本身只做结构级探针（count / 表名），不读内容。
  */
 public class Diagnostics {
 
@@ -40,8 +42,49 @@ public class Diagnostics {
     private static final String LIBS = "/data/local/tmp/pickup_sqlite/lib";
     private static final String SQLITE = "/data/local/tmp/pickup_sqlite/sqlite3";
 
+    // ==================== 脱敏规则 ====================
+    // v3.2.0 重做的理由（踩坑记录，两个方向的毛病都有）：
+    //   ① 漏：旧版只有一条 \b\d{1,4}-\d{1,2}-\d{1,5}\b，实际支持的码形远不止这一种——
+    //      裸数字码（267961 / 72778）、字母码（A88123）、两段码（4869-9777）
+    //      在导出报告里全是明文。
+    //   ② 误伤：同一条规则也命中报告自己的「生成时间 2026-10-04」，把日期打成 XX-X-XXXX，
+    //      读者没法判断报告是哪天导出的。
+    //   设计取舍：宁可漏脱敏，也绝不把版本号 / 时间戳 / 文件路径 / 行号 / PID 搞乱。
+    //   因此分两类处理：
+    //     · 形状独特的（多段横线码、字母码）→ 不需要锚定，认形状就脱敏；
+    //     · 形状烂大街的（3~9 位裸数字）→ 必须有语境锚点（关键词/竖线分隔位）才脱敏，
+    //       否则 logcat 的 PID、"近 400 行"、堆栈行号全会被打成 ***。
     private static final Pattern P_PHONE = Pattern.compile("(?<!\\d)1[3-9]\\d{9}(?!\\d)");
-    private static final Pattern P_CODE = Pattern.compile("\\b\\d{1,4}-\\d{1,2}-\\d{1,5}\\b");
+    /** 身份证：18 位，末位可为 X；前后不许再接字母/数字，避免误伤哈希串或纳秒时间戳 */
+    private static final Pattern P_IDCARD = Pattern.compile("(?<![0-9A-Za-z])\\d{17}[\\dXx](?![0-9A-Za-z])");
+    /**
+     * 码 token 本体：可选字母前缀 + 3~9 位数字 + 可选 1~3 段横线尾巴。
+     * 覆盖 267961 / 72778 / A88123 / 4869-9777 / 16-4-9626 / 12-34-56-7890。
+     * 尾部 (?![\\dA-Za-z*]) 是关键：13 位时间戳 ts=1750000000000 只按 9 位切一刀时
+     * 会被这条断言挡掉；同时挡住已经被 P_PHONE 打成 138****8888 的号码残骸。
+     */
+    private static final String CODE_TOKEN = "([A-Za-z]?\\d{3,9}(?:-\\d{1,5}){0,3})(?![\\dA-Za-z*])";
+    /** 取件语境关键词（左侧锚点）。顺序有意义：长的写前面，Java 正则按序择先 */
+    private static final String CTX_HEAD = "(?:取件码|取货码|提货码|取件凭证|取件单|取件号|"
+            + "凭此码|凭码|验证码|校验码|取件|提货|取货|口令|code|CODE|Code|📦)";
+    /** 取件语境关键词（右侧锚点，如「267961，请到 XX 小区驿站取件」） */
+    private static final String CTX_TAIL = "(?:凭此码|凭码|凭短信码|码取件|为您取件|请取件|取件|提货|取货|到期|有效期)";
+    /** ① 多段横线码（3~4 段）：16-4-9626 / 2-3-05025。
+     *  前后不能再接数字或横线（否则会从长 token 上切一段下来误脱敏）；
+     *  并显式排除「年-月-日」——报告头部的生成时间必须原样保留；
+     *  只收 3 段及以上，两段的时间戳 10-04（logcat 行首）不碰。 */
+    private static final Pattern P_CODE = Pattern.compile(
+            "(?<![0-9/\\-])(?!(?:19|20)\\d{2}-)(?:\\d{1,4}-){2,3}\\d{1,5}(?![0-9\\-])");
+    /** ② 字母码：A88123。必须整段只有「一个字母 + 4~6 位数字」，否则 SHA/十六进制串会被误伤 */
+    private static final Pattern P_CODE_ALPHA = Pattern.compile("(?<![0-9A-Za-z])[A-Za-z]\\d{4,6}(?![\\dA-Za-z*])");
+    /** ③ 去重指纹位："<码>|<地点>"（dedup skip / 📦…｜… 这类模板行），竖线是强结构信号 */
+    private static final Pattern P_CODE_SEP = Pattern.compile("(?<![0-9A-Za-z])" + CODE_TOKEN + "(?=[|｜])");
+    /** ④ 左语境：「取件码为 267961」「code=A88123」「📦 267961」 */
+    private static final Pattern P_CODE_CTX = Pattern.compile(
+            CTX_HEAD + "\\s*(?:为|是|:|：|=|#|no|is|号|码)?\\s*" + CODE_TOKEN);
+    /** ⑤ 右语境：码后面隔 0~12 个非数字字符内出现取件类词。限行内（[^\\d\\n]）以免跨行误伤 */
+    private static final Pattern P_CODE_TAIL = Pattern.compile(
+            CODE_TOKEN + "[^\\d\\n]{0,12}?" + CTX_TAIL);
     private static final String PHONE_MASK = "138****8888";
 
     /** 单条体检结论 */
@@ -84,6 +127,44 @@ public class Diagnostics {
             if (r != null) last = r;
         }
         return last;
+    }
+
+    // ---------- suExecPublic 的返回值约定（改这 4 处前务必读完这段）----------
+    // 返回 {stdout, stderr, 第三个元素}，其中：
+    //   · stdout 有内容 → 采用「第一个跑通的 su 路径」的那次结果（正常情况）；
+    //   · stdout 全空   → 循环会【试完 5 个 su 路径】，返回的是【最后一次】尝试的结果，
+    //     也就是「最后一个 su（/su/bin/su）根本不存在」的假错误，和真实故障没关系。
+    // 命令天然没有 stdout 时（logcat 没日志 / tail 找不到文件 / sqlite 报错只写 stderr），
+    // 后半句就会把真正的报错吃掉，只剩一句莫名其妙的 "sh: su: not found"。
+    // 解决办法（本类所有改走 suExecPublic 的探针都这么写）：
+    //   命令尾部统一加 "2>&1; echo __PICKUP_PROBE_END__"：
+    //     · 2>&1   → 把命令自己的 stderr 也并进 stdout，信息不丢；
+    //     · echo 哨 → 只要 su 真的跑起来了，stdout 就【必然】非空，
+    //                 于是 suExecPublic 会在第一个可用路径上正确停下；
+    //                 反过来「stdout 里没有哨兵」就等于「5 个 su 路径一个都没跑起来」。
+    private static final String PROBE_MARK = "__PICKUP_PROBE_END__";
+
+    /** 是否拿到了哨兵行：true = su 至少有一条路径真的跑起来了 */
+    private static boolean hasMark(String[] r) {
+        return r != null && r[0] != null && r[0].contains(PROBE_MARK);
+    }
+
+    /** 摘掉哨兵行后的干净 stdout */
+    private static String stdoutOf(String[] r) {
+        if (r == null || r[0] == null) return "";
+        return r[0].replace(PROBE_MARK + "\n", "").replace(PROBE_MARK, "").trim();
+    }
+
+    /** su 没跑起来时的摘要（此时 suExecPublic 给的是最后一次尝试，典型就是 "sh: su: not found"） */
+    private static String suErr(String[] r) {
+        if (r == null) return "(无返回值)";
+        String e = (nz(r[1]) + " " + nz(r[2])).trim();
+        if (e.isEmpty()) e = "(无 stderr)";
+        if (e.contains("not found") || e.contains("No such file")) {
+            return e + "（本应用 PATH 里通常没有 su；Magisk 的 su 多在 /product/bin/su，"
+                    + "请确认 Magisk 已安装并已对本应用授权）";
+        }
+        return e;
     }
 
     /**
@@ -189,9 +270,19 @@ public class Diagnostics {
 
     /** 3) sqlite3 二进制就位 */
     private static Check checkSqlite3() {
-        String[] r = suExec("su", "ls -l " + SQLITE, 15);
-        String all = (r == null ? "" : nz(r[0]) + nz(r[1]));
-        if (all.contains("No such file")) {
+        // v3.2.0：原来硬编码 suExec("su", …) 只试一条路径。HyperOS 上 Magisk 的 su 在
+        // /product/bin/su、不在应用 PATH，于是体检出现自相矛盾的两行：
+        //   [✓] root 授权（/product/bin/su）: uid=0 ✓ root      ← checkRoot 走了多路径
+        //   [✗] sqlite3 部署: 探测失败：sh: su: not found       ← 这里只试了 "su"
+        // 用户完全不知道该干什么。改成 suExecPublic 多路径 + 哨兵（理由见文件上方约定）。
+        String[] r = suExecPublic("ls -l " + SQLITE + " 2>&1; echo " + PROBE_MARK, 15);
+        if (!hasMark(r)) {
+            return new Check("sqlite3 部署", false, "root 命令没跑起来：" + tail(suErr(r), 140));
+        }
+        String all = stdoutOf(r);
+        // 判据顺序有讲究：文件不存在时 ls 打的错误里也带着 "sqlite3" 这个路径，
+        // 必须先判 "No such file"，否则会把「没部署」误报成「已部署 ✓」。
+        if (all.contains("No such file") || all.contains("Not a directory")) {
             return new Check("sqlite3 部署", false,
                     SQLITE + " 不存在 → 点下方「🚀 一键部署 sqlite3」自动完成（无需 adb/Termux）");
         }
@@ -213,13 +304,23 @@ public class Diagnostics {
         String needHint = NotesBackend.BACKEND_COLOROS_TODO.equals(backend) ? "在日历 App 里建过一条待办"
                 : NotesBackend.BACKEND_COLOROS_NOTE.equals(backend) ? "在便签 App 里建过至少一条笔记"
                 : "在小米笔记里建过至少一条待办";
-        String[] r = suExec("su", LD() + " " + SQLITE + " " + db
-                + " '" + NotesBackend.countProbeSql(ctx) + "'", 15);
-        if (r != null && r[0] != null && r[0].trim().matches("\\d+")) {
-            return new Check("待办库访问", true,
-                    table + " 表可读，当前 " + r[0].trim() + " 条 ✓");
+        // v3.2.0：同 checkSqlite3，改走 suExecPublic 多路径 + 2>&1/哨兵。
+        // 这里对 stdout 的依赖是【必须的】（靠纯数字判断 count 成功），
+        // 所以更依赖哨兵：没有哨兵就说明 5 条 su 路径全没跑起来，
+        // 此时若还去读 stdout，只会读到空串并误判成「库打不开」。
+        String[] r = suExecPublic(LD() + " " + SQLITE + " " + db
+                + " '" + NotesBackend.countProbeSql(ctx) + "' 2>&1; echo " + PROBE_MARK, 15);
+        if (!hasMark(r)) {
+            return new Check("待办库访问", false, "root 命令没跑起来：" + tail(suErr(r), 140));
         }
-        String e = r == null ? "null" : (r[1] + " " + r[2]).trim();
+        // 摘掉哨兵后再判 count：命令成功时 stdout 就是那个纯数字，
+        // 失败时 stdout 是 sqlite 的报错文本（2>&1 收过来的），不会误判成 count。
+        String out = stdoutOf(r);
+        if (out.matches("\\d+")) {
+            return new Check("待办库访问", true,
+                    table + " 表可读，当前 " + out + " 条 ✓");
+        }
+        String e = out + " " + suErr(r);
         if (e.contains("unable to open")) {
             return new Check("待办库访问", false,
                     "打不开 " + dbFile + "（权限不足）→ 正常情况模块写入时会自动处理；"
@@ -228,6 +329,9 @@ public class Diagnostics {
         if (e.contains("no such table")) {
             return new Check("待办库访问", false,
                     table + " 表不存在 → 请先" + needHint + "，或系统版本过旧");
+        }
+        if (e.contains(PROBE_MARK)) {   // 理论上到不了，留着防以后有人改命令把哨兵吃掉
+            e = e.replace(PROBE_MARK, "").trim();
         }
         return new Check("待办库访问", false, "探测失败：" + tail(e, 140));
     }
@@ -283,9 +387,20 @@ public class Diagnostics {
         sb.append(TodoWriter.getLastWriteDiag()).append("\n\n");
 
         sb.append("---- PICKUPDEBUG 日志（root 提取，近 400 行，已脱敏）----\n");
-        String[] lg = suExec("su", "logcat -d -s PICKUPDEBUG:* | tail -n 400", 25);
-        String logcat = lg == null ? "(提取失败)" : (lg[0] == null ? "" : lg[0]);
-        sb.append(logcat.isEmpty() ? "(无 PICKUPDEBUG 日志——说明 Hook 从未触发，先检查作用域)" : logcat).append("\n\n");
+        // v3.2.0：改走 suExecPublic 多路径 + 2>&1/哨兵。
+        // 原来只调 "su" 时，HyperOS 上这段整块日志会被换成 "sh: su: not found"，
+        // 用户看到的是「无 PICKUPDEBUG 日志——说明 Hook 从未触发」——一个彻头彻尾的假结论，
+        // 反而把排查方向带偏（真因是 su 路径，日志其实根本没抓到）。
+        String[] lg = suExecPublic("logcat -d -s PICKUPDEBUG:* 2>&1 | tail -n 400; echo " + PROBE_MARK, 25);
+        boolean logOk = hasMark(lg);
+        String logcat = logOk ? stdoutOf(lg) : "";
+        if (!logOk) {
+            sb.append("(提取失败：root 命令没跑起来 —— ").append(tail(suErr(lg), 160)).append(")\n\n");
+        } else if (logcat.isEmpty()) {
+            sb.append("(无 PICKUPDEBUG 日志——说明 Hook 从未触发，先检查作用域)\n\n");
+        } else {
+            sb.append(logcat).append("\n\n");
+        }
 
         sb.append("---- 被注入的进程（从日志统计）----\n");
         TreeSet<String> injected = new TreeSet<>();
@@ -314,7 +429,7 @@ public class Diagnostics {
         String ml = readModulesLog();
         sb.append(ml.isEmpty() ? "(读取失败——可手动从 LSPosed 管理器导出模块日志)" : ml).append("\n\n");
 
-        sb.append("===== 报告结束（内容已脱敏：手机号/取件码）=====\n");
+        sb.append("===== 报告结束（内容已脱敏：手机号 / 身份证 / 取件码）=====\n");
         return sanitize(sb.toString());
     }
 
@@ -362,31 +477,99 @@ public class Diagnostics {
 
     private static String LD() { return "LD_LIBRARY_PATH=" + LIBS; }
 
-    /** 执行 su 命令；返回 {stdout, stderr, 原始err消息}，异常时 null */
+    /** 收流上限：单条流最多留 20 万字符（≈ 日志 400 行的量级），防止异常输出把内存吃穿 */
+    private static final int DRAIN_MAX_CHARS = 200_000;
+    /** 收流线程收尾等待上限：给 1s，够正常 EOF 用不完；到点就走，绝不无限等 */
+    private static final long DRAIN_JOIN_MS = 1000L;
+
+    /**
+     * 执行 su 命令；返回 {stdout, stderr, 原始err消息}，异常时 null
+     *
+     * v3.2.0 重排了执行顺序（重要，踩过的坑）：
+     *   旧顺序 = 阻塞读完 stdout → 阻塞读完 stderr → waitFor(timeout)。
+     *   BufferedReader.readLine() 要到 EOF 才返回，而 EOF 只有子进程退出时才发生，
+     *   所以 waitFor(timeout, SECONDS) 那一行【永远轮不到执行】，超时分支是死代码：
+     *     · 子进程正常退出：drain 先返回，waitFor 立刻就是 true，超时形同虚设；
+     *     · 子进程卡住（Magisk/KernelSU 的授权弹窗没人点）：drain 永久阻塞，
+     *       调用线程被永久挂起，体检界面一直转圈，用户只能强杀 App。
+     *   新顺序 = 后台线程持续收流 + 主线程 waitFor(timeout) → 超时则 destroyForcibly
+     *             → 最后取已经收下来的残余内容。三条约束缺一不可：
+     *     · 收流必须放后台线程：否则管道缓冲写满（Linux 约 64KB）会把子进程堵死，
+     *       制造出「本来能跑完，却被我们自己的等待逻辑憋死」的假超时；
+     *     · 超时必须 destroyForcibly：su 卡在授权框时 destroy() 只是发 SIGTERM，不保证它死；
+     *     · 收流与 join 都必须有上限：绝不允许在修完超时之后再造出第二次无限期阻塞。
+     */
     private static String[] suExec(String suBin, String cmd, int timeoutSec) {
+        Process p = null;
         try {
-            Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c",
+            p = Runtime.getRuntime().exec(new String[]{"sh", "-c",
                     suBin + " -M -c \"" + cmd.replace("\"", "'") + "\""});
-            StringBuilder out = new StringBuilder();
-            StringBuilder err = new StringBuilder();
-            drain(p.getInputStream(), out);
-            drain(p.getErrorStream(), err);
-            if (!p.waitFor(timeoutSec, TimeUnit.SECONDS)) {
-                p.destroy();
-                return new String[]{out.toString(), err.toString(), "(超时 " + timeoutSec + "s)"};
+            final StringBuilder out = new StringBuilder();
+            final StringBuilder err = new StringBuilder();
+            Thread tOut = drainThread(p.getInputStream(), out, DRAIN_MAX_CHARS);
+            Thread tErr = drainThread(p.getErrorStream(), err, DRAIN_MAX_CHARS);
+
+            boolean done;
+            try {
+                done = p.waitFor(timeoutSec, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                done = false;
             }
-            return new String[]{out.toString(), err.toString(), err.toString()};
+            if (!done) {
+                p.destroyForcibly();
+                try {
+                    p.waitFor(2, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            // 进程已经死了，两条流必然很快 EOF；join 也只等 DRAIN_JOIN_MS，留最后一道保险
+            joinBounded(tOut);
+            joinBounded(tErr);
+
+            String third = done ? err.toString()
+                    : "(超时 " + timeoutSec + "s 未返回，已强制结束；"
+                    + "通常是 root 授权弹窗没处理或命令本身卡住)";
+            return new String[]{out.toString(), err.toString(), third};
         } catch (Throwable t) {
+            if (p != null) {
+                try { p.destroyForcibly(); } catch (Throwable ignored) { }
+            }
             return new String[]{null, null, String.valueOf(t)};
         }
     }
 
-    private static void drain(java.io.InputStream in, StringBuilder sb) {
+    /** 收流线程：daemon + 有上限，保证它挂住也拖不死调用方 */
+    private static Thread drainThread(final java.io.InputStream in,
+                                      final StringBuilder sb, final int max) {
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() { drain(in, sb, max); }
+        }, "pickup-su-drain");
+        t.setDaemon(true);
+        t.start();
+        return t;
+    }
+
+    /**
+     * 读干一条流（带字符上限）。
+     * 旧版没有上限：对端不关流时 readLine 永久阻塞，这正是上一任 suExec 死锁的元凶。
+     * 超过上限后【继续读、只是不再追加】——直接 break 会让管道写满，把子进程堵死。
+     */
+    private static void drain(java.io.InputStream in, StringBuilder sb, int max) {
+        if (in == null) return;
         try {
             BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"));
             String line;
-            while ((line = br.readLine()) != null) sb.append(line).append("\n");
+            while ((line = br.readLine()) != null) {
+                if (sb.length() < max) sb.append(line).append('\n');
+            }
         } catch (Throwable ignored) { }
+    }
+
+    private static void joinBounded(Thread t) {
+        if (t == null) return;
+        try { t.join(DRAIN_JOIN_MS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 
     /** 系统属性（反射，不依赖隐藏 API） */
@@ -407,25 +590,98 @@ public class Diagnostics {
                 "/data/adb/lsposed/modules.log"
         };
         for (String p : paths) {
-            String[] r = suExec("su", "tail -n 200 " + p, 15);
-            if (r != null && r[0] != null && !r[0].isEmpty() && !r[0].contains("No such file")) {
-                return "(" + p + ")\n" + r[0];
+            // v3.2.0：改走 suExecPublic 多路径 + 2>&1/哨兵（理由同 checkSqlite3）。
+            // 不加 2>&1 的话，文件不存在时 tail 的报错只进 stderr → stdout 空 →
+            // suExecPublic 会一路试完 5 个 su 并返回「/su/bin/su: not found」，
+            // 于是这里永远拿不到真正的日志路径，整节报告恒为空。
+            String[] r = suExecPublic("tail -n 200 " + p + " 2>&1; echo " + PROBE_MARK, 15);
+            if (!hasMark(r)) break;                       // su 一个路径都没跑起来：换路径也没用，直接放弃
+            String out = stdoutOf(r);
+            if (out.isEmpty()) continue;                   // 文件存在但是空的 → 试下一个路径
+            if (out.contains("No such file") || out.contains("Not a directory")
+                    || out.contains("Permission denied") || out.contains("cannot open")) {
+                continue;                                  // 路径不对 / 读不到 → 试下一个
             }
+            return "(" + p + ")\n" + out;
         }
         return "";
     }
 
-    /** 脱敏：手机号 → 138****8888；取件码数字段 → X 化（保留形状） */
+    /**
+     * 脱敏：手机号 → 138****8888；身份证 → 6+8+4 分段掩码；取件码 → 保留形状的 * 掩码。
+     *
+     * v3.2.0 重做要点（详见文件头的「脱敏规则」注释）：
+     *   · 码形从 1 种扩到 5 条规则（多段横线 / 字母 / 竖线指纹位 / 左语境 / 右语境）；
+     *   · 短信正文片段确实会随 PICKUPDEBUG 日志进报告（EVENT: … body=…），
+     *     所以除取件码外还要盖手机号与身份证；
+     *   · 刻意【不做】姓名/住址脱敏：要可靠就得带姓名词典和行政区划词典，
+     *     APK 体积、误伤率和维护成本都不划算，而报告本就是用户主动导出给自己看的。
+     *     需要时用户可在导出前自行删掉正文——这属于产品策略，不在脱敏层硬凑。
+     *   顺序有讲究：先手机号/身份证，再取件码。反过来的话「取件码 13812345678」会被
+     *   取件码规则先吃掉一段数字，剩下的残骸再也匹配不上手机号规则。
+     */
     public static String sanitize(String s) {
         if (s == null) return "";
         s = P_PHONE.matcher(s).replaceAll(PHONE_MASK);
-        Matcher m = P_CODE.matcher(s);
+        s = maskIdCards(s);
+        s = maskToken(s, P_CODE);          // 多段横线码
+        s = maskToken(s, P_CODE_ALPHA);    // 字母码 A88123
+        s = maskToken(s, P_CODE_SEP);      // 指纹位 <码>|<地点>
+        s = maskToken(s, P_CODE_CTX);      // 左语境
+        s = maskToken(s, P_CODE_TAIL);     // 右语境
+        return s;
+    }
+
+    /** 身份证：保留前 6 位（地区）与后 4 位（校验线索），中间 8 位全掩码 */
+    private static String maskIdCards(String s) {
+        Matcher m = P_IDCARD.matcher(s);
         StringBuffer sbf = new StringBuffer();
         while (m.find()) {
-            m.appendReplacement(sbf, "XX-X-XXXX");
+            String id = m.group();
+            String masked = id.length() >= 10
+                    ? id.substring(0, 6) + "********" + id.substring(id.length() - 4)
+                    : maskCode(id);
+            m.appendReplacement(sbf, Matcher.quoteReplacement(masked));
         }
         m.appendTail(sbf);
         return sbf.toString();
+    }
+
+    /**
+     * 有捕获组就只把捕获组（码本身）换成掩码。
+     * 注意不能简单 appendReplacement(mask(group1))——那会把【整段命中】替换掉，
+     * 连带把语境关键词、连接符、分隔符（"取件码为"、"，请凭此码"）一起吃掉，
+     * 报告文本会被啃得莫名其妙、也没法再人工核对。
+     * 所以按 start(1)/end(1) 在原命中里就地替换，前后原样保留。
+     */
+    private static String maskToken(String s, Pattern p) {
+        Matcher m = p.matcher(s);
+        StringBuffer sbf = new StringBuffer();
+        while (m.find()) {
+            String whole = m.group();
+            String masked = whole;
+            if (m.groupCount() >= 1 && m.group(1) != null) {
+                int a = m.start(1) - m.start();
+                int b = m.end(1) - m.start();
+                masked = whole.substring(0, a) + maskCode(m.group(1)) + whole.substring(b);
+            } else {
+                masked = maskCode(whole);
+            }
+            m.appendReplacement(sbf, Matcher.quoteReplacement(masked));
+        }
+        m.appendTail(sbf);
+        return sbf.toString();
+    }
+
+    /** 码掩码：字母保留、数字全换 *——既看不出真值，又保留长度/分段形状便于排查 */
+    private static String maskCode(String token) {
+        if (token == null || token.isEmpty()) return "***";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < token.length(); i++) {
+            char c = token.charAt(i);
+            sb.append(Character.isDigit(c) ? '*' : c);
+        }
+        return sb.toString();
     }
 
     private static String tail(String s, int max) {
