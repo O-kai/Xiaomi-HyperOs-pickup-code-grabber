@@ -70,14 +70,31 @@ public class LauncherActivity extends Activity {
     /** v3.0.1：用户规则卡片引用（从设置页返回时原地刷新状态，避免内外显示不一致） */
     private TextView urSubView;
     private TextView urBadgeView;
+    // v3.1.0 P4：通知来源 App 列表行 —— 后端已实现，界面按作者要求暂不开放。
+    // 保留字段与方法以便后续一键启用；启用时需恢复基础设置卡里的 addView 与
+    // buildNotiPkgsRowContent() 调用（该处已有注释指明）。
+    private LinearLayout notiPkgsRow;
     /** v2.7.1：冻结免疫直写 UI 动态显隐刷新器 */
     private Runnable refreshSdwUi;
+    /** v3.1.1：通知取件开关的按钮与「作用域未勾选」提示行引用 */
+    private TextView notiBtnView;
+    private TextView notiScopeHintView;
+    /** v3.1.1：后台作用域校验结论。true=缺 android（开关开着也不会生效）；null=未知 */
+    private Boolean notiScopeBlocked = null;
+    /** v3.1.1：通知取件开关的内存态（标志文件由 su 异步写，点击后立刻重读会拿到旧值） */
+    private boolean notiSwitchOn = false;
+    /** v3.1.1：作用域校验节流（同一次打开里别反复 su+sqlite3 查库） */
+    private long lastNotiScopeCheck = 0L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         PickupExtractor.init(this);
-        RulesUpdater.maybeCheck(this);
+        // v3.1.0：软件更新与规则更新合并为一次联动检查（懒检查，各 3 天一次）
+        UpdateCenter.maybeCheck(this);
+        // v3.1.0：把当前规则/偏好快照推给系统进程（节流 30 分钟），
+        // 否则全新安装且从未改过设置的用户，系统进程读不到快照只能回落内置规则
+        ProcessSync.pushThrottled(this);
         if (android.os.Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -275,27 +292,66 @@ public class LauncherActivity extends Activity {
 
         final TextView notiBtn = new TextView(this);
         boolean notiOn = isNotiHookFlagOn();
+        notiSwitchOn = notiOn; // 内存态：标志文件是异步写的，点击切换后必须靠它而不是重读文件
         notiBtn.setText(notiOn ? "已开启" : "已关闭");
         notiBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         notiBtn.setTextColor(Color.WHITE);
         notiBtn.setBackgroundColor(Color.parseColor(notiOn ? "#0FA968" : "#9AA4B2"));
         notiBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
         notiBtn.setOnClickListener(v -> {
-            boolean next = !isNotiHookFlagOn();
+            boolean next = !notiSwitchOn;
+            boolean wasBlocked = Boolean.TRUE.equals(notiScopeBlocked);
+            notiSwitchOn = next;
             toggleNotiHookFlag(next);
-            notiBtn.setText(next ? "已开启" : "已关闭");
-            notiBtn.setBackgroundColor(Color.parseColor(next ? "#0FA968" : "#9AA4B2"));
-            Toast.makeText(this, next
-                    ? "通知取件提取已开启 ✓（重启手机后生效）\n将拦截菜鸟/京东/淘宝/拼多多等 App 的取件通知"
-                    : "通知取件提取已关闭（重启手机后系统侧同步生效）",
-                    Toast.LENGTH_LONG).show();
+            // v3.1.1：上一轮的作用域结论对「刚切换过的状态」不再成立，先作废再重画
+            notiScopeBlocked = null;
+            // 刚打开开关时上一轮的「已校验」不再作数，强制后台复查一次，
+            // 否则按钮可能一直停在标志文件给出的"假开启"绿色态
+            if (next) checkNotiHookScopeAsync(true);
+            renderNotiSwitchUi();
+            String tip;
+            if (!next) {
+                tip = "通知取件提取已关闭（重启手机后系统侧同步生效）";
+            } else if (wasBlocked) {
+                // 已知 LSPosed 作用域没勾 android：此时说「重启手机后生效」纯属误导，
+                // 重启一万次也不会有效果，必须先把作用域勾上
+                tip = NOTI_SCOPE_TOAST;
+            } else {
+                tip = "通知取件提取已开启 ✓（重启手机后生效）\n"
+                        + "将拦截菜鸟/京东/淘宝/拼多多等 App 的取件通知";
+            }
+            Toast.makeText(this, tip, Toast.LENGTH_LONG).show();
         });
+        notiBtnView = notiBtn;
         notiRow.addView(notiBtn);
+
+        // v3.1.1：作用域未勾选时的灰色说明行（默认隐藏）
+        // 存在的意义：标志文件说「已开启」但 LSPosed 没勾「Android 系统」时，
+        // NotiHook.install() 根本不会执行，开关就是个永远无效的空壳，必须当场点破。
+        TextView notiScopeHint = new TextView(this);
+        notiScopeHint.setText("⚠️ LSPosed 作用域未勾选「Android 系统（android）」，"
+                + "此时通知取件提取不会生效（重启手机也没用）。\n"
+                + "请到 LSPosed → 模块 → 取件码助手 → 作用域勾选「Android 系统」"
+                + "（列表底部、不带推荐角标的那一项，不是「系统框架 system」）。");
+        notiScopeHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        notiScopeHint.setTextColor(Color.parseColor("#999999"));
+        notiScopeHint.setLineSpacing(dp(2), 1.0f);
+        notiScopeHint.setPadding(0, dp(4), 0, dp(4));
+        notiScopeHint.setVisibility(View.GONE);
+        notiScopeHintView = notiScopeHint;
+
+        // v3.1.0：P4「通知来源 App 自定义」经与作者确认**暂不开放界面**。
+        // 后端管道（ProcessSync 的 noti_extra_pkgs → notiPkgs → NotiHook 合并白名单）已完整实现并保留，
+        // 只需日后在基础设置卡里加一行入口即可启用；届时把下面两处注释放开：
+        //   1) 此处加 notiPkgsRow = buildNotiPkgsRow(); secBasic.addView(notiPkgsRow);
+        //   2) 黑名单卡之后去掉下面 buildNotiPkgsRowContent() 的调用。
+        // 详见 docs/ARCHITECTURE.md「已知问题与限制」。
         // 渲染顺序：标题必须在所有设置行之前（容器按 addView 顺序渲染）
         secBasic.addView(cardTitle("⚙️ 基础设置"));
         secBasic.addView(backendRow);
         secBasic.addView(netRow);
         secBasic.addView(notiRow);
+        secBasic.addView(notiScopeHintView);
 
 
         statusCard = new TextView(this);
@@ -484,6 +540,7 @@ public class LauncherActivity extends Activity {
             if (t.isEmpty()) {
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                         .putString("todo_custom", TPL_DEFAULT).apply();
+                ProcessSync.push(this); // v3.1.0：恢复默认同样要同步给系统进程（此前漏推）
                 Toast.makeText(this, "内容为空，已恢复默认模板", Toast.LENGTH_SHORT).show();
                 exitTplEdit(tplEdit, tplBtnRow, tplEditBtn, tplPreview, renderTpl);
                 return;
@@ -499,12 +556,14 @@ public class LauncherActivity extends Activity {
                 return;
             }
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("todo_custom", t).apply();
+            ProcessSync.push(this); // v3.1.0 P3：模板同步给系统进程兜底通道
             Toast.makeText(this, "自定义模板已保存并生效 ✓", Toast.LENGTH_SHORT).show();
             exitTplEdit(tplEdit, tplBtnRow, tplEditBtn, tplPreview, renderTpl);
         });
         tplReset.setOnClickListener(v -> {
             tplEdit.setText(TPL_DEFAULT);
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("todo_custom", TPL_DEFAULT).apply();
+            ProcessSync.push(this); // v3.1.0：↩️恢复默认同样要同步给系统进程（此前漏推）
             Toast.makeText(this, "已恢复默认模板", Toast.LENGTH_SHORT).show();
             exitTplEdit(tplEdit, tplBtnRow, tplEditBtn, tplPreview, renderTpl);
         });
@@ -678,6 +737,8 @@ public class LauncherActivity extends Activity {
                     Toast.makeText(this, "黑名单已清空（所有短信不再被关键词过滤）", Toast.LENGTH_SHORT).show();
                 }
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("blacklist", newList).apply();
+                // v3.1.0 P3：黑名单变更后同步给系统进程兜底通道（此前那里是硬编码 8 词）
+                ProcessSync.push(this);
                 if (!newList.isEmpty()) {
                     Toast.makeText(this, "黑名单已保存", Toast.LENGTH_SHORT).show();
                 }
@@ -696,6 +757,7 @@ public class LauncherActivity extends Activity {
         };
         refreshBlacklistUi[0].run();
 
+        // v3.1.0：P4 界面入口暂不开放（见基础设置卡处的说明），此处一并停用调用。
 
         // ============ v2.7.0：系统直写兜底开关（动态显隐） ============
         // 作用：模块 App 被 ColorOS 冻结时，短信系统进程直接 su 写待办库，保证「划掉后台也能写」。
@@ -826,20 +888,16 @@ public class LauncherActivity extends Activity {
     private void showMainMenu(View anchor) {
         PopupMenu pm = new PopupMenu(this, anchor);
         pm.getMenu().add(0, 1, 0, "🏠 项目仓库（GitHub）");
-        pm.getMenu().add(0, 3, 1, "🔍 检查软件更新");
-        pm.getMenu().add(0, 4, 2, "⚡ 检查规则更新（热更新）");
+        pm.getMenu().add(0, 3, 1, "🔄 检查更新（软件 + 规则）");
         pm.getMenu().add(0, 5, 3, "📋 疑似漏抓错题本");
         pm.getMenu().add(0, 2, 4, "💰 打赏作者");
         pm.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
             if (id == 1) openUrl(REPO_URL);
             else if (id == 3) {
-                Toast.makeText(this, "正在检查软件更新…", Toast.LENGTH_SHORT).show();
-                Updater.maybeCheck(this, true);
-            }
-            else if (id == 4) {
-                Toast.makeText(this, "正在拉取最新规则集…", Toast.LENGTH_SHORT).show();
-                RulesUpdater.checkUpdate(this, true, () -> refreshHealth());
+                // v3.1.0：手动检查不看「允许联网」开关（用户主动发起），一次把软件与规则都查了
+                Toast.makeText(this, "正在检查更新…", Toast.LENGTH_SHORT).show();
+                UpdateCenter.checkNow(this, () -> refreshHealth());
             }
             else if (id == 5) {
                 showMissedSmsDialog();
@@ -883,7 +941,19 @@ public class LauncherActivity extends Activity {
                     }
                 })
                 .setNeutralButton("✍️ 手动上报", (d, w) -> openGithubIssueManual())
-                .setNegativeButton("关闭", null)
+                // v3.1.0：补「清空」入口。此前 MissedSmsStore.clear() 定义了但全项目零调用，
+                // 用户上报完无法清理，错题本只增不减（靠 30 条上限自动淘汰）。
+                .setNegativeButton("🗑️ 清空", (d, w) -> new AlertDialog.Builder(this)
+                        .setTitle("清空错题本")
+                        .setMessage("将删除本机保存的全部 " + list.size() + " 条疑似漏抓样本。\n\n"
+                                + "如果还没上报，建议先「复制全部上报文本」。")
+                        .setPositiveButton("确认清空", (d2, w2) -> {
+                            MissedSmsStore.clear(this);
+                            Toast.makeText(this, "错题本已清空 ✓", Toast.LENGTH_SHORT).show();
+                        })
+                        .setNegativeButton("取消", null)
+                        .show())
+                .setPositiveButton("关闭", null)
                 .show();
     }
 
@@ -945,10 +1015,51 @@ public class LauncherActivity extends Activity {
                 .show();
     }
 
-    /** 应用后端选择：写偏好 + 失效缓存 + 刷新副标题/选择器文案 + 复查体检（换库后探针要重跑） */
+    /** 后端字符串 → 目标 App 的短人话名（安装校验失败时的 Toast 用，避免再套一层括号说明） */
+    private static String backendAppName(String value) {
+        if (NotesBackend.BACKEND_XIAOMI.equals(value)) return "小米笔记";
+        if (NotesBackend.BACKEND_COLOROS_TODO.equals(value)) return "ColorOS 日历";
+        if (NotesBackend.BACKEND_COLOROS_NOTE.equals(value)) return "ColorOS 便签";
+        return "";
+    }
+
+    /** 包是否已安装：getPackageInfo 抛 NameNotFoundException 即未安装 */
+    private boolean isPackageInstalled(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return false;
+        try {
+            getPackageManager().getPackageInfo(pkg, 0);
+            return true;
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return false;
+        } catch (Throwable t) {
+            // 探测本身出错（如某些 ROM 收窄了包可见性）时按「已安装」放行，
+            // 绝不因为一次查询异常就挡住用户切换写入目标
+            return true;
+        }
+    }
+
+    /**
+     * 应用后端选择：写偏好 + 失效缓存 + 刷新副标题/选择器文案 + 复查体检（换库后探针要重跑）
+     *
+     * v3.1.1：选中一个非「自动」后端时，先确认目标 App 真的装了。
+     * 否则（小米 ROM 上选 ColorOS 便签、没装日历 App 等）要等到下一条短信真正写库
+     * 才会失败，用户从头到尾毫无察觉——当场拒绝，别让"假成功"留到半夜暴雷。
+     */
     private void applyBackend(String value) {
+        if (value != null && !value.isEmpty()) {
+            String pkg = NotesBackend.targetPkgOf(value);
+            if (!isPackageInstalled(pkg)) {
+                Toast.makeText(this, "未检测到 " + backendAppName(value) + " App，无法作为写入目标\n"
+                        + "（" + pkg + "）\n请先安装该 App，或改选「自动识别」。",
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+        }
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_BACKEND, value).apply();
         NotesBackend.invalidateCache();
+        // v3.1.0：写入目标也进了跨进程快照 —— 否则冻结兜底通道仍按 ROM 属性猜后端，
+        // 会和主通道写到两个不同的数据库里。这里推一次保证两条通道一致。
+        ProcessSync.push(this);
         String name;
         if (NotesBackend.BACKEND_XIAOMI.equals(value)) name = "小米笔记待办";
         else if (NotesBackend.BACKEND_COLOROS_TODO.equals(value)) name = "ColorOS 日历待办";
@@ -1024,6 +1135,114 @@ public class LauncherActivity extends Activity {
                         + "chmod 644 " + flag, 15);
             } catch (Throwable ignored) { }
         }).start();
+    }
+
+    // ==================== v3.1.1：通知取件开关的真实可用状态 ====================
+    //
+    // 背景：通知取件靠 system_server 里的 NotiHook 生效，只有 LSPosed 作用域勾了
+    // 「Android 系统（android）」时 NotiHook.install() 才会被执行。没勾的话，
+    // 标志文件 /data/local/tmp/pickup_sqlite/enable_noti_hook 写 1 也毫无用处，
+    // 界面却显示绿色「已开启」——典型的假状态，用户重启一百次也没用。
+    // 下面两段就是用来把这层假状态点破的。
+
+    /** 缺作用域时的统一提示文案（Toast 与按钮态共用一份，避免两处说法不一致） */
+    private static final String NOTI_SCOPE_TOAST =
+            "开关虽已打开，但 LSPosed 作用域没勾「Android 系统（android）」，\n"
+            + "这种状态下通知取件【不会生效】。\n"
+            + "请到：LSPosed → 模块 → 取件码助手 → 作用域勾选「Android 系统」\n"
+            + "（列表底部、不带推荐角标的那一项），再重启手机。";
+
+    /** 作用域校验节流窗口：同一次打开里 onResume 可能连着触发多次，不必每次都 su+sqlite3 */
+    private static final long NOTI_SCOPE_CHECK_INTERVAL = 60_000L;
+
+    /**
+     * 先从标志文件同步一次开关真值再渲染（onResume 用——标志文件
+     * /data/local/tmp/pickup_sqlite/enable_noti_hook 才是 system_server 侧的唯一开关来源）。
+     */
+    private void reloadNotiSwitchUi() {
+        notiSwitchOn = isNotiHookFlagOn();
+        renderNotiSwitchUi();
+    }
+
+    /**
+     * 渲染通知取件开关：开关本身决定「已开启/已关闭」，LSPosed 作用域决定它到底能不能用。
+     * 开关开着但缺 android 时，按钮改成警示色「作用域未勾选」并在下方露出灰色说明行。
+     * 必须在主线程调用；不重读标志文件（它是 su 异步写的，刚点完就读会读到旧值）。
+     */
+    private void renderNotiSwitchUi() {
+        if (notiBtnView == null) return;
+        boolean on = notiSwitchOn;
+        if (on && Boolean.TRUE.equals(notiScopeBlocked)) {
+            notiBtnView.setText("作用域未勾选");
+            notiBtnView.setBackgroundColor(Color.parseColor(C_WARN));
+        } else {
+            notiBtnView.setText(on ? "已开启" : "已关闭");
+            notiBtnView.setBackgroundColor(Color.parseColor(on ? "#0FA968" : "#9AA4B2"));
+        }
+        if (notiScopeHintView != null) {
+            notiScopeHintView.setVisibility(
+                    Boolean.TRUE.equals(notiScopeBlocked) ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /**
+     * 后台核对 LSPosed 作用域里有没有勾「Android 系统（android）」，有结论再回来改按钮。
+     *
+     * 复用现成能力，不自己重写查库逻辑：Diagnostics.checkScope 内部就是调
+     * Repair.lsposedStatus(ctx)（root 跑 sqlite3 读 /data/adb/lspd/config/modules_config.db），
+     * 但它是 private 且需要先知道 root 是否可用；这里直接用底层的公开方法
+     * Repair.lsposedStatus，拿它已经算好的 missingScope 即可。
+     *
+     * 取舍（简化版）：**只在开关为「已开启」时才查**——
+     *  ① 作用域检查要 root + sqlite3，约 2-5 秒，不能同步跑在按钮初始化里（界面必须秒开）；
+     *  ② 开关默认关闭，对绝大多数用户这次查库毫无意义，白白多一次 su；
+     *  ③ 「缺 android」这个结论只在开关打开时才有意义，关着时按钮本来就显示「已关闭」。
+     * 另外：配置库读不到（没 root / 没装 LSPosed）或模块未启用时不下结论，
+     * 保持标志文件的原始显示——这两种情况由上方「🔍 排查问题」向导负责。
+     *
+     * @param force true=忽略节流强制复查（开关刚被切换时用）
+     */
+    private void checkNotiHookScopeAsync(boolean force) {
+        long now = System.currentTimeMillis();
+        if (!force && now - lastNotiScopeCheck < NOTI_SCOPE_CHECK_INTERVAL) return;
+        lastNotiScopeCheck = now;
+        if (!notiSwitchOn) {
+            notiScopeBlocked = null;
+            renderNotiSwitchUi();
+            return;
+        }
+        new Thread(() -> {
+            boolean blocked = false;
+            try {
+                blocked = androidMissingFromScope(Repair.lsposedStatus(this));
+            } catch (Throwable ignored) { }
+            final boolean b = blocked;
+            runOnUiThread(() -> {
+                notiScopeBlocked = b;
+                renderNotiSwitchUi();
+                // 开关刚被打开、查完才发现作用域没勾：此刻那条"重启手机后生效"的提示
+                // 已经说错了，立刻补一条真正的修复指引
+                if (b) Toast.makeText(this, NOTI_SCOPE_TOAST, Toast.LENGTH_LONG).show();
+            });
+        }).start();
+    }
+
+    /**
+     * 判断 LSPosed 作用域是否缺「Android 系统（android）」。
+     * 复用 Repair.lsposedStatus 已算好的 missingScope（缺失项以「、」拼接）。
+     * 注意不能用 contains("android")——"com.android.phone" 里也含这串字符，会误判。
+     *
+     * @return true=确定缺 android（此时开关是假开启）；false=齐全或无法判定
+     */
+    private boolean androidMissingFromScope(Repair.LsposedStatus st) {
+        if (st == null) return false;
+        // 读不到配置库 / 模块未启用时不臆断为"缺 android"，避免误伤正常用户
+        if (!st.dbReadable || !st.moduleEnabled) return false;
+        if (st.missingScope == null) return false;
+        for (String p : st.missingScope.split("[、,，]")) {
+            if ("android".equals(p.trim())) return true;
+        }
+        return false;
     }
 
     /**
@@ -1471,8 +1690,19 @@ public class LauncherActivity extends Activity {
             statusCard.setText(lastHealthText);
             statusCard.setMaxLines(Integer.MAX_VALUE);
         } else {
-            statusCard.setText("✅ 一切正常 · 六项体检全部通过（规则集: v" + PickupExtractor.getActiveRulesVersion() + " · 点开看详情）");
-            statusCard.setMaxLines(2);
+            // v3.1.0 修正：此前这里是写死的「✅ 一切正常」，与实际体检结果无关——
+            // 体检有 ❌ 时用户点一下就能把红色警告折叠成绿色「一切正常」。
+            // 现在只允许「真的全绿」才折叠，否则折叠时保留一行真实结论。
+            boolean allOk = !lastHealthText.contains("❌");
+            if (allOk) {
+                statusCard.setText("✅ 一切正常 · 六项体检全部通过（规则集: v"
+                        + PickupExtractor.getActiveRulesVersion() + " · 点开看详情）");
+                statusCard.setMaxLines(2);
+            } else {
+                // 有问题时不给「收起」——必须让用户一直看得见红字
+                statusCard.setText(lastHealthText);
+                statusCard.setMaxLines(Integer.MAX_VALUE);
+            }
         }
     }
 
@@ -1489,7 +1719,12 @@ public class LauncherActivity extends Activity {
         handleCopy(getIntent());
         handleDone(getIntent());
         refreshHealth(); // v2.6.0：直接调用（updateStatus 壳已删）
-        Updater.maybeCheck(this, false);
+        // v3.1.1：通知取件开关的真实可用状态（root + sqlite3 查 LSPosed 作用域，2-5 秒，
+        // 内部已节流 + 后台线程，绝不占主线程）。用户刚去 LSPosed 补勾作用域后回到这里也能立刻复检。
+        reloadNotiSwitchUi();
+        checkNotiHookScopeAsync(false);
+        // v3.1.0：与冷启动同一套联动检查（此前规则检查只挂在 onCreate，回前台永远不触发）
+        UpdateCenter.maybeCheck(this);
         // v3.0.1：用户规则页可能改过开关/规则，回到主界面必须刷新卡片状态，
         // 否则会出现「里面已启用、外面还显示未启用」的不同步
         refreshUserRuleCard();
@@ -1528,23 +1763,38 @@ public class LauncherActivity extends Activity {
         intent.removeExtra("copy");
     }
 
-    /** 通知"已取件"按钮：勾选对应待办（v2.7.0：SQL 随后端分派） */
+    /**
+     * 通知"已取件"按钮：勾选对应待办（v2.7.0：SQL 随后端分派）
+     *
+     * v3.1.1：TodoWriter.runSql 内部是 su + sqlite3，可达数秒，绝不能占着主线程
+     * （用户点通知栏按钮进来就干等，界面卡死、极易 ANR）。
+     * 这里只把「勾选」丢后台线程，跑完再 runOnUiThread 回主线程做 Toast/跳转/finish。
+     */
     private void handleDone(Intent intent) {
         if (intent == null) return;
         String code = intent.getStringExtra("done");
         if (code == null || code.isEmpty()) return;
-        String sql = NotesBackend.markDoneSql(this, code);
-        int rc = TodoWriter.runSql(this, sql);
-        Toast.makeText(this, rc == 0 ? "已标记已取件：" + code : "标记失败（rc=" + rc + "）",
-                Toast.LENGTH_LONG).show();
+        // 先在主线程把 extra 摘掉：本方法在 onNewIntent 与 onResume 里都会被调，
+        // 不摘的话后台线程还在跑，下一次 onResume 就会再触发一次重复的 su 写入
         intent.removeExtra("done");
-        if (rc == 0) {
-            try {
-                Intent notes = getPackageManager().getLaunchIntentForPackage(NotesBackend.targetPkg(this));
-                if (notes != null) startActivity(notes);
-            } catch (Throwable ignored) { }
-            finish();
-        }
+        // markDoneSql 只是拼字符串（无 IO），留在主线程不算阻塞
+        final String sql = NotesBackend.markDoneSql(this, code);
+        new Thread(() -> {
+            final int rc = TodoWriter.runSql(this, sql);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                Toast.makeText(this, rc == 0 ? "已标记已取件：" + code : "标记失败（rc=" + rc + "）",
+                        Toast.LENGTH_LONG).show();
+                if (rc == 0) {
+                    try {
+                        Intent notes = getPackageManager().getLaunchIntentForPackage(
+                                NotesBackend.targetPkg(this));
+                        if (notes != null) startActivity(notes);
+                    } catch (Throwable ignored) { }
+                    finish();
+                }
+            });
+        }).start();
     }
 
     /** 渲染模板效果预览（v2.5.3）：占位符替换为样例值 */
@@ -1579,6 +1829,7 @@ public class LauncherActivity extends Activity {
             if (mode == currentMode) return; // 已是当前模式，无操作（也不弹 Toast 打扰）
             currentMode = mode;
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt("todo_mode", mode).apply();
+            ProcessSync.push(this); // v3.1.0 P3：模板模式同步给系统进程兜底通道
             if (restyleModes != null) restyleModes.run(); // 只重着色高亮，不 recreate
             if (refreshTplPreview != null) refreshTplPreview.run(); // 刷新效果预览
             // 若模板编辑框还开着，切换模式时收起编辑态（未保存的内容丢弃，防误操作）
@@ -1590,6 +1841,133 @@ public class LauncherActivity extends Activity {
             Toast.makeText(this, "待办模板已切换为「" + label + "」", Toast.LENGTH_SHORT).show();
         });
         return b;
+    }
+
+    /**
+     * v3.1.0 P4：构建「通知来源 App 列表」这一行（只读展示 + 可编辑追加）。
+     *
+     * 背景：通知取件的白名单此前写死在 NotiHook.BUILTIN_PKGS（6 个包名），
+     * 用户既看不见也改不了——想抓闪送/自建驿站 App 的通知只能等发版。
+     * v3.1.0 已把后端管道打通（ProcessSync 同步 + NotiHook 合并），
+     * 这里补上界面入口，让管道真正可达。
+     */
+    private LinearLayout buildNotiPkgsRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(4), 0, 0);
+        return row;
+    }
+
+    /** P4 行内容：标题行（只读预览 + 修改按钮）→ 编辑态（输入框 + 保存/清空/取消） */
+    private void buildNotiPkgsRowContent() {
+        if (notiPkgsRow == null) return;
+        notiPkgsRow.removeAllViews();
+
+        TextView title = new TextView(this);
+        title.setText("📱 通知来源 App（通知取件提取抓哪些 App）");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        title.setTextColor(Color.parseColor("#333333"));
+        notiPkgsRow.addView(title);
+
+        final TextView preview = new TextView(this);
+        preview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        preview.setTextColor(Color.parseColor("#666666"));
+        preview.setPadding(0, dp(3), 0, 0);
+        notiPkgsRow.addView(preview);
+
+        final LinearLayout actionRow = new LinearLayout(this);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        actionRow.setPadding(0, dp(6), 0, 0);
+        final TextView modify = smallButton("✏️ 添加 App 包名", "#F0A020");
+        actionRow.addView(modify, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        notiPkgsRow.addView(actionRow);
+
+        final EditText edit = new EditText(this);
+        edit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        edit.setBackground(roundRect("#FFFFFF"));
+        edit.setPadding(dp(8), dp(6), dp(8), dp(6));
+        edit.setHint("每行一个 App 包名，例：\ncom.cainiao.wireless\ncom.shanshui.flash");
+        edit.setVisibility(View.GONE);
+        notiPkgsRow.addView(edit);
+
+        final LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        btnRow.setPadding(0, dp(6), 0, 0);
+        final TextView save = smallButton("💾 保存", "#0FA968");
+        final TextView clear = smallButton("↩️ 只留内置", "#9AA4B2");
+        final TextView cancel = smallButton("取消", "#9AA4B2");
+        btnRow.addView(save, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        btnRow.addView(clear, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        btnRow.addView(cancel, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        btnRow.setVisibility(View.GONE);
+        notiPkgsRow.addView(btnRow);
+
+        TextView hint = new TextView(this);
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        hint.setTextColor(Color.parseColor("#888888"));
+        hint.setPadding(0, dp(4), 0, 0);
+        hint.setText("内置：" + String.join("、", NotiHook.BUILTIN_PKGS)
+                + "\n包名可在手机「设置 → 应用 → 应用信息」里查到；"
+                + "改完需重启手机生效。");
+        notiPkgsRow.addView(hint);
+
+        final Runnable[] refreshHolder = new Runnable[1];
+        final Runnable[] exitHolder = new Runnable[1];
+
+        exitHolder[0] = () -> {
+            edit.setVisibility(View.GONE);
+            btnRow.setVisibility(View.GONE);
+            actionRow.setVisibility(View.VISIBLE);
+            preview.setVisibility(View.VISIBLE);
+            refreshHolder[0].run();
+        };
+
+        refreshHolder[0] = () -> {
+            final String extra = ProcessSync.getExtraNotiPkgs(this).trim();
+            preview.setText(extra.isEmpty()
+                    ? "当前：仅内置 6 个 App"
+                    : "当前：内置 6 个 + 你添加的 "
+                      + extra.split("[\\n,，]+").length + " 个");
+            modify.setOnClickListener(v -> {
+                edit.setText(extra);
+                edit.setVisibility(View.VISIBLE);
+                btnRow.setVisibility(View.VISIBLE);
+                actionRow.setVisibility(View.GONE);
+                preview.setVisibility(View.GONE);
+            });
+            clear.setOnClickListener(v -> {
+                ProcessSync.setExtraNotiPkgs(this, "");
+                Toast.makeText(this, "已恢复为仅内置 App", Toast.LENGTH_SHORT).show();
+                exitHolder[0].run();
+            });
+            cancel.setOnClickListener(v -> exitHolder[0].run());
+            save.setOnClickListener(v -> {
+                String raw = edit.getText().toString();
+                StringBuilder bad = new StringBuilder();
+                for (String line : raw.split("[\\n,，]+")) {
+                    String p = line.trim();
+                    if (p.isEmpty()) continue;
+                    if (!p.matches("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) {
+                        if (bad.length() > 0) bad.append("、");
+                        bad.append(p);
+                    }
+                }
+                if (bad.length() > 0) {
+                    Toast.makeText(this, "这些看起来不是 App 包名：\n" + bad,
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                ProcessSync.setExtraNotiPkgs(this, raw.trim());
+                Toast.makeText(this, "已保存 ✓ 需重启手机生效", Toast.LENGTH_SHORT).show();
+                exitHolder[0].run();
+            });
+        };
+
+        refreshHolder[0].run();
     }
 
     private TextView smallButton(String label, String bg) {
