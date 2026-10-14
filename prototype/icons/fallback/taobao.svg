@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="淘宝">
+  <rect width="96" height="96" rx="26" fill="#FF6A00"/>
+  <path d="M26 34h44l4.4 33.6A6 6 0 0 1 68.6 74H27.4a6 6 0 0 1-6-6.4z" fill="#FFFFFF"/>
+  <path d="M35.5 41v-6.6a12.5 12.5 0 0 1 25 0V41" stroke="#FFFFFF" stroke-width="7" fill="none" stroke-linecap="round"/>
+  <text x="48" y="68" text-anchor="middle" font-size="30" font-weight="700"
+        font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC, sans-serif"
+        fill="#FF6A00">淘</text>
+</svg>

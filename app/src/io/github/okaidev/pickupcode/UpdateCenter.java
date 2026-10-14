@@ -128,7 +128,7 @@ public class UpdateCenter {
 
                 if (hasNewApp) {
                     new AlertDialog.Builder(act)
-                            .setTitle("🔔 发现新版本 v" + latestVer)
+                            .setTitle("发现新版本 v" + latestVer)
                             .setMessage("当前版本：v" + cur
                                     + "\n最新版本：v" + latestVer
                                     + "\n\n更新内容见 Releases 页说明；下载安装后记得在 LSPosed 里确认模块仍已启用。")
@@ -146,7 +146,7 @@ public class UpdateCenter {
                     if (rr == 1) {
                         toast(ctx, "规则集已更新至 v" + PickupExtractor.getActiveRulesVersion() + " ✓");
                     } else if (rr == 2) {
-                        toast(ctx, "✅ 软件" + (hasNewApp ? "可升级至 v" + latestVer : "已是最新 v" + cur)
+                        toast(ctx, "软件" + (hasNewApp ? "可升级至 v" + latestVer : "已是最新 v" + cur)
                                 + "，规则集已是最新（v" + PickupExtractor.getActiveRulesVersion() + "）");
                     } else if (rr == 3) {
                         toast(ctx, "网络不可用，未获取到最新规则");

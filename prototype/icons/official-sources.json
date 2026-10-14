@@ -1,0 +1,37 @@
+{
+ "cainiao": {
+  "app": "菜鸟—快递物流轻松查寄取",
+  "bundleId": "com.cainiao.cnwireless",
+  "artwork": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/c3/60/95/c36095e1-89c6-68b7-8d78-776b41bf9369/AppIcon-0-0-1x_U007epad-0-1-0-85-220.png/512x512bb.jpg",
+  "downloaded": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/c3/60/95/c36095e1-89c6-68b7-8d78-776b41bf9369/AppIcon-0-0-1x_U007epad-0-1-0-85-220.png/180x180bb.png",
+  "bytes": 9773
+ },
+ "jd": {
+  "app": "京东-又好又便宜",
+  "bundleId": "com.360buy.jdmobile",
+  "artwork": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/e6/37/e7/e637e7c9-bea1-b9fc-2b80-04edb021083d/AppIcon-0-0-1x_U007epad-0-1-0-0-85-220.png/512x512bb.jpg",
+  "downloaded": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/e6/37/e7/e637e7c9-bea1-b9fc-2b80-04edb021083d/AppIcon-0-0-1x_U007epad-0-1-0-0-85-220.png/180x180bb.png",
+  "bytes": 38884
+ },
+ "taobao": {
+  "app": "淘宝-万能的淘宝！",
+  "bundleId": "com.taobao.taobao4iphone",
+  "artwork": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/d4/b1/4a/d4b14a2f-73e2-a36d-49e7-ff8492fa7e06/AppIcon-0-0-1x_U007emarketing-0-10-0-85-220.png/512x512bb.jpg",
+  "downloaded": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/d4/b1/4a/d4b14a2f-73e2-a36d-49e7-ff8492fa7e06/AppIcon-0-0-1x_U007emarketing-0-10-0-85-220.png/180x180bb.png",
+  "bytes": 22932
+ },
+ "pinduoduo": {
+  "app": "拼多多 - 多多买菜，百亿补贴",
+  "bundleId": "com.xunmeng.pinduoduo",
+  "artwork": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/4b/00/97/4b00979c-7d46-1f43-4825-fdceba61fe05/AppIcon-1x_U007emarketing-0-8-0-0-85-220-0.png/512x512bb.jpg",
+  "downloaded": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/4b/00/97/4b00979c-7d46-1f43-4825-fdceba61fe05/AppIcon-1x_U007emarketing-0-8-0-0-85-220-0.png/180x180bb.png",
+  "bytes": 28689
+ },
+ "sf": {
+  "app": "顺丰速运-快递查寄收 不止是快",
+  "bundleId": "com.sf-express.waybillcn",
+  "artwork": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/d4/c3/5b/d4c35beb-fb9c-f55d-db60-8487701cd35a/AppIcon-0-1x_U007ephone-0-1-85-220-0.png/512x512bb.jpg",
+  "downloaded": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/d4/c3/5b/d4c35beb-fb9c-f55d-db60-8487701cd35a/AppIcon-0-1x_U007ephone-0-1-85-220-0.png/180x180bb.png",
+  "bytes": 7670
+ }
+}
