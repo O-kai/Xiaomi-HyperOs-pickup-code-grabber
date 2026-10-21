@@ -55,3 +55,5 @@ experimental-disabled/
 # tools/device-probe 的脚本与说明要提交，截图和临时 SQL 不提交
 tools/device-probe/shots/
 tools/device-probe/_probe_q.sql
+
+tools/_del.py
