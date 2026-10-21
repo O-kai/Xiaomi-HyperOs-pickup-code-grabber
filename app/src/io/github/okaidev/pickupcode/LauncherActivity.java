@@ -77,6 +77,8 @@ public class LauncherActivity extends Activity {
     private LinearLayout checklistCard;
     private LinearLayout checklistBox;
     private TextView deployBtn, troubleshootBtn;
+    /** 4.1：一键链路测试入口（从「规则 → 工具」移到首页） */
+    private LinearLayout chainTestBtn;
 
     // ==================== 应用 ====================
     private TextView backendValue, envValue, extraSummary;
@@ -204,7 +206,9 @@ public class LauncherActivity extends Activity {
         contentHost.removeAllViews();
         contentHost.addView(tabViews[index], new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        String[] titles = { "取件码助手", "应用", "规则", "设置" };
+        // 4.1：Tab 名「应用」→「来源」（页面内容是"哪些 App 的通知会被读取"，
+        // 叫「应用」容易与「写入目标 App」混淆）
+        String[] titles = { "取件码助手", "来源", "规则", "设置" };
         headerTitle.setText(titles[index]);
         headerSub.setText(appVersionLabel() + " · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
 
@@ -292,48 +296,50 @@ public class LauncherActivity extends Activity {
         troubleshootBtn.setOnClickListener(v -> runTroubleshoot());
         box.addView(troubleshootBtn);
 
-        // 双统计卡
-        LinearLayout stats = new LinearLayout(this);
-        stats.setOrientation(LinearLayout.HORIZONTAL);
-        stats.addView(statCard("适配应用", String.valueOf(AppIcons.PKGS.length), "通知取件来源"),
-                weighted(1f, 0));
-        stats.addView(statCard("识别来源", String.valueOf(IDENTIFY_SOURCES), "菜鸟 · 丰巢 · 京东 …"),
-                weighted(1f, 12));
-        box.addView(stats, UiKit.cardLp(this, 12));
+        // ============ 4.1 信息架构调整 ============
+        // 首页只回答一个问题：它现在能正常工作吗？不能的话我该做什么？
+        // 移出：双统计卡（无实际用途）、项目版本信息、检查更新、反馈入口 → 设置
+        // 移入：一键链路测试（原「规则」页）、写入与适配（原「应用」页）、官方规则集版本（原「规则」页）
 
-        // 项目版本信息
-        LinearLayout verCard = UiKit.card(this, P);
-        verCard.addView(UiKit.row(this, P, R.drawable.ic_box, "项目版本信息",
-                appVersionLabel() + " (" + appVersionCode() + ") · 规则集 v"
-                        + PickupExtractor.getActiveRulesVersion()
-                        + " · MIT License", UiKit.chevron(this, P)));
-        verCard.setOnClickListener(v -> showVersionDialog());
-        box.addView(verCard, UiKit.cardLp(this, 12));
+        // 一键链路测试（原在「规则 → 工具」）
+        chainTestBtn = toolRow(R.drawable.ic_flask, "一键链路测试",
+                "不消耗短信 · 分步验证「识别 → 写入」", v -> precheckThenOpenChainTest());
+        LinearLayout ctCard = UiKit.card(this, P);
+        ctCard.addView(chainTestBtn);
+        box.addView(ctCard, UiKit.cardLp(this, 12));
 
-        // 是否有新版本
-        LinearLayout updCard = UiKit.card(this, P);
-        updCard.addView(UiKit.row(this, P, R.drawable.ic_refresh, "是否有新版本",
-                "3 天自动检查一次 · 点此立即检查软件与规则",
-                UiKit.badgeOk(this, P, "已是最新")));
-        updCard.setOnClickListener(v -> checkUpdateNow());
-        box.addView(updCard, UiKit.cardLp(this, 10));
+        // 写入与适配（原在「应用」页）
+        box.addView(UiKit.groupLabel(this, P, "写入与适配"));
+        LinearLayout waCard = UiKit.card(this, P);
+        backendValue = UiKit.value(this, P, backendLabel());
+        LinearLayout backendRow = UiKit.row(this, P, R.drawable.ic_target, "待办写入目标",
+                "取件码写进哪个 App 的待办", backendValue);
+        LinearLayout backendAcc = (LinearLayout) backendRow.getChildAt(backendRow.getChildCount() - 1);
+        backendAcc.addView(UiKit.icon(this, R.drawable.ic_chev_down, 17, P.muteInk));
+        backendRow.setOnClickListener(v -> showBackendPicker());
+        waCard.addView(backendRow);
 
-        // 反馈入口
-        LinearLayout helpCard = UiKit.card(this, P);
-        TextView helpTitle = UiKit.text(this, "遇到问题?", 16.5f, UiKit.INK);
-        helpTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        helpTitle.setPadding(0, dp(13), 0, dp(2));
-        helpCard.addView(helpTitle);
-        LinearLayout ghRow = UiKit.row(this, P, 0, "在 GitHub 反馈（Issues）", null,
-                UiKit.icon(this, R.drawable.ic_github, 21, UiKit.INK));
-        ghRow.setOnClickListener(v -> openUrl(ISSUES_URL));
-        helpCard.addView(ghRow);
-        helpCard.addView(UiKit.divider(this, P));
-        LinearLayout qqRow = UiKit.row(this, P, 0, "加入开发者 QQ 群 901543676", null,
-                UiKit.text(this, "复制群号", 13.5f, P.accentInk));
-        qqRow.setOnClickListener(v -> copyQqGroup());
-        helpCard.addView(qqRow);
-        box.addView(helpCard, UiKit.cardLp(this, 10));
+        waCard.addView(UiKit.divider(this, P));
+        envValue = UiKit.value(this, P, envLabel());
+        LinearLayout envRow = UiKit.row(this, P, R.drawable.ic_phone, "环境适配",
+                envDetail(), envValue);
+        LinearLayout envAcc = (LinearLayout) envRow.getChildAt(envRow.getChildCount() - 1);
+        envAcc.addView(UiKit.icon(this, R.drawable.ic_chev_down, 17, P.muteInk));
+        envRow.setOnClickListener(v -> showEnvPicker());
+        waCard.addView(envRow);
+        box.addView(waCard, UiKit.cardLp(this, 0f));
+
+        // 官方规则集版本（原在「规则」页顶部，这里只显示状态，检查更新已移到设置）
+        box.addView(UiKit.groupLabel(this, P, "官方规则集"));
+        ExtractorRules hr = PickupExtractor.getActiveRules();
+        String hrCounts = hr == null ? "" :
+                hr.keywordAnchors.size() + " 组锚点词 · " + hr.featureWords.size() + " 特征词 · "
+                        + hr.negativeKeywords.size() + " 负向词";
+        LinearLayout ruleCard = UiKit.card(this, P);
+        ruleCard.addView(UiKit.row(this, P, R.drawable.ic_link,
+                "官方规则集 v" + PickupExtractor.getActiveRulesVersion(), hrCounts,
+                UiKit.badgeAccent(this, P, "已是最新")));
+        box.addView(ruleCard, UiKit.cardLp(this, 12));
 
         return sv;
     }
@@ -381,6 +387,15 @@ public class LauncherActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box);
 
+        // 4.1：页面说明——把「这个页面在干什么」说清楚
+        TextView intro = UiKit.text(this,
+                "以下 App 收到含取件码的通知时，会被自动读取并写入待办。\n"
+                        + "短信通道不受此限制，任何号码的取件短信都会识别。",
+                12.5f, UiKit.INK3);
+        intro.setLineSpacing(dp(2), 1.1f);
+        intro.setPadding(dp(6), 0, dp(6), dp(4));
+        box.addView(intro);
+
         box.addView(UiKit.groupLabel(this, P, "通知取件来源（" + AppIcons.PKGS.length + "）"));
         LinearLayout appCard = UiKit.card(this, P);
         for (int i = 0; i < AppIcons.PKGS.length; i++) {
@@ -425,30 +440,7 @@ public class LauncherActivity extends Activity {
         scopeNote.setLineSpacing(dp(2), 1.1f);
         box.addView(scopeNote, UiKit.cardLp(this, 10));
 
-        box.addView(UiKit.groupLabel(this, P, "写入与适配"));
-        LinearLayout waCard = UiKit.card(this, P);
-        backendValue = UiKit.value(this, P, backendLabel());
-        LinearLayout backendRow = UiKit.row(this, P, R.drawable.ic_target, "待办写入目标",
-                "取件码写进哪个 App 的待办", backendValue);
-        LinearLayout backendAcc = (LinearLayout) backendRow.getChildAt(backendRow.getChildCount() - 1);
-        backendAcc.addView(UiKit.icon(this, R.drawable.ic_chev_down, 17, P.muteInk));
-        backendRow.setOnClickListener(v -> showBackendPicker());
-        waCard.addView(backendRow);
-
-        waCard.addView(UiKit.divider(this, P));
-        envValue = UiKit.value(this, P, envLabel());
-        LinearLayout envRow = UiKit.row(this, P, R.drawable.ic_phone, "环境适配",
-                envDetail(), envValue);
-        LinearLayout envAcc = (LinearLayout) envRow.getChildAt(envRow.getChildCount() - 1);
-        envAcc.addView(UiKit.icon(this, R.drawable.ic_chev_down, 17, P.muteInk));
-        envRow.setOnClickListener(v -> showEnvPicker());
-        waCard.addView(envRow);
-        box.addView(waCard, UiKit.cardLp(this, 0f));
-
-        TextView tip = UiKit.text(this, "环境适配为自动识别结果；写入目标切换后立即生效，无需重启。",
-                12.5f, UiKit.INK3);
-        tip.setPadding(dp(6), dp(12), dp(6), 0);
-        box.addView(tip);
+        // 4.1：写入与适配已移到首页（原在「应用」页，与设置页重复）
         return sv;
     }
 
@@ -612,11 +604,7 @@ public class LauncherActivity extends Activity {
         offCard.addView(UiKit.row(this, P, R.drawable.ic_link,
                 "官方规则集 v" + PickupExtractor.getActiveRulesVersion(), counts,
                 UiKit.badgeAccent(this, P, "已是最新")));
-        offCard.addView(UiKit.divider(this, P));
-        LinearLayout updRow = UiKit.row(this, P, R.drawable.ic_refresh, "检查更新（软件 + 规则）",
-                "一次查完，先拉规则再提示软件升级", UiKit.chevron(this, P));
-        updRow.setOnClickListener(v -> checkUpdateNow());
-        offCard.addView(updRow);
+        // 4.1：「检查更新」已移到「设置 → 更新」（原先首页/规则/设置三处重复）
         box.addView(offCard);
 
         box.addView(UiKit.groupLabel(this, P, "我的规则"));
@@ -676,22 +664,7 @@ public class LauncherActivity extends Activity {
         refreshBlacklistPreview();
         box.addView(blCard, UiKit.cardLp(this, 0f));
 
-        box.addView(UiKit.groupLabel(this, P, "工具"));
-        LinearLayout toolCard = UiKit.card(this, P);
-        toolCard.addView(toolRow(R.drawable.ic_flask, "一键链路测试",
-                "不消耗短信 · 分步验证「识别 → 写入」", v -> precheckThenOpenChainTest()));
-        toolCard.addView(UiKit.divider(this, P));
-        int missed = 0;
-        try { missed = MissedSmsStore.getAll(this).size(); } catch (Throwable ignored) { }
-        toolCard.addView(toolRow(R.drawable.ic_notebook, "疑似漏抓错题本",
-                "当前 " + missed + " 条 · 一键脱敏复制上报", v -> showMissedSmsDialog()));
-        toolCard.addView(UiKit.divider(this, P));
-        toolCard.addView(toolRow(R.drawable.ic_search, "排查问题向导",
-                "未注入 → root → 作用域 → 通知 → sqlite3 → 笔记库", v -> runTroubleshoot()));
-        toolCard.addView(UiKit.divider(this, P));
-        toolCard.addView(toolRow(R.drawable.ic_doc, "导出诊断报告",
-                "自动脱敏，可直接发给作者", v -> exportDiag()));
-        box.addView(toolCard, UiKit.cardLp(this, 0f));
+        // 4.1：「工具」组已拆分——链路测试→首页；错题本/排查向导/诊断报告→设置→排查
         return sv;
     }
 
@@ -746,14 +719,10 @@ public class LauncherActivity extends Activity {
         box.addView(UiKit.groupLabel(this, P, "提取与写入"));
         LinearLayout setCard = UiKit.card(this, P);
 
-        // 写入目标
-        LinearLayout beRow = UiKit.row(this, P, R.drawable.ic_target, "写入目标",
-                backendLabel() + " · 自动识别", UiKit.value(this, P, "切换"));
-        beRow.setOnClickListener(v -> showBackendPicker());
-        setCard.addView(beRow);
+        // 4.1：「写入目标」已移到首页（原与「应用」页重复）。
+        // 这里只保留待办模板——它属于「写出来的东西长什么样」，与写到哪里无关。
 
         // 待办模板（就地展开编辑）
-        setCard.addView(UiKit.divider(this, P));
         tplValueView = UiKit.value(this, P, modeLabel(currentMode));
         LinearLayout tplRow = UiKit.row(this, P, R.drawable.ic_template, "待办模板",
                 "极简 / 完整 / 自定义占位符", tplValueView);
@@ -838,9 +807,29 @@ public class LauncherActivity extends Activity {
         genCard.addView(toolRow(R.drawable.ic_download, "检查更新", "软件 + 规则一次查完",
                 v -> checkUpdateNow()));
         genCard.addView(UiKit.divider(this, P));
+        genCard.addView(toolRow(R.drawable.ic_box, "项目版本信息",
+                appVersionLabel() + " (" + appVersionCode() + ") · 规则集 v"
+                        + PickupExtractor.getActiveRulesVersion() + " · MIT License",
+                v -> showVersionDialog()));
+        genCard.addView(UiKit.divider(this, P));
         genCard.addView(toolRow(R.drawable.ic_doc, "更新日志", "查看模块的更新日志",
                 v -> openUrl(CHANGELOG_URL)));
         box.addView(genCard, UiKit.cardLp(this, 0f));
+
+        // 4.1：新增「排查」分组——原先散在首页和「规则 → 工具」里
+        box.addView(UiKit.groupLabel(this, P, "排查"));
+        LinearLayout diagCard = UiKit.card(this, P);
+        int missed = 0;
+        try { missed = MissedSmsStore.getAll(this).size(); } catch (Throwable ignored) { }
+        diagCard.addView(toolRow(R.drawable.ic_notebook, "疑似漏抓错题本",
+                "当前 " + missed + " 条 · 一键脱敏复制上报", v -> showMissedSmsDialog()));
+        diagCard.addView(UiKit.divider(this, P));
+        diagCard.addView(toolRow(R.drawable.ic_search, "排查问题向导",
+                "未注入 → root → 作用域 → 通知 → sqlite3 → 笔记库", v -> runTroubleshoot()));
+        diagCard.addView(UiKit.divider(this, P));
+        diagCard.addView(toolRow(R.drawable.ic_doc, "导出诊断报告",
+                "自动脱敏，可直接发给作者", v -> exportDiag()));
+        box.addView(diagCard, UiKit.cardLp(this, 0f));
 
         // 帮助与关于
         box.addView(UiKit.groupLabel(this, P, "帮助与关于"));
@@ -856,6 +845,13 @@ public class LauncherActivity extends Activity {
         aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_github, "项目仓库", "GitHub · 欢迎 Star",
                 v -> openUrl(REPO_URL)));
+        // 4.1：反馈入口从首页移到此处（首页只放「能不能用」）
+        aboutCard.addView(UiKit.divider(this, P));
+        aboutCard.addView(toolRow(R.drawable.ic_chat, "在 GitHub 反馈问题",
+                "Issues · 建议附上诊断报告", v -> openUrl(ISSUES_URL)));
+        aboutCard.addView(UiKit.divider(this, P));
+        aboutCard.addView(toolRow(R.drawable.ic_phone, "加入开发者 QQ 群",
+                "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
         box.addView(aboutCard, UiKit.cardLp(this, 0f));
 
         box.addView(UiKit.groupLabel(this, P, "使用说明"));
