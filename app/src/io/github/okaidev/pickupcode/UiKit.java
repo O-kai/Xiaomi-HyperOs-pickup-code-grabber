@@ -571,6 +571,9 @@ public final class UiKit {
         }
 
         // 正文
+        // v4.5：原来 message 与 contentView 是 else-if 关系——只要传了 message，
+        // contentView 就会被静默丢弃（自定义来源弹窗的输入框因此不显示）。
+        // 改为两者都可以同时存在：先文字说明，再自定义内容。
         if (message != null && !message.isEmpty()) {
             TextView m = text(a, message, 13.5f, INK2);
             m.setLineSpacing(dp(a, 4), 1.0f);
@@ -578,7 +581,8 @@ public final class UiKit {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(0, dp(a, 12), 0, 0);
             card.addView(m, lp);
-        } else if (contentView != null) {
+        }
+        if (contentView != null) {
             ScrollView sc = new ScrollView(a);
             sc.setClipToPadding(false);
             sc.addView(contentView);

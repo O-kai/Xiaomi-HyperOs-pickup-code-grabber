@@ -342,9 +342,14 @@ public class LauncherActivity extends Activity {
                 hr.keywordAnchors.size() + " 组锚点词 · " + hr.featureWords.size() + " 特征词 · "
                         + hr.negativeKeywords.size() + " 负向词";
         LinearLayout ruleCard = UiKit.card(this, P);
-        ruleCard.addView(UiKit.row(this, P, R.drawable.ic_link,
+        // v4.5：「已是最新」徽标改为可点击，点一下手动拉取最新规则。
+        // 频率限制 8 秒一次（见 checkRulesManually），避免连点造成无谓请求。
+        ruleBadgeView = UiKit.badgeAccent(this, P, "已是最新");
+        LinearLayout ruleRow = UiKit.row(this, P, R.drawable.ic_link,
                 "官方规则集 v" + PickupExtractor.getActiveRulesVersion(), hrCounts,
-                UiKit.badgeAccent(this, P, "已是最新")));
+                ruleBadgeView);
+        ruleRow.setOnClickListener(v -> checkRulesManually());
+        ruleCard.addView(ruleRow);
         box.addView(ruleCard, UiKit.cardLp(this, 12));
 
         // 取件码写入目标（4.3：改名 + 右侧同时显示「自动」与自动选中的具体目标）
@@ -368,7 +373,8 @@ public class LauncherActivity extends Activity {
 
         tplEditorBox = new LinearLayout(this);
         tplEditorBox.setOrientation(LinearLayout.VERTICAL);
-        tplEditorBox.setVisibility(View.GONE);
+        // v4.5：默认展开——用户要求三种模式都要直接看到效果预览，不用点开
+        tplEditorBox.setVisibility(View.VISIBLE);
         buildTplEditor();
         tplCard.addView(tplEditorBox);
         box.addView(tplCard, UiKit.cardLp(this, 12));
@@ -426,18 +432,18 @@ public class LauncherActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box);
 
-        // v4.4：把原先「多平台」弹窗里的说明整合到这里（那个弹窗已移除——
-        // 本页已经直接列出所有支持的 App，没必要再点开看一遍）。
+        // v4.5：说明精简（用户要求）：
+        //  - 删掉「本页管理…这一条通道」（意义不大）
+        //  - 只保留一句「识别规则与短信通道共用一套规则集」，删掉后半句
+        //  - 收紧行距与内边距，去掉多余空白
         TextView intro = UiKit.text(this,
-                "本页管理「从 App 通知里提取取件码」这一条通道。\n\n"
-                        + "· 下面列出的 App，收到含取件码的通知时会被自动读取，写入待办\n"
-                        + "· 短信通道不受此限制：任何号码的取件短信都会识别，无需在此添加\n"
-                        + "· 识别规则与短信通道共用同一套规则集，所以「取件码 / 取货码 / 凭码」"
-                        + "等说法在两边都能识别",
+                "下方 App 收到含取件码的通知时，会被自动读取并写入待办。\n"
+                        + "短信通道不受此限制：任何号码的取件短信都会识别。\n"
+                        + "识别规则与短信通道共用一套规则集。",
                 12.5f, UiKit.INK3);
-        intro.setLineSpacing(dp(4), 1.15f);
+        intro.setLineSpacing(dp(3), 1.1f);
         intro.setBackground(UiKit.bg(P.cardSoft, this, 14));
-        intro.setPadding(dp(15), dp(13), dp(15), dp(13));
+        intro.setPadding(dp(14), dp(11), dp(14), dp(11));
         box.addView(intro, UiKit.cardLp(this, 12));
 
         LinearLayout notiCard = UiKit.card(this, P);
@@ -480,20 +486,11 @@ public class LauncherActivity extends Activity {
         appCard.addView(addBox);
         box.addView(appCard);
 
-        // 自定义来源的展开编辑区（就地编辑，不用 dialog 承载输入框）
-        extraBox = new LinearLayout(this);
-        extraBox.setOrientation(LinearLayout.VERTICAL);
-        extraBox.setVisibility(View.GONE);
-        extraBox.setBackground(UiKit.bg(P.card, this, 18));
-        extraBox.setPadding(dp(16), dp(6), dp(16), dp(14));
-        extraBox.setElevation(dp(1));
-        box.addView(extraBox, UiKit.cardLp(this, 10));
-        buildExtraBoxContent();
-        addBox.setOnClickListener(v -> {
-            boolean show = extraBox.getVisibility() != View.VISIBLE;
-            extraBox.setVisibility(show ? View.VISIBLE : View.GONE);
-            if (show) extraBox.post(() -> extraBox.requestFocus());
-        });
+        // v4.5：自定义来源改用弹窗承载。
+        // 原先是「就地展开」——extraBox 挂在 box 里、addBox 在 appCard 里，
+        // 两者不同父容器，展开后位置在卡片下方，用户滚到的地方看不到，
+        // 表现为「点了没反应、根本点不开」。弹窗不受滚动与父容器影响，最可靠。
+        addBox.setOnClickListener(v -> showCustomSourceDialog());
 
         TextView scopeNote = UiKit.text(this, "需在 LSPosed 作用域勾选「Android 系统」并重启后生效",
                 12.5f, P.heroSubInk);
@@ -504,6 +501,126 @@ public class LauncherActivity extends Activity {
 
         // 4.1：写入与适配已移到首页（原在「应用」页，与设置页重复）
         return sv;
+    }
+
+    /**
+     * v4.5：自定义通知来源（弹窗版）。
+     *
+     * 取代原先的「就地展开」实现——那套方案里编辑区与入口分属不同父容器，
+     * 展开后滚出可视区，用户看不到，表现为「点了没反应」。
+     *
+     * 弹窗里包含：
+     *  - 当前已添加的来源列表（每条可单独删除）
+     *  - 「从已安装选择」按钮（读系统 LAUNCHER 应用，选中后填包名）
+     *  - 手动输入框（也可以直接粘贴包名）
+     *  - 保存 / 恢复默认
+     */
+    private void showCustomSourceDialog() {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        // 已添加列表
+        final LinearLayout addedBox = new LinearLayout(this);
+        addedBox.setOrientation(LinearLayout.VERTICAL);
+        wrap.addView(addedBox);
+
+        // 输入框
+        final EditText edit = new EditText(this);
+        edit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        edit.setTextColor(UiKit.INK2);
+        edit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        edit.setBackground(UiKit.bg(P.cardSoft, this, 12, P.line, 1f));
+        edit.setPadding(dp(12), dp(10), dp(12), dp(10));
+        edit.setHint("每行一个 App 包名，例：\ncom.shanshui.flash");
+        edit.setText(ProcessSync.getExtraNotiPkgs(this).replace(",", "\n").trim());
+        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(96));
+        elp.setMargins(0, dp(10), 0, 0);
+        wrap.addView(edit, elp);
+
+        // 从已安装选择
+        TextView pick = smallButton("从已安装选择", "ghostLine");
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+        plp.setMargins(0, dp(10), 0, 0);
+        pick.setLayoutParams(plp);
+        pick.setOnClickListener(v -> showInstalledAppPicker(edit));
+        wrap.addView(pick);
+
+        // 恢复默认
+        TextView clear = smallButton("恢复默认", "mute");
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+        clp.setMargins(0, dp(8), 0, 0);
+        clear.setLayoutParams(clp);
+        clear.setOnClickListener(v -> {
+            ProcessSync.setExtraNotiPkgs(this, "");
+            edit.setText("");
+            Toast.makeText(this, "已恢复默认（仅内置 " + AppIcons.PKGS.length + " 个）",
+                    Toast.LENGTH_SHORT).show();
+        });
+        wrap.addView(clear);
+
+        // 刷新已添加列表（用数组持有，便于 lambda 内自引用递归刷新）
+        final Runnable[] refreshAddedHolder = new Runnable[1];
+        refreshAddedHolder[0] = () -> {
+            addedBox.removeAllViews();
+            String extra = ProcessSync.getExtraNotiPkgs(this).trim();
+            java.util.List<String> extras = new java.util.ArrayList<>();
+            for (String p : extra.split("[\\n,，\\s]+")) {
+                String t = p.trim();
+                if (!t.isEmpty()) extras.add(t);
+            }
+            if (extras.isEmpty()) return;
+            TextView h = UiKit.text(this, "已添加（点右侧 ✕ 移除）", 12.5f, UiKit.INK3);
+            h.setPadding(0, dp(2), 0, dp(2));
+            addedBox.addView(h);
+            for (String pkg : extras) {
+                String label = NotiHook.PKG_LABELS.containsKey(pkg)
+                        ? NotiHook.PKG_LABELS.get(pkg) : pkg;
+                LinearLayout row = UiKit.row(this, P, 0, label, pkg,
+                        UiKit.icon(this, R.drawable.ic_x, 17, UiKit.DANGER));
+                row.setOnClickListener(v -> {
+                    java.util.List<String> keep = new java.util.ArrayList<>();
+                    for (String p : ProcessSync.getExtraNotiPkgs(this).split("[\\n,，\\s]+")) {
+                        String t = p.trim();
+                        if (!t.isEmpty() && !t.equals(pkg)) keep.add(t);
+                    }
+                    StringBuilder sb = new StringBuilder();
+                    for (String p : keep) {
+                        if (sb.length() > 0) sb.append(',');
+                        sb.append(p);
+                    }
+                    ProcessSync.setExtraNotiPkgs(this, sb.toString());
+                    edit.setText(sb.toString().replace(",", "\n"));
+                    Toast.makeText(this, "已移除 " + pkg + "（重启手机后生效）",
+                            Toast.LENGTH_SHORT).show();
+                    refreshAddedHolder[0].run();
+                });
+                addedBox.addView(row);
+            }
+        };
+        refreshAddedHolder[0].run();
+
+        final android.app.Dialog[] dlg = new android.app.Dialog[1];
+        dlg[0] = UiKit.dialog(this, P, R.drawable.ic_plus, "自定义通知来源",
+                "这些 App 的通知也会被读取。保存后需重启手机生效。", wrap, 68,
+                UiKit.primary("保存", () -> {
+                    PkgInput.Result r = PkgInput.parse(
+                            edit.getText().toString(), this, true);
+                    if (r.valid.isEmpty()) {
+                        String problem = PkgInput.describe(r);
+                        Toast.makeText(this,
+                                problem != null ? problem : "请先填写至少一个包名",
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    ProcessSync.setExtraNotiPkgs(this, r.toStorageString());
+                    Toast.makeText(this, "已保存 " + r.valid.size() + " 个来源 ✓\n需重启手机生效",
+                            Toast.LENGTH_SHORT).show();
+                }),
+                UiKit.ghost("关闭", null));
+        dlg[0].show();
     }
 
     /**
@@ -618,166 +735,6 @@ public class LauncherActivity extends Activity {
         dlg[0].show();
     }
 
-    /** 自定义来源：只读预览 + 展开编辑（保存 / 只留内置 / 取消） */
-    private void buildExtraBoxContent() {        extraBox.removeAllViews();
-        final TextView title = UiKit.text(this, "自定义来源 App", 15.5f, UiKit.INK);
-        title.setPadding(0, dp(10), 0, dp(4));
-        extraBox.addView(title);
-
-        extraSummary = UiKit.text(this, "", 12.5f, UiKit.INK3);
-        extraSummary.setLineSpacing(dp(1), 1.0f);
-        extraBox.addView(extraSummary);
-
-        final EditText edit = new EditText(this);
-        edit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-        edit.setTextColor(UiKit.INK2);
-        edit.setBackground(UiKit.bg(P.cardSoft, this, 12, P.line, 1f));
-        edit.setPadding(dp(12), dp(10), dp(12), dp(10));
-        edit.setHint("每行一个 App 包名，例：\ncom.shanshui.flash");
-        edit.setVisibility(View.GONE);
-        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        elp.setMargins(0, dp(8), 0, 0);
-        extraBox.addView(edit, elp);
-
-        final LinearLayout btnRow = new LinearLayout(this);
-        btnRow.setOrientation(LinearLayout.HORIZONTAL);
-        btnRow.setVisibility(View.GONE);
-        final TextView pick = smallButton("从已安装选择", "ghostLine");
-        final TextView save = smallButton("保存", "primary");
-        final TextView clear = smallButton("恢复默认", "mute");
-        final TextView cancel = smallButton("取消", "mute");
-        btnRow.addView(pick, weighted(1f, 0));
-        btnRow.addView(save, weighted(1f, 8));
-        btnRow.addView(clear, weighted(1f, 8));
-        btnRow.addView(cancel, weighted(1f, 8));
-        extraBox.addView(btnRow, UiKit.cardLp(this, 8));
-
-        // v4.4：已添加的自定义来源逐条列出，可单独删除（原先只能整体清空）
-        final LinearLayout addedBox = new LinearLayout(this);
-        addedBox.setOrientation(LinearLayout.VERTICAL);
-        extraBox.addView(addedBox);
-
-        final Runnable[] refresh = new Runnable[1];
-        final Runnable[] exit = new Runnable[1];
-        exit[0] = () -> {
-            edit.setVisibility(View.GONE);
-            btnRow.setVisibility(View.GONE);
-            extraSummary.setVisibility(View.VISIBLE);
-            refresh[0].run();
-        };
-        refresh[0] = () -> {
-            final String extra = ProcessSync.getExtraNotiPkgs(this).trim();
-            final java.util.List<String> extras = new java.util.ArrayList<>();
-            for (String p : extra.split("[\\n,，\\s]+")) {
-                String t = p.trim();
-                if (!t.isEmpty()) extras.add(t);
-            }
-            extraSummary.setText(extras.isEmpty()
-                    ? "当前：仅内置 " + AppIcons.PKGS.length + " 个"
-                    : "当前：内置 " + AppIcons.PKGS.length + " 个 + 你添加的 " + extras.size() + " 个");
-            extraSummary.setOnClickListener(v -> {
-                edit.setText(extra);
-                edit.setVisibility(View.VISIBLE);
-                btnRow.setVisibility(View.VISIBLE);
-                extraSummary.setVisibility(View.GONE);
-            });
-
-            // 已添加项：逐条可删
-            addedBox.removeAllViews();
-            if (!extras.isEmpty()) {
-                for (String pkg : extras) {
-                    LinearLayout row = UiKit.row(this, P, 0,
-                            NotiHook.PKG_LABELS.containsKey(pkg)
-                                    ? NotiHook.PKG_LABELS.get(pkg) : pkg,
-                            pkg,
-                            UiKit.icon(this, R.drawable.ic_x, 17, UiKit.DANGER));
-                    row.setOnClickListener(v -> {
-                        final String target = pkg;
-                        UiKit.dialog(this, P, R.drawable.ic_ban, "移除这个来源？",
-                                target + "\n\n移除后它的通知不再被读取。",
-                                null,
-                                UiKit.primary("移除", () -> {
-                                    java.util.List<String> keep = new java.util.ArrayList<>();
-                                    for (String p : ProcessSync.getExtraNotiPkgs(this)
-                                            .split("[\\n,，\\s]+")) {
-                                        String t = p.trim();
-                                        if (!t.isEmpty() && !t.equals(target)) keep.add(t);
-                                    }
-                                    StringBuilder sb = new StringBuilder();
-                                    for (String p : keep) {
-                                        if (sb.length() > 0) sb.append(',');
-                                        sb.append(p);
-                                    }
-                                    ProcessSync.setExtraNotiPkgs(this, sb.toString());
-                                    Toast.makeText(this, "已移除 " + target
-                                            + "（重启手机后生效）", Toast.LENGTH_SHORT).show();
-                                    refresh[0].run();
-                                }),
-                                UiKit.ghost("取消", null)).show();
-                    });
-                    addedBox.addView(row);
-                }
-            }
-            clear.setOnClickListener(v -> {
-                // v6.2：加二次确认，防止误触清掉用户配置
-                // v4.4：按钮名改为「恢复默认」（用户建议，比「只留内置」好懂）
-                UiKit.dialog(this, P, R.drawable.ic_ban, "恢复默认",
-                        "你添加的自定义来源会被清空，只剩内置的 "
-                                + NotiHook.BUILTIN_PKGS.length + " 个。\n\n这个操作可以重新添加，不会影响其它设置。",
-                        null,
-                        UiKit.primary("确认恢复", () -> {
-                            ProcessSync.setExtraNotiPkgs(this, "");
-                            Toast.makeText(this, "已恢复默认", Toast.LENGTH_SHORT).show();
-                            exit[0].run();
-                        }),
-                        UiKit.ghost("取消", null)).show();
-            });
-            // v4.3：从已安装应用里挑，自动填包名，不用手打
-            pick.setOnClickListener(v -> showInstalledAppPicker(edit));
-            cancel.setOnClickListener(v -> exit[0].run());
-            save.setOnClickListener(v -> {
-                String raw = edit.getText().toString();
-
-                // v6.2：统一走 PkgInput 校验 —— 去重、规范化分隔符、
-                // 检查格式、检查是否已安装、检查是否高危 App
-                PkgInput.Result r = PkgInput.parse(raw, this, true);
-
-                String problem = PkgInput.describe(r);
-
-                // 没有任何可用包名：直接拒绝，不落库
-                if (r.valid.isEmpty()) {
-                    Toast.makeText(this,
-                            problem != null ? problem : "请先填写至少一个包名",
-                            Toast.LENGTH_LONG).show();
-                    return;
-                }
-
-                if (problem == null) {
-                    // 一切正常，直接保存清洗后的结果（不是原文）
-                    ProcessSync.setExtraNotiPkgs(this, r.toStorageString());
-                    Toast.makeText(this, "已保存 " + r.valid.size() + " 个来源 ✓\n需重启手机生效",
-                            Toast.LENGTH_SHORT).show();
-                    exit[0].run();
-                    return;
-                }
-
-                // 有问题：说明风险，让用户自己决定是否仍然保存
-                UiKit.dialog(this, P, R.drawable.ic_alert, "请确认",
-                        problem + "\n\n要保存的有效包名：\n  " + r.toStorageString()
-                                + "\n\n仍然保存吗？",
-                        null,
-                        UiKit.primary("仍然保存", () -> {
-                            ProcessSync.setExtraNotiPkgs(this, r.toStorageString());
-                            Toast.makeText(this, "已保存 " + r.valid.size() + " 个来源 ✓\n需重启手机生效",
-                                    Toast.LENGTH_SHORT).show();
-                            exit[0].run();
-                        }),
-                        UiKit.ghost("返回修改", null)).show();
-            });
-        };
-        refresh[0].run();
-    }
 
     private String envLabel() {
         String b = NotesBackend.detect(this);
@@ -961,14 +918,41 @@ public class LauncherActivity extends Activity {
         box.addView(sdwCard, UiKit.cardLp(this, 0f));
         sdwCard.setVisibility(sdwRow.getVisibility());
 
-        // v4.3：「个性化」与「常规」合并为一组「外观与更新」——两组都只有两三行，
-        // 分开显示反而显得零碎。
-        box.addView(UiKit.groupLabel(this, P, "外观与更新"));
+        // v4.5：分组改名「外观与更新」→「基础设置」，并按用户指定顺序排列：
+        //   QQ群 → 自动检查更新 → 检查更新 → 外观 → 模糊效果
+        box.addView(UiKit.groupLabel(this, P, "基础设置"));
         LinearLayout perCard = UiKit.card(this, P);
+
+        // ① 加入开发者 QQ 群（提到第一位）
+        perCard.addView(toolRow(R.drawable.ic_phone, "加入开发者 QQ 群",
+                "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
+
+        // ② 自动检查更新
+        perCard.addView(UiKit.divider(this, P));
+        netSw = new UiKit.Switch(this, P, NetPolicy.autoNetAllowed(this));
+        netSw.setOnToggle(on -> {
+            NetPolicy.setAutoNetAllowed(this, on);
+            Toast.makeText(this, on
+                    ? "已开启自动联网（3 天一次静默检查软件与规则更新）"
+                    : "已进入纯离线模式 ✓\n自动联网已停止；核心功能不受影响，仍可手动检查更新",
+                    Toast.LENGTH_LONG).show();
+        });
+        perCard.addView(UiKit.row(this, P, R.drawable.ic_refresh, "自动检查更新",
+                "启动时检查软件与规则（3 天最多一次）· 关闭后完全离线", netSw));
+
+        // ③ 检查更新
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(toolRow(R.drawable.ic_download, "检查更新", "软件 + 规则一次查完",
+                v -> checkUpdateNow()));
+
+        // ④ 外观
+        perCard.addView(UiKit.divider(this, P));
         LinearLayout appeRow = UiKit.row(this, P, R.drawable.ic_palette, "外观",
                 "模块界面配色（四套可选）", UiKit.value(this, P, P.name));
         appeRow.setOnClickListener(v -> showPalettePicker());
         perCard.addView(appeRow);
+
+        // ⑤ 模糊效果
         perCard.addView(UiKit.divider(this, P));
         blurSw = new UiKit.Switch(this, P, UiKit.navBlur(this));
         blurSw.setOnToggle(on -> {
@@ -981,30 +965,6 @@ public class LauncherActivity extends Activity {
                 "底栏半透明（85%）；关闭则使用纯实底", blurSw));
         // 4.2：「语言」项已移除——目前只有中文，该行永远显示「跟随系统」且无实际功能。
         // 将来真要做多语言时再加，届时需要同步做字符串外置与文案适配。
-
-        // 常规（并入同组）
-        perCard.addView(UiKit.divider(this, P));
-        netSw = new UiKit.Switch(this, P, NetPolicy.autoNetAllowed(this));
-        netSw.setOnToggle(on -> {
-            NetPolicy.setAutoNetAllowed(this, on);
-            Toast.makeText(this, on
-                    ? "已开启自动联网（3 天一次静默检查软件与规则更新）"
-                    : "已进入纯离线模式 ✓\n自动联网已停止；核心功能不受影响，仍可手动检查更新",
-                    Toast.LENGTH_LONG).show();
-        });
-        perCard.addView(UiKit.row(this, P, R.drawable.ic_refresh, "自动检查更新",
-                "启动时检查软件与规则（3 天最多一次）· 关闭后完全离线", netSw));
-        perCard.addView(UiKit.divider(this, P));
-        perCard.addView(toolRow(R.drawable.ic_download, "检查更新", "软件 + 规则一次查完",
-                v -> checkUpdateNow()));
-        perCard.addView(UiKit.divider(this, P));
-        perCard.addView(toolRow(R.drawable.ic_box, "项目版本信息",
-                appVersionLabel() + " (" + appVersionCode() + ") · 规则集 v"
-                        + PickupExtractor.getActiveRulesVersion() + " · MIT License",
-                v -> showVersionDialog()));
-        perCard.addView(UiKit.divider(this, P));
-        perCard.addView(toolRow(R.drawable.ic_doc, "更新日志", "查看模块的更新日志",
-                v -> openUrl(CHANGELOG_URL)));
         box.addView(perCard, UiKit.cardLp(this, 0f));
 
         // 4.1：新增「排查」分组——原先散在首页和「规则 → 工具」里
@@ -1022,33 +982,38 @@ public class LauncherActivity extends Activity {
                 "自动脱敏，可直接发给作者", v -> exportDiag()));
         box.addView(diagCard, UiKit.cardLp(this, 0f));
 
-        // 帮助与关于
+        // v4.5：帮助与关于大幅精简。原来 7 项里有 4 项都要跳 GitHub/独立页，
+        // 堆在一起很乱。现按用户指定顺序，并把多个 GitHub 入口合并：
+        //  关于模块 → 打赏作者 → 用户协议 → 项目仓库 → GitHub 反馈
+        //  → 项目版本信息 → 更新日志
+        // 其中「项目仓库」与「GitHub 反馈」保留两项（一个是主页、一个是 Issues，
+        // 用途不同），但都收在 GitHub 语境下，不再与本地功能混排。
         box.addView(UiKit.groupLabel(this, P, "帮助与关于"));
         LinearLayout aboutCard = UiKit.card(this, P);
-        aboutCard.addView(toolRow(R.drawable.ic_book, "使用说明", "第一次用建议先看这个",
-                v -> showUsageDialog()));
-        aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_file, "用户协议", "MIT License · 隐私说明",
-                v -> showAgreementDialog()));
-        aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_info, "关于模块",
                 appVersionLabel() + " · 作者 欧锴（O-kai）", v -> showAboutDialog()));
         aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_heart, "打赏作者", "纯自愿，不影响任何功能",
                 v -> startActivity(new Intent(this, DonateActivity.class))));
         aboutCard.addView(UiKit.divider(this, P));
+        aboutCard.addView(toolRow(R.drawable.ic_file, "用户协议", "MIT License · 隐私说明",
+                v -> showAgreementDialog()));
+        aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_github, "项目仓库", "GitHub · 欢迎 Star",
                 v -> openUrl(REPO_URL)));
-        // 4.1：反馈入口从首页移到此处（首页只放「能不能用」）
         aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_chat, "在 GitHub 反馈问题",
+        aboutCard.addView(toolRow(R.drawable.ic_chat, "GitHub 反馈",
                 "Issues · 建议附上诊断报告", v -> openUrl(ISSUES_URL)));
         aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_phone, "加入开发者 QQ 群",
-                "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
+        aboutCard.addView(toolRow(R.drawable.ic_box, "项目版本信息",
+                appVersionLabel() + " (" + appVersionCode() + ") · 规则集 v"
+                        + PickupExtractor.getActiveRulesVersion() + " · MIT License",
+                v -> showVersionDialog()));
+        aboutCard.addView(UiKit.divider(this, P));
+        aboutCard.addView(toolRow(R.drawable.ic_doc, "更新日志", "查看模块的更新日志",
+                v -> openUrl(CHANGELOG_URL)));
         box.addView(aboutCard, UiKit.cardLp(this, 0f));
 
-        // v4.3：「使用说明」原先裸露在页面最下方一大段文字，改为独立入口（见上）。
         return sv;
     }
 
@@ -1149,6 +1114,9 @@ public class LauncherActivity extends Activity {
 
         tplEditBtn = smallButton("编辑模板", "ghostLine", R.drawable.ic_template);
         tplEditorBox.addView(tplEditBtn, UiKit.cardLp(this, 8));
+        // v4.5：编辑按钮只在「自定义」模式下可见（极简/完整是预设格式，无可编辑内容）
+        tplEditBtn.setVisibility(
+                currentMode == TodoWriter.MODE_CUSTOM ? View.VISIBLE : View.GONE);
         tplEditBtn.setOnClickListener(v -> {
             tplEdit.setText(getSharedPreferences(PREFS, MODE_PRIVATE).getString("todo_custom", TPL_DEFAULT));
             tplEdit.setVisibility(View.VISIBLE);
@@ -1578,18 +1546,25 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * v4.3：「取件码写入目标」右侧的值。
+     * v4.5：「取件码写入目标」右侧的值。
      *
-     * 用户要求显示成「自动 · 小米笔记待办」——既说明当前是自动识别，
-     * 又明确自动选中的到底是哪个 App（否则用户不知道码最后写进哪里）。
+     * 用户要求明确区分自动与手动：
+     *   自动 → 右侧显示「自动 · 小米笔记待办」（说明机制 + 自动选中的具体目标）
+     *   手动 → 右侧显示「手动 · <选中的目标>」
+     * 判断依据是 SharedPreferences 里的 backend_override：
+     *   为空 = 自动识别；非空 = 用户手动指定过。
      */
     private View buildBackendValueView() {
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.HORIZONTAL);
         wrap.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView auto = UiKit.text(this, "自动", 14f, P.accentInk);
-        wrap.addView(auto);
+        String override = getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getString(KEY_BACKEND, "");
+        boolean manual = override != null && !override.trim().isEmpty();
+
+        TextView mode = UiKit.text(this, manual ? "手动" : "自动", 14f, P.accentInk);
+        wrap.addView(mode);
 
         TextView dot = UiKit.text(this, "·", 14f, P.muteInk);
         dot.setPadding(dp(5), 0, dp(5), 0);
@@ -1599,6 +1574,68 @@ public class LauncherActivity extends Activity {
         target.setSingleLine(true);
         wrap.addView(target);
         return wrap;
+    }
+
+    /** v4.5：首页官方规则集右侧的徽标（点击可手动拉取最新规则） */
+    private TextView ruleBadgeView;
+    /** v4.5：手动拉取规则的节流时间戳（毫秒） */
+    private long lastRuleCheckMs = 0L;
+    /** v4.5：手动拉取规则的最小间隔（8 秒，防止连点） */
+    private static final long RULE_CHECK_INTERVAL_MS = 8_000L;
+
+    /**
+     * v4.5：点「官方规则集」手动拉取最新规则。
+     *
+     * 设计要点：
+     *  1. 节流：8 秒内只允许触发一次，连点无效（用户要求 5–10 秒）
+     *  2. 复用现成的 UpdateCenter 检查逻辑，不另写一套网络请求
+     *  3. 过程中把徽标改成「检查中…」，给用户明确反馈
+     *  4. 结束后恢复徽标并 Toast 结果；规则真的更新了才提示重启相关通道
+     */
+    private void checkRulesManually() {
+        long now = System.currentTimeMillis();
+        long delta = now - lastRuleCheckMs;
+        if (delta < RULE_CHECK_INTERVAL_MS) {
+            long wait = (RULE_CHECK_INTERVAL_MS - delta) / 1000 + 1;
+            Toast.makeText(this, "刚检查过，请 " + wait + " 秒后再试", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        lastRuleCheckMs = now;
+
+        final int before = PickupExtractor.getActiveRulesVersion();
+        if (ruleBadgeView != null) ruleBadgeView.setText("检查中…");
+
+        final Context appCtx = getApplicationContext();
+        new Thread(() -> {
+            final int rr;
+            try {
+                rr = UpdateCenter.fetchRules(appCtx);
+            } catch (Throwable t) {
+                runOnUiThread(() -> {
+                    if (ruleBadgeView != null) ruleBadgeView.setText("已是最新");
+                    Toast.makeText(this, "检查失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
+                });
+                return;
+            }
+            final int after = PickupExtractor.getActiveRulesVersion();
+            runOnUiThread(() -> {
+                String label;
+                String msg;
+                if (rr == 1) {
+                    label = "已更新";
+                    msg = "规则集已更新到 v" + after + " ✓";
+                } else if (rr == 2) {
+                    label = "已是最新";
+                    msg = "规则集已是最新（v" + after + "）";
+                } else {
+                    label = "已是最新";
+                    msg = "网络不可用，请检查网络后重试";
+                }
+                if (ruleBadgeView != null) ruleBadgeView.setText(label);
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+                if (rr == 1 && after != before) rebuildUi();
+            });
+        }).start();
     }
 
     // ================================================================

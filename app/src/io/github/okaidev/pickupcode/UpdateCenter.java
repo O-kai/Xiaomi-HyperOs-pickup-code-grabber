@@ -169,7 +169,13 @@ public class UpdateCenter {
     }
 
     /** 拉规则；返回 1=已更新 2=已是最新 3=失败 */
-    private static int fetchRules(Context ctx) {
+    /**
+     * v4.5：拉取最新规则集。改为 public，供首页「官方规则集」徽标点击时直接调用
+     * （原先只在内部 run() 里用，用户无法单独触发规则更新）。
+     *
+     * @return 0=未查 1=已更新 2=已是最新 3=网络失败
+     */
+    public static int fetchRules(Context ctx) {
         String fetched = null;
         for (String u : new String[]{
                 "https://cdn.jsdelivr.net/gh/O-kai/Xiaomi-HyperOs-pickup-code-grabber@main/rules/rules.json",
