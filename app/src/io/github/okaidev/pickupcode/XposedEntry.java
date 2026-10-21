@@ -150,10 +150,21 @@ public class XposedEntry implements IXposedHookLoadPackage {
             log("S2/S3/S7 NOT FOUND @" + lpparam.packageName + ": " + t);
         }
 
-        // 入口二：真正的广播接收器（HyperOS 实测主入口）
+        // 入口二：真正的广播接收器
         hookReceiver(lpparam, "com.android.mms.transaction.SmsReceiver", "S4");
-        hookReceiver(lpparam, "com.android.mms.transaction.HighPrivilegedSmsReceiver", "S5");
+        // S5：ColorOS / 新版 AOSP 的类名是 PrivilegedSmsReceiver（没有 "High" 前缀），
+        // 旧版 MIUI 用的是 HighPrivilegedSmsReceiver；两个都挂，命中即用。
+        hookReceiver(lpparam, "com.android.mms.transaction.PrivilegedSmsReceiver", "S5");
+        hookReceiver(lpparam, "com.android.mms.transaction.HighPrivilegedSmsReceiver", "S5H");
         hookReceiver(lpparam, "com.android.mms.transaction.BeidouSmsReceiver", "S6");
+
+        // v3.1.1 新增：ColorOS（Oplus Mms）侧的短信接收器。
+        // 注意：com.android.mms.transaction.SmsReceiver 虽然类存在，但**不在 AndroidManifest 里**，
+        // 系统广播不会调用它；manifest 中真正注册的是 com.android.mms.receiver.SmsReceiver。
+        // 此前 ColorOS 上真正生效的只有 S8（SmsProvider）+ WAKE 兜底，这里补上正规入口。
+        hookReceiver(lpparam, "com.android.mms.receiver.SmsReceiver", "S9");
+        hookReceiver(lpparam, "com.android.mms.receiver.SmsDeliverReceiver", "S10");
+        hookReceiver(lpparam, "com.oplus.mms.datamodel.SmsReceivedReceiver", "S11");
     }
 
     private void hookReceiver(XC_LoadPackage.LoadPackageParam lpparam, String className, String tag) {
@@ -173,20 +184,41 @@ public class XposedEntry implements IXposedHookLoadPackage {
 
     /**
      * 电话/框架进程：Hook S1（系统级短信广播接收器）
+     *
+     * v3.1.1：Android 12+ / ColorOS 把短信接收器改成了 InboundSmsHandler 的**内部类**
+     * （com.android.internal.telephony.InboundSmsHandler$SmsBroadcastReceiver，
+     * 实测存在于 /system/framework/telephony-common.jar），
+     * 旧版顶层类 com.android.internal.telephony.SmsBroadcastReceiver 已不存在，
+     * 因此此前 S1 在 ColorOS 上必然 NOT FOUND（ColorOS 的 TeleService.apk 里
+     * 除语音信箱 VvmSmsReceiver 外没有任何短信接收器，短信接收全在 framework + Mms 侧）。
+     * 两个候选都试，命中即挂，互不冲突。
      */
     private void hookTelephony(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            Class<?> cls = XposedHelpers.findClass(
-                    "com.android.internal.telephony.SmsBroadcastReceiver", lpparam.classLoader);
-            XposedBridge.hookAllMethods(cls, "onReceive", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try { SmsBridge.processArguments(param); } catch (Throwable t) { log("S1 err: " + t); }
-                }
-            });
-            log("S1 OK (SmsBroadcastReceiver.onReceive) @" + lpparam.packageName);
-        } catch (Throwable t) {
-            log("S1 NOT FOUND @" + lpparam.packageName + ": " + t);
+        String[] candidates = {
+                // Android 12+ / ColorOS：接收器是 InboundSmsHandler 的内部类
+                "com.android.internal.telephony.InboundSmsHandler$SmsBroadcastReceiver",
+                // 旧版 AOSP / 部分 ROM 的顶层类
+                "com.android.internal.telephony.SmsBroadcastReceiver"
+        };
+        boolean anyHit = false;
+        for (String cn : candidates) {
+            try {
+                Class<?> cls = XposedHelpers.findClass(cn, lpparam.classLoader);
+                XposedBridge.hookAllMethods(cls, "onReceive", new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        try { SmsBridge.processArguments(param); } catch (Throwable t) { log("S1 err: " + t); }
+                    }
+                });
+                log("S1 OK (" + cn + ".onReceive) @" + lpparam.packageName);
+                anyHit = true;
+            } catch (Throwable t) {
+                log("S1 NOT FOUND (" + cn + ") @" + lpparam.packageName + ": " + t);
+            }
+        }
+        if (!anyHit) {
+            log("S1 候选全部未命中 @" + lpparam.packageName
+                    + "（该 ROM 的短信接收器可能位于别处，请反馈 ROM 与类名）");
         }
     }
 

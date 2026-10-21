@@ -2,6 +2,38 @@
 
 > 完整开发历程见 [docs/HISTORY.md](docs/HISTORY.md)。
 
+## [3.1.1] - 2026-10-17 · 修正 ColorOS 上的 Hook 点类名（S1 / S5，新增 S9–S11）
+
+> 起因：ColorOS 16 上真实取件短信出现「解析成功、去重表也写入了，但待办里没有」。
+> 翻 LSPosed 模块日志发现 S1 与 S5 在 ColorOS 上必然 NOT FOUND，
+> 于是把 `Mms.apk` / `TeleService.apk` / `/system/framework/telephony-common.jar`
+> 里的真实类名逐一挖出来核对后修正。
+
+### 🪝 Hook 点
+
+- **S1 类名过时（ColorOS / Android 12+ 必然 NOT FOUND）**：
+  `com.android.internal.telephony.SmsBroadcastReceiver` 是旧版 AOSP 的顶层类，新版已改为
+  `com.android.internal.telephony.InboundSmsHandler$SmsBroadcastReceiver`（**内部类**，
+  实测存在于 `/system/framework/telephony-common.jar`）。现两个候选都挂，命中即用。
+  补充事实：ColorOS 的 `TeleService.apk` 里除语音信箱 `VvmSmsReceiver` 外**没有任何短信接收器**，
+  短信接收全在 framework 与 Mms 侧，所以在 phone 进程里找旧顶层类本来就是找错地方。
+- **S5 类名多了一个词**：ColorOS / 新 AOSP 的类名是
+  `com.android.mms.transaction.PrivilegedSmsReceiver`，**没有 "High" 前缀**。
+  现同时挂 `PrivilegedSmsReceiver`（新）与 `HighPrivilegedSmsReceiver`（旧 MIUI）。
+- **新增 S9 / S10 / S11（ColorOS 侧）**：`com.android.mms.receiver.SmsReceiver`、
+  `com.android.mms.receiver.SmsDeliverReceiver`、`com.oplus.mms.datamodel.SmsReceivedReceiver`。
+  注意 `com.android.mms.transaction.SmsReceiver`（S4）虽然类存在，但**不在 AndroidManifest 里**，
+  系统广播不会调用它；manifest 中真正注册的是 `com.android.mms.receiver.SmsReceiver`。
+  修正前，ColorOS 上真正生效的只有 S8（SmsProvider）+ WAKE 兜底。
+- S2/S3/S7（`SmsReceiverService`）与 S6（`BeidouSmsReceiver`）在 ColorOS 上不存在，属正常缺失，
+  保留以兼容 MIUI / HyperOS。
+
+### 📄 文档
+
+- `docs/14-hooks.md`：Hook 点清单同步更新（S1 / S5 类名、新增 S9–S11）；
+  补充作用域说明——`com.android.phone` 与 `com.android.providers.telephony` 同为 **uid 1001**，
+  KernelSU / Magisk 的 root 授权按 uid 记，给其中一个授权即对两者生效，无需重复授权。
+
 ## [3.1.0] - 2026-10-04 · 更新链路打通 + 四轮代码审计后的正确性修复
 
 > 这一版没有新增大功能。起因是一条朴素反馈——软件更新会自动检查，规则集好像也有，
