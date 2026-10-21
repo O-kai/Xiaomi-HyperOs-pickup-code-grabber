@@ -39,10 +39,10 @@ public class DonateActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(24), dp(28), dp(24), dp(8));
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(UiKit.palette(this).bg);
 
         TextView title = new TextView(this);
-        title.setText("💰 打赏作者");
+        title.setText("打赏作者");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
         title.setTextColor(Color.parseColor("#1A1A1A"));
         title.setTypeface(null, Typeface.BOLD);
@@ -76,20 +76,22 @@ public class DonateActivity extends Activity {
         root.addView(hint);
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setHorizontalScrollBarEnabled(false);
         scroll.addView(root);
 
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setBackgroundColor(Color.WHITE);
+        page.setBackgroundColor(UiKit.palette(this).bg);
         page.addView(scroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f));
 
         // 页面下方的大按钮：保存到本地
         TextView save = new TextView(this);
-        save.setText("💾 保存两个收款码到本地（Download 目录）");
+        save.setText("保存收款码到本地（Download 目录）");
         save.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         save.setTextColor(Color.WHITE);
-        save.setBackgroundColor(Color.parseColor("#0FA968"));
+        save.setBackgroundColor(UiKit.palette(this).accent);
         save.setPadding(dp(16), dp(14), dp(16), dp(14));
         save.setGravity(Gravity.CENTER);
         save.setOnClickListener(v -> saveQrToDownload());
@@ -108,7 +110,7 @@ public class DonateActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
         card.setPadding(dp(6), dp(12), dp(6), dp(12));
-        card.setBackground(roundRect("#F5F6FA"));
+        card.setBackground(roundRect(UiKit.palette(this).cardSoft));
 
         TextView tag = new TextView(this);
         tag.setText(label);
@@ -159,7 +161,7 @@ public class DonateActivity extends Activity {
 
     private TextView errorLabel(String msg) {
         TextView err = new TextView(this);
-        err.setText("⚠️ " + msg);
+        err.setText("" + msg);
         err.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         err.setTextColor(Color.parseColor("#CC3300"));
         err.setPadding(0, dp(8), 0, dp(8));
@@ -171,7 +173,7 @@ public class DonateActivity extends Activity {
         int ok = saveOne("donate_wechat.png", "取件码助手_微信收款码.png");
         int ok2 = saveOne("donate_alipay.jpg", "取件码助手_支付宝收款码.jpg");
         if (ok > 0 && ok2 > 0) {
-            toast("已保存到 Download 目录\n（打赏随意，心意最重要 ☕）");
+            toast("已保存到 Download 目录\n（打赏随意，心意最重要）");
         } else if (ok + ok2 > 0) {
             toast("已保存 1 张到 Download 目录");
         } else {
@@ -217,7 +219,17 @@ public class DonateActivity extends Activity {
         Toast.makeText(this, s, Toast.LENGTH_LONG).show();
     }
 
+    /** v4.0.0：接受 int 颜色（用于跟随配色的强调色等） */
+    private android.graphics.drawable.Drawable roundRect(int color) {
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        gd.setColor(color);
+        gd.setCornerRadius(dp(14));
+        return gd;
+    }
+
     private int dp(int v) {
+
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
                 getResources().getDisplayMetrics());
     }

@@ -119,7 +119,8 @@ public class Diagnostics {
 
     /** 供 Repair 调用的 su 执行器（多路径：HyperOS 的 su 常不在应用 PATH） */
     public static String[] suExecPublic(String cmd, int timeoutSec) {
-        String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"};
+        String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/debug_ramdisk/su",
+                "/data/adb/magisk/su", "/sbin/su", "/su/bin/su"};
         String[] last = null;
         for (String suBin : suBins) {
             String[] r = suExec(suBin, cmd, timeoutSec);
@@ -142,7 +143,13 @@ public class Diagnostics {
     //     · echo 哨 → 只要 su 真的跑起来了，stdout 就【必然】非空，
     //                 于是 suExecPublic 会在第一个可用路径上正确停下；
     //                 反过来「stdout 里没有哨兵」就等于「5 个 su 路径一个都没跑起来」。
-    private static final String PROBE_MARK = "__PICKUP_PROBE_END__";
+    public static final String PROBE_MARK = "__PICKUP_PROBE_END__";
+
+    /** v4.0.1：判断 su 是否真的跑起来了（其它探针也要用；false = 所有 su 路径都没起来） */
+    public static boolean suRan(String[] r) { return hasMark(r); }
+
+    /** v4.0.1：摘掉哨兵行后的干净 stdout */
+    public static String suStdout(String[] r) { return stdoutOf(r); }
 
     /** 是否拿到了哨兵行：true = su 至少有一条路径真的跑起来了 */
     private static boolean hasMark(String[] r) {
@@ -215,9 +222,14 @@ public class Diagnostics {
         }
         Repair.LsposedStatus st = Repair.lsposedStatus(ctx);
         if (!st.dbReadable) {
+            // v4.0.1：这里只是「自动核对不了」，不等于配置一定不对——把这句话讲明白，
+            // 否则用户会以为自己没勾作用域，反复折腾（真机上已出现过这种误报）
             return new Check("LSPosed 作用域", false,
-                    "无法读取 LSPosed 配置（" + st.detail + "）；请手动在 LSPosed → 模块 →"
-                            + " 取件码助手 勾选 5 项作用域（⚠️ 必含「Android 系统/android」）");
+                    "无法自动核对（" + st.detail + "）。\n"
+                            + "这不代表配置有问题——请手动确认一次：LSPosed / Vector → 模块 → 取件码助手 →"
+                            + " 作用域已勾选「Android 系统（android）」+ 电话 + 短信 + com.android.providers.telephony"
+                            + "（小米设备再加「小米笔记」）。\n"
+                            + "核对无误即可忽略本项。");
         }
         if (!st.moduleEnabled) {
             return new Check("LSPosed 作用域", false,
@@ -235,7 +247,7 @@ public class Diagnostics {
                 "缺少必需作用域：" + st.missingScope
                         + " → LSPosed 管理器 → 模块 → 取件码助手 → 作用域补勾后【重启手机】；"
                         + (missAndroid
-                            ? "⚠️ android 在列表底部「Android 系统」——该条目【不带推荐角标】也必须勾选；"
+                            ? "android 在列表底部「Android 系统」——该条目【不带推荐角标】也必须勾选；"
                               + "带角标的 5 个推荐应用不含它，别勾成中部的「系统框架（system）」；"
                             : "")
                         + "当前：" + (st.scopeList.isEmpty() ? "(空)" : st.scopeList));
@@ -284,7 +296,7 @@ public class Diagnostics {
         // 必须先判 "No such file"，否则会把「没部署」误报成「已部署 ✓」。
         if (all.contains("No such file") || all.contains("Not a directory")) {
             return new Check("sqlite3 部署", false,
-                    SQLITE + " 不存在 → 点下方「🚀 一键部署 sqlite3」自动完成（无需 adb/Termux）");
+                    SQLITE + " 不存在 → 点首页「一键部署 sqlite3」自动完成（无需 adb/Termux）");
         }
         if (all.contains("sqlite3")) {
             return new Check("sqlite3 部署", true, SQLITE + " 存在 ✓");
@@ -373,6 +385,23 @@ public class Diagnostics {
         } catch (Throwable ignored) { }
         sb.append("\n");
 
+        sb.append("---- LSPosed 配置库查询（原始结果，用于定位作用域判定问题）----\n");
+        try {
+            Repair.LsposedStatus lst = Repair.lsposedStatus(ctx);
+            sb.append("su 可执行: ").append(lst.suRan ? "是" : "否").append("\n");
+            sb.append("使用的配置库: ").append(lst.dbPath == null || lst.dbPath.isEmpty() ? "(未确定)" : lst.dbPath).append("\n");
+            sb.append("库可读: ").append(lst.dbReadable ? "是" : "否")
+              .append("｜模块启用记录: ").append(lst.moduleEnabled ? "enabled=1" : "未取到 enabled=1").append("\n");
+            sb.append("当前作用域: ").append(lst.scopeList == null || lst.scopeList.isEmpty() ? "(空)" : lst.scopeList).append("\n");
+            if (lst.detail != null && !lst.detail.isEmpty()) sb.append("判定说明: ").append(lst.detail).append("\n");
+            sb.append("原始输出（每行一条）：\n");
+            String raw = lst.rawOut == null ? "" : lst.rawOut.trim();
+            sb.append(raw.isEmpty() ? "(空——说明查询没拿到任何输出)\n" : raw + "\n");
+        } catch (Throwable t) {
+            sb.append("查询失败: ").append(t.getMessage()).append("\n");
+        }
+        sb.append("\n");
+
         sb.append("---- 部署体检 ----\n");
         try {
             for (Check c : healthCheck(ctx)) {
@@ -387,11 +416,29 @@ public class Diagnostics {
         sb.append(TodoWriter.getLastWriteDiag()).append("\n\n");
 
         sb.append("---- PICKUPDEBUG 日志（root 提取，近 400 行，已脱敏）----\n");
+        sb.append("（若下方为空或提示不可用：root 下的 logcat 被 PATH/SELinux 限制，"
+                + "可在电脑上执行 adb logcat -d -s PICKUPDEBUG:* 导出后附上）\n");
         // v3.2.0：改走 suExecPublic 多路径 + 2>&1/哨兵。
         // 原来只调 "su" 时，HyperOS 上这段整块日志会被换成 "sh: su: not found"，
         // 用户看到的是「无 PICKUPDEBUG 日志——说明 Hook 从未触发」——一个彻头彻尾的假结论，
         // 反而把排查方向带偏（真因是 su 路径，日志其实根本没抓到）。
-        String[] lg = suExecPublic("logcat -d -s PICKUPDEBUG:* 2>&1 | tail -n 400; echo " + PROBE_MARK, 25);
+        // v4.0.3：root 下的 logcat 可能因 PATH / SELinux 取不到（真机实测两种写法都报
+        // "inaccessible or not found"），这里把常见写法和 /proc 兜底都试一遍；
+        // 全都拿不到时给出一句【真实原因】，而不是让用户看到「无日志 → Hook 从未触发」的假结论。
+        String[] lg = null;
+        String[] tries = {
+                "/system/bin/logcat -d -s PICKUPDEBUG:*",
+                "PATH=$PATH:/system/bin logcat -d -s PICKUPDEBUG:*",
+                "/system/xbin/logcat -d -s PICKUPDEBUG:*",
+        };
+        for (String t : tries) {
+            String[] r = suExecPublic(t + " 2>&1 | tail -n 400; echo " + PROBE_MARK, 25);
+            if (hasMark(r) && !stdoutOf(r).isEmpty()) {
+                lg = r;
+                break;
+            }
+            if (lg == null) lg = r;
+        }
         boolean logOk = hasMark(lg);
         String logcat = logOk ? stdoutOf(lg) : "";
         if (!logOk) {

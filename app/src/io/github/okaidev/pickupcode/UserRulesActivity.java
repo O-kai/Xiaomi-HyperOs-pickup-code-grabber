@@ -37,111 +37,122 @@ public class UserRulesActivity extends Activity {
 
     private List<UserRules.Rule> rules;
     private TextView statusLine;
+    private UiKit.Palette P;              // 当前配色（与主界面一致）
+    private LinearLayout listBox;         // 规则列表容器（刷新时只重绘这里）
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         PickupExtractor.init(this);
+        P = UiKit.palette(this);
         rules = UserRules.loadAll(this);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(20), dp(20), dp(20));
-        root.setBackgroundColor(Color.WHITE);
+        root.setPadding(dp(18), dp(14), dp(18), dp(24));
+        root.setBackgroundColor(P.bg);
 
         TextView title = new TextView(this);
-        title.setText("🧩 用户自定义规则（高级功能）");
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        title.setTextColor(Color.parseColor("#1A1A1A"));
-        title.setTypeface(null, Typeface.BOLD);
+        title.setText("用户自定义规则");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+        title.setTextColor(UiKit.INK);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         root.addView(title);
 
-        // 风险与权限边界常驻说明
+        // 使用前必读（金色提示卡 + 警示图标，与主界面提示条同款）
         TextView notice = new TextView(this);
-        notice.setText("⚠️ 使用前必读\n"
+        notice.setText("使用前必读\n"
                 + "· 本功能只能定义「怎么从短信里提取取件码/来源/地点」，"
-                + "无法也无法修改任何数据库写入行为（安全边界，不可配置）\n"
-                + "· 规则带【强制自测】：必须粘贴真实短信样本并填写期望取件码，"
-                + "自测通过后才能启用\n"
+                + "无法修改任何数据库写入行为（安全边界，不可配置）\n"
+                + "· 规则带【强制自测】：必须粘贴真实短信样本并填写期望取件码，自测通过后才能启用\n"
                 + "· 单条样本执行超过 " + UserRules.SAMPLE_TIME_LIMIT_MS
                 + "ms 将被熔断拒绝（防止危险正则卡住短信处理）\n"
                 + "· 禁止嵌套量词等可能引发指数级回溯的写法（保存时会自动扫描拦截）\n"
                 + "· 规则由你自己编写与使用，匹配结果自负；不确定请先用「测试」验证");
-        notice.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        notice.setTextColor(Color.parseColor("#B26500"));
+        notice.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+        notice.setTextColor(P.heroSubInk);
         notice.setLineSpacing(dp(3), 1.0f);
-        notice.setPadding(dp(10), dp(8), dp(10), dp(8));
-        notice.setBackgroundColor(Color.parseColor("#FFF6E5"));
-        root.addView(notice);
+        notice.setPadding(dp(13), dp(11), dp(13), dp(11));
+        notice.setBackground(UiKit.bg(P.accentTint, this, 12));
+        android.graphics.drawable.Drawable warnIcon = getDrawable(R.drawable.ic_alert);
+        if (warnIcon != null) {
+            warnIcon = warnIcon.mutate();
+            warnIcon.setTint(P.accentDeep);
+            warnIcon.setBounds(0, 0, dp(15), dp(15));
+            notice.setCompoundDrawables(warnIcon, null, null, null);
+            notice.setCompoundDrawablePadding(dp(6));
+        }
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        nlp.setMargins(0, dp(12), 0, 0);
+        root.addView(notice, nlp);
 
-        // 总开关
-        LinearLayout swRow = new LinearLayout(this);
-        swRow.setOrientation(LinearLayout.HORIZONTAL);
-        swRow.setGravity(Gravity.CENTER_VERTICAL);
-        swRow.setPadding(0, dp(12), 0, dp(4));
-        TextView swLabel = new TextView(this);
-        swLabel.setText("启用我的规则");
-        swLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        swLabel.setTextColor(Color.parseColor("#1A1A1A"));
-        swLabel.setPadding(0, 0, dp(8), 0);
-        swRow.addView(swLabel, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
-        final TextView swBtn = new TextView(this);
-        final boolean[] on = {UserRules.isEnabled(this)};
-        swBtn.setText(on[0] ? "已开启" : "已关闭");
-        swBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        swBtn.setTextColor(Color.WHITE);
-        swBtn.setBackgroundColor(Color.parseColor(on[0] ? "#0FA968" : "#9AA4B2"));
-        swBtn.setPadding(dp(14), dp(6), dp(14), dp(6));
-        swBtn.setOnClickListener(v -> {
-            on[0] = !on[0];
-            UserRules.setEnabled(this, on[0]);
-            swBtn.setText(on[0] ? "已开启" : "已关闭");
-            swBtn.setBackgroundColor(Color.parseColor(on[0] ? "#0FA968" : "#9AA4B2"));
-            Toast.makeText(this, on[0]
+        // 总开关（与主界面同款开关）
+        LinearLayout swCard = UiKit.card(this, P);
+        UiKit.Switch sw = new UiKit.Switch(this, P, UserRules.isEnabled(this));
+        sw.setOnToggle(on -> {
+            UserRules.setEnabled(this, on);
+            Toast.makeText(this, on
                     ? "已启用 " + countEnabled() + " 条用户规则（优先级高于官方规则）"
                     : "已停用全部用户规则，回到官方规则", Toast.LENGTH_LONG).show();
             refreshStatus();
         });
-        swRow.addView(swBtn);
-        root.addView(swRow);
+        swCard.addView(UiKit.row(this, P, R.drawable.ic_rules, "启用我的规则",
+                "开启后优先于官方规则匹配", sw));
+        root.addView(swCard, UiKit.cardLp(this, 12));
 
         statusLine = new TextView(this);
-        statusLine.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        statusLine.setTextColor(Color.parseColor("#888888"));
-        statusLine.setPadding(dp(2), 0, 0, dp(8));
+        statusLine.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        statusLine.setTextColor(UiKit.INK3);
+        statusLine.setPadding(dp(6), dp(12), dp(6), dp(4));
         root.addView(statusLine);
 
-        // 规则列表
-        LinearLayout listBox = new LinearLayout(this);
+        listBox = new LinearLayout(this);
         listBox.setOrientation(LinearLayout.VERTICAL);
         root.addView(listBox);
         renderList(listBox);
 
-        // 操作按钮
+        // 操作按钮（带矢量图标，配色与主界面一致）
         LinearLayout actRow = new LinearLayout(this);
         actRow.setOrientation(LinearLayout.HORIZONTAL);
-        actRow.setPadding(0, dp(14), 0, 0);
-        actRow.addView(action("➕ 新建规则", "#1E6FE8", v -> showEditor(null)));
-        actRow.addView(action("📤 导出分享", "#0FA968", v -> doExport()));
-        actRow.addView(action("📥 导入", "#F0A020", v -> doImport()));
+        LinearLayout.LayoutParams arLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        arLp.setMargins(0, dp(14), 0, 0);
+        actRow.setLayoutParams(arLp);
+        actRow.addView(actBtn("新建规则", R.drawable.ic_plus, P.accent, true, () -> showEditor(null)));
+        actRow.addView(actBtn("导出分享", R.drawable.ic_upload, P.accentTint, false, this::doExport));
+        actRow.addView(actBtn("导入", R.drawable.ic_download, P.accentTint, false, this::doImport));
         root.addView(actRow);
 
         TextView help = new TextView(this);
-        help.setText("💡 不会写正则？点「新建规则」后用「🎓 参考案例」照着改；\n"
-                + "📤 导出可把规则分享到 QQ 群；想贡献给官方请把导出文本发到 GitHub Issue"
+        help.setText("不会写正则？点「新建规则」后用「参考案例」照着改。\n"
+                + "导出可把规则分享到 QQ 群；想贡献给官方请把导出文本发到 GitHub Issue"
                 + "（记得自己先脱敏短信里的姓名/手机号/住址）");
-        help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        help.setTextColor(Color.parseColor("#999999"));
+        help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+        help.setTextColor(UiKit.INK3);
         help.setLineSpacing(dp(3), 1.0f);
-        help.setPadding(0, dp(12), 0, 0);
+        help.setPadding(dp(6), dp(12), dp(6), 0);
         root.addView(help);
 
         TextView docBtn = new TextView(this);
-        docBtn.setText("📖 查看完整参考手册（GitHub）");
-        docBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        docBtn.setTextColor(Color.parseColor("#1E6FE8"));
-        docBtn.setPadding(0, dp(12), 0, 0);
+        docBtn.setText("查看完整参考手册（GitHub）");
+        docBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        docBtn.setTextColor(P.accentInk);
+        docBtn.setGravity(Gravity.CENTER);
+        docBtn.setPadding(dp(8), dp(12), dp(8), dp(12));
+        docBtn.setBackground(UiKit.bg(0x00000000, this, 13, P.accent, 1.4f));
+        android.graphics.drawable.Drawable bookIcon = getDrawable(R.drawable.ic_book);
+        if (bookIcon != null) {
+            bookIcon = bookIcon.mutate();
+            bookIcon.setTint(P.accentInk);
+            bookIcon.setBounds(0, 0, dp(16), dp(16));
+            docBtn.setCompoundDrawables(bookIcon, null, null, null);
+            docBtn.setCompoundDrawablePadding(dp(6));
+        }
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        dlp.setMargins(0, dp(12), 0, 0);
+        docBtn.setLayoutParams(dlp);
         docBtn.setOnClickListener(v -> {
             try {
                 ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
@@ -155,9 +166,41 @@ public class UserRulesActivity extends Activity {
         root.addView(docBtn);
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setFillViewport(true);
         scroll.addView(root);
         setContentView(scroll);
         refreshStatus();
+    }
+
+    /** 带矢量图标的操作按钮（三等分一行）：实心 / 描边两种样式，图标与文字同色 */
+    private TextView actBtn(String label, int iconRes, int bgColor, boolean solid, Runnable run) {
+        TextView b = new TextView(this);
+        int textColor = solid ? 0xFFFFFFFF : P.accentInk;
+        b.setText(label);
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        b.setTextColor(textColor);
+        b.setGravity(Gravity.CENTER);
+        b.setTypeface(null, Typeface.BOLD);
+        b.setPadding(dp(8), dp(10), dp(8), dp(10));
+        b.setBackground(solid
+                ? UiKit.bg(bgColor, this, 13)
+                : UiKit.bg(bgColor, this, 13, P.accent, 1.4f));
+        android.graphics.drawable.Drawable d = getDrawable(iconRes);
+        if (d != null) {
+            d = d.mutate();
+            d.setTint(textColor);
+            d.setBounds(0, 0, dp(15), dp(15));
+            b.setCompoundDrawables(d, null, null, null);
+            b.setCompoundDrawablePadding(dp(5));
+        }
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        lp.setMargins(dp(4), 0, dp(4), 0);
+        b.setLayoutParams(lp);
+        b.setOnClickListener(v -> run.run());
+        return b;
     }
 
     /** 匹配模式短名（卡片展示用） */
@@ -186,65 +229,92 @@ public class UserRulesActivity extends Activity {
         box.removeAllViews();
         if (rules.isEmpty()) {
             TextView empty = new TextView(this);
-            empty.setText("暂无自定义规则。\n若某条取件短信没被识别，可点下方「➕ 新建规则」为它单独写一条。");
-            empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            empty.setTextColor(Color.parseColor("#999999"));
-            empty.setPadding(0, dp(12), 0, dp(12));
+            empty.setText("暂无自定义规则。\n若某条取件短信没被识别，可点下方「新建规则」为它单独写一条。");
+            empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+            empty.setTextColor(UiKit.INK3);
+            empty.setLineSpacing(dp(3), 1.0f);
+            empty.setPadding(dp(6), dp(12), dp(6), dp(12));
             box.addView(empty);
             return;
         }
         for (final UserRules.Rule r : rules) {
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(12), dp(10), dp(12), dp(10));
-            card.setBackgroundColor(Color.parseColor("#F5F6FA"));
-            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT);
-            clp.setMargins(0, 0, 0, dp(8));
-            card.setLayoutParams(clp);
+            LinearLayout card = UiKit.card(this, P);
+            card.setPadding(dp(14), dp(13), dp(14), dp(10));
 
+            // 标题行：名称 + 状态徽标
+            LinearLayout head = new LinearLayout(this);
+            head.setOrientation(LinearLayout.HORIZONTAL);
+            head.setGravity(Gravity.CENTER_VERTICAL);
             TextView name = new TextView(this);
-            name.setText((r.enabled ? "✅ " : "⏸ ") + UserRules.safeName(r));
-            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-            name.setTextColor(Color.parseColor("#1A1A1A"));
-            card.addView(name);
+            name.setText(UserRules.safeName(r));
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15.5f);
+            name.setTextColor(UiKit.INK);
+            head.addView(name, new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+            head.addView(r.enabled
+                    ? UiKit.badgeOk(this, P, "已启用")
+                    : UiKit.badgeMute(this, P, "已停用"));
+            card.addView(head);
 
             TextView detail = new TextView(this);
             String scope = (r.senderMode == null || r.senderMode.isEmpty()
                     || UserRules.MODE_ANY.equals(r.senderMode))
-                    ? "🌐 全局（不限发送方）"
-                    : "📞 " + shortMode(r.senderMode) + "：" + r.senderValue;
-            detail.setText(scope + "\n正则：" + r.codeRegex
+                    ? "全局（不限发送方）"
+                    : shortMode(r.senderMode) + "：" + r.senderValue;
+            detail.setText("发送方：" + scope
+                    + "\n正则：" + r.codeRegex
                     + "\n自测样本：" + r.testCases.size()
                     + " 条｜来源：" + (r.source == null || r.source.isEmpty() ? "自动识别" : r.source)
                     + "｜地点：" + (r.place == null || r.place.isEmpty() ? "自动识别" : r.place));
-            detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
-            detail.setTextColor(Color.parseColor("#666666"));
-            detail.setPadding(0, dp(4), 0, 0);
-            card.addView(detail);
+            detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+            detail.setTextColor(UiKit.INK3);
+            detail.setLineSpacing(dp(2), 1.0f);
+            LinearLayout.LayoutParams dvp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            dvp.setMargins(0, dp(6), 0, 0);
+            card.addView(detail, dvp);
 
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setPadding(0, dp(6), 0, 0);
-            row.addView(action("🧪 测试", "#7A5AF8", v -> showTestResult(r)));
-            row.addView(action("✏️ 编辑", "#1E6FE8", v -> showEditor(r)));
-            row.addView(action(r.enabled ? "⏸ 停用" : "▶️ 启用", "#9AA4B2", v -> {
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            rlp.setMargins(0, dp(10), 0, 0);
+            row.setLayoutParams(rlp);
+            row.addView(actionGhost("测试", P.accentInk, v -> showTestResult(r)));
+            row.addView(actionGhost("编辑", P.accentInk, v -> showEditor(r)));
+            row.addView(actionGhost(r.enabled ? "停用" : "启用", UiKit.INK2, v -> {
                 UserRules.VerifyResult vr = UserRules.verify(r);
                 if (!r.enabled && !vr.ok) {
-                    new AlertDialog.Builder(this).setTitle("❌ 启用被拒绝")
-                            .setMessage("自测未通过，不能启用：\n\n" + vr.message)
-                            .setPositiveButton("去编辑", (d, w) -> showEditor(r))
-                            .setNegativeButton("知道了", null).show();
+                    UiKit.dialog(this, P, R.drawable.ic_alert, "启用被拒绝",
+                            "自测未通过，不能启用：\n\n" + vr.message, null,
+                            UiKit.primary("去编辑", () -> showEditor(r)),
+                            UiKit.ghost("知道了", null));
                     return;
                 }
                 r.enabled = !r.enabled;
                 persistAndRefresh();
             }));
-            row.addView(action("🗑️", "#D93025", v -> confirmDelete(r)));
+            row.addView(actionGhost("删除", UiKit.DANGER, v -> confirmDelete(r)));
             card.addView(row);
-            box.addView(card);
+            box.addView(card, UiKit.cardLp(this, 8));
         }
+    }
+
+    /** 幽灵按钮：浅底 + 描边 + 指定文字色（卡片内操作用） */
+    private TextView actionGhost(String label, int textColor, View.OnClickListener l) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        t.setTextColor(textColor);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(8), dp(8), dp(8), dp(8));
+        t.setBackground(UiKit.bg(P.accentTint, this, 11));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        lp.setMargins(dp(3), 0, dp(3), 0);
+        t.setLayoutParams(lp);
+        t.setOnClickListener(l);
+        return t;
     }
 
     private void persistAndRefresh() {
@@ -255,30 +325,28 @@ public class UserRulesActivity extends Activity {
         }
         // 立即刷新内存中的规则缓存
         PickupExtractor.loadUserRules(this, UserRules.loadAll(this));
-        renderList((LinearLayout) statusLine.getParent());
+        renderList(listBox);   // v4.0.1：此前传的是 statusLine.getParent()（= 整个 root），保存后标题/开关/说明会被一并清掉
         refreshStatus();
         Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
     }
 
     private void confirmDelete(final UserRules.Rule r) {
-        new AlertDialog.Builder(this)
-                .setTitle("删除规则")
-                .setMessage("确定删除「" + UserRules.safeName(r) + "」？")
-                .setPositiveButton("删除", (d, w) -> {
+        UiKit.dialog(this, P, R.drawable.ic_ban, "删除规则",
+                "确定删除「" + UserRules.safeName(r) + "」？删除后可以重新导入或被分享的规则恢复。", null,
+                UiKit.primary("删除", () -> {
                     for (int i = 0; i < rules.size(); i++) {
                         if (rules.get(i) == r) { rules.remove(i); break; }
                     }
                     persistAndRefresh();
-                })
-                .setNegativeButton("取消", null)
-                .show();
+                }),
+                UiKit.ghost("取消", null));
     }
 
     /** 测试：跑自测样本 + 完整链路 dryRun，逐条展示结果 */
     private void showTestResult(final UserRules.Rule r) {
         UserRules.VerifyResult vr = UserRules.verify(r);
         StringBuilder sb = new StringBuilder();
-        sb.append(vr.ok ? "✅ 自测全部通过\n\n" : "❌ 自测未通过\n\n");
+        sb.append("【自测结论】").append(vr.ok ? "全部通过" : "未通过").append("\n\n");
         sb.append(vr.message);
         if (vr.ok) {
             sb.append("\n\n实时匹配预览：");
@@ -287,7 +355,6 @@ public class UserRulesActivity extends Activity {
                         .append("\n  → 码：").append(UserRules.matchCode(r, t.sms))
                         .append("（期望 ").append(t.expectCode).append("）");
             }
-            // 完整链路 dryRun：验证发送方匹配 + 优先级（号码规则用户最关心）
             if (r.testCases != null && !r.testCases.isEmpty()) {
                 String probeSender = (r.senderMode == null || r.senderMode.isEmpty()
                         || UserRules.MODE_ANY.equals(r.senderMode))
@@ -298,11 +365,8 @@ public class UserRulesActivity extends Activity {
                         .append(UserRules.dryRun(one, probeSender, r.testCases.get(0).sms));
             }
         }
-        new AlertDialog.Builder(this)
-                .setTitle("🧪 规则自测")
-                .setMessage(sb.toString())
-                .setPositiveButton("知道了", null)
-                .show();
+        UiKit.dialog(this, P, R.drawable.ic_flask, "规则自测", sb.toString(), null,
+                UiKit.primary("知道了", null));
     }
 
     /** 规则编辑器 */
@@ -324,7 +388,7 @@ public class UserRulesActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(6), 0, dp(6), 0);
 
-        final EditText etName = field(box, "① 规则名称 ★必备",
+        final EditText etName = field(box, "① 规则名称（必填）",
                 r.name, "例：我们小区菜鸟驿站");
         // ---- 发送方匹配（分层设计：全局规则 vs 号码专属）----
         final String[] mode = {r.senderMode == null || r.senderMode.isEmpty()
@@ -348,38 +412,40 @@ public class UserRulesActivity extends Activity {
         modeBtn.setTextColor(Color.parseColor("#1A1A1A"));
         modeBtn.setPadding(dp(8), dp(10), dp(8), dp(6));
         modeBtn.setBackgroundColor(Color.parseColor("#F0F4FF"));
-        modeBtn.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("② 选择发送方匹配方式")
-                .setItems(new String[]{
-                        UserRules.MODE_ANY + "　不限来源（全局规则）",
-                        UserRules.MODE_EXACT + "　精确匹配（固定号码）",
-                        UserRules.MODE_PREFIX + "　前缀匹配（虚拟号，后几位随机）",
-                        UserRules.MODE_CONTAINS + "　包含匹配（号码含文字）"
-                }, (d, w) -> {
-                    mode[0] = new String[]{UserRules.MODE_ANY, UserRules.MODE_EXACT,
-                            UserRules.MODE_PREFIX, UserRules.MODE_CONTAINS}[w];
-                    modeBtn.setText("② 发送方范围：" + UserRules.modeLabel(mode[0]));
-                    senderHint.setText(UserRules.modeHint(mode[0]));
-                    senderEt.setVisibility(UserRules.MODE_ANY.equals(mode[0])
-                            ? View.GONE : View.VISIBLE);
-                })
-                .setNegativeButton("取消", null)
-                .show());
+        final String[] modes = {UserRules.MODE_ANY, UserRules.MODE_EXACT,
+                UserRules.MODE_PREFIX, UserRules.MODE_CONTAINS};
+        modeBtn.setOnClickListener(v -> {
+            int cur = 0;
+            for (int mi = 0; mi < modes.length; mi++) if (modes[mi].equals(mode[0])) cur = mi;
+            UiKit.chooser(this, P, R.drawable.ic_call, "选择发送方匹配方式",
+                    new CharSequence[]{
+                            "不限来源（全局规则）",
+                            "精确匹配（固定号码）",
+                            "前缀匹配（虚拟号，后几位随机）",
+                            "包含匹配（号码含文字）"
+                    }, cur, w -> {
+                        mode[0] = modes[w];
+                        modeBtn.setText("② 发送方范围：" + UserRules.modeLabel(mode[0]));
+                        senderHint.setText(UserRules.modeHint(mode[0]));
+                        senderEt.setVisibility(UserRules.MODE_ANY.equals(mode[0])
+                                ? View.GONE : View.VISIBLE);
+                    });
+        });
         box.addView(modeBtn);
         box.addView(senderHint);
         box.addView(senderEt);
 
         TextView prioTip = new TextView(this);
-        prioTip.setText("ℹ️ 号码专属规则会自动优先于全局规则生效（同一条短信命中多条时，"
+        prioTip.setText("号码专属规则会自动优先于全局规则生效（同一条短信命中多条时，"
                 + "精确 > 前缀 > 包含 > 全局）。");
         prioTip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
         prioTip.setTextColor(Color.parseColor("#888888"));
         prioTip.setPadding(dp(4), dp(4), dp(4), 0);
         box.addView(prioTip);
 
-        final EditText etCode = field(box, "③ 取件码正则 ★必备",
+        final EditText etCode = field(box, "③ 取件码正则（必填）",
                 r.codeRegex, "例：取件码\\s*([A-Za-z0-9-]+)  ← 小括号里的就是取件码");
-        final EditText etCodeGroup = field(box, "④ 取第几个捕获组 ★必备",
+        final EditText etCodeGroup = field(box, "④ 取第几个捕获组（必填）",
                 String.valueOf(r.codeGroup), "1=第一个小括号；0=整个匹配");
         final EditText etSource = field(box, "⑤ 来源（可选，留空=自动识别）",
                 r.source, "固定文本或 $1 引用正则捕获组");
@@ -429,7 +495,7 @@ public class UserRulesActivity extends Activity {
         box.addView(tcBox);
 
         TextView tcTitle = new TextView(this);
-        tcTitle.setText("测试样本 ★必填（必须自测通过才能保存）");
+        tcTitle.setText("测试样本（必填，必须自测通过才能保存）");
         tcTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         tcTitle.setTextColor(Color.parseColor("#1A1A1A"));
         tcTitle.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -469,22 +535,19 @@ public class UserRulesActivity extends Activity {
         // 关键：整个编辑区必须放在 ScrollView 里。
         // 否则测试样本加到第 3 条以后，下面的内容会被挤出对话框可视区（显示不全/点不到）。
         ScrollView boxScroll = new ScrollView(this);
+        boxScroll.setVerticalScrollBarEnabled(false);
+        boxScroll.setHorizontalScrollBarEnabled(false);
         boxScroll.setPadding(dp(4), 0, dp(4), 0);
         boxScroll.addView(box);
 
         // v3.0.1：不用 setPositiveButton（它点击后会自动 dismiss，导致自测失败时
         // 整页消失、用户辛苦填的内容全丢）。改为 show() 后接管按钮，
         // 校验不通过时保持编辑页打开，用户可原地修改后再次自测。
-        final AlertDialog dlg = new AlertDialog.Builder(this)
-                .setTitle(isNew ? "➕ 新建规则" : "✏️ 编辑规则")
-                .setView(boxScroll)
-                .setPositiveButton("🧪 自测并保存", null)
-                .setNeutralButton("🎓 参考案例", (d, w) -> showExamples())
-                .setNegativeButton("取消", null)
-                .create();
-
-        dlg.setOnShowListener(d -> {
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        final android.app.Dialog[] holder = new android.app.Dialog[1];
+        holder[0] = UiKit.dialog(this, P,
+                isNew ? R.drawable.ic_plus : R.drawable.ic_template,
+                isNew ? "新建规则" : "编辑规则", null, box, 58,
+                UiKit.keepOpen("自测并保存", () -> {
                 r.name = etName.getText().toString().trim();
                 r.senderMode = mode[0];
                 r.senderValue = UserRules.MODE_ANY.equals(mode[0])
@@ -528,21 +591,20 @@ public class UserRulesActivity extends Activity {
 
                 String quick = UserRules.quickValidate(r);
                 if (quick != null) {
-                    new AlertDialog.Builder(this).setTitle("❌ 规则不合规")
-                            .setMessage(quick + "\n\n请按提示原地修改后再点「自测并保存」。")
-                            .setPositiveButton("继续修改", null).show();
+                    UiKit.dialog(this, P, R.drawable.ic_alert, "规则不合规",
+                            quick + "\n\n请按提示原地修改后再点「自测并保存」。", null,
+                            UiKit.primary("继续修改", null));
                     return;
                 }
                 UserRules.VerifyResult vr = UserRules.verify(r);
                 if (!vr.ok) {
-                    // 关键：不再关闭编辑页，用户可继续修改正则/期望值
-                    new AlertDialog.Builder(this).setTitle("❌ 自测未通过")
-                            .setMessage(vr.message
-                                    + "\n\n请在上方按提示修正正则或期望值，然后再次点「🧪 自测并保存」。\n"
-                                    + "没思路可点「🎓 参考案例」。")
-                            .setPositiveButton("继续修改", null)
-                            .setNeutralButton("参考案例", (dd, ww) -> showExamples())
-                            .show();
+                    // 关键：编辑页保持打开，用户可继续修改正则/期望值
+                    UiKit.dialog(this, P, R.drawable.ic_alert, "自测未通过",
+                            vr.message
+                                    + "\n\n请在上方按提示修正正则或期望值，然后再次点「自测并保存」。\n"
+                                    + "没思路可点「参考案例」。", null,
+                            UiKit.primary("继续修改", null),
+                            UiKit.ghost("参考案例", this::showExamples));
                     return;
                 }
                 r.enabled = true;
@@ -557,12 +619,12 @@ public class UserRulesActivity extends Activity {
                     UserRules.setEnabled(this, true);
                 }
                 PickupExtractor.loadUserRules(this, UserRules.loadAll(this));
-                dlg.dismiss();
+                holder[0].dismiss();
                 Toast.makeText(this, "规则已保存并启用 ✓\n" + vr.message, Toast.LENGTH_LONG).show();
                 recreate();
-            });
-        });
-        dlg.show();
+                }),
+                UiKit.ghost("参考案例", this::showExamples),
+                UiKit.ghost("取消", null));
     }
 
     private EditText field(LinearLayout box, String label, String value, String hint) {
@@ -588,7 +650,7 @@ public class UserRulesActivity extends Activity {
                 + "发送方范围：不限来源\n"
                 + "取件码正则：物品编号\\s*([A-Z]{1,3}-[0-9]{3,8})\n"
                 + "捕获组：1\n\n"
-                + "【第 2 层：号码专属规则】★推荐，精准度最高\n"
+                + "【第 2 层：号码专属规则】推荐，精准度最高\n"
                 + "· 驿站固定号码 → 精确匹配：1069888877\n"
                 + "· 虚拟号后几位随机 → 前缀匹配：1069（可同时覆盖该服务商所有号）\n"
                 + "· 号码里带文字 → 包含匹配：菜鸟驿站\n"
@@ -600,21 +662,18 @@ public class UserRulesActivity extends Activity {
                 + "· 带引号：凭[\"“]([0-9]+)[\"”]　　　 → 捕获组 1\n"
                 + "· 英文标识：code[:：]\\s*([A-Z0-9-]+)　→ 捕获组 1\n"
                 + "（捕获组 = 第几个小括号 ()；0 = 整个匹配）\n\n"
-                + "【⚠️ 会出问题的写法（保存时会被拦截或自测失败）】\n"
+                + "【容易出问题的写法（保存时会被拦截或自测失败）】\n"
                 + "· (.*)+ 或 .*.*　嵌套量词 → 指数级回溯，会卡住短信处理（已被自动拦截）\n"
                 + "· 只写 [0-9]+ 而短信里有多个数字 → 会抓到单号/金额/时间\n"
                 + "  ✓ 正确做法：用上下文词把数字框住，如 取件码([0-9-]+)\n\n"
-                + "【💡 调试技巧】\n"
+                + "【调试技巧】\n"
                 + "· 「测试样本」必填：粘贴一条真实短信 + 写下期望的取件码\n"
                 + "  （短信里多个码时，用 ; 分隔，如 16-4-9626;15-3-2194）\n"
-                + "· 自测不通过时编辑页会保留，直接改正则再点一次「🧪 自测并保存」\n"
+                + "· 自测不通过时编辑页会保留，直接改正则再点一次「自测并保存」\n"
                 + "· 「捕获组」= 第几个小括号 () 包住的内容\n"
                 + "  例：取货码([A-Za-z0-9-]+) → 取件码就是第 1 组";
-        new AlertDialog.Builder(this)
-                .setTitle("🎓 参考案例")
-                .setMessage(msg)
-                .setPositiveButton("知道了", null)
-                .show();
+        UiKit.dialog(this, P, R.drawable.ic_book, "参考案例", msg, null, 62,
+                UiKit.primary("知道了", null));
     }
 
     private void doExport() {
@@ -623,30 +682,29 @@ public class UserRulesActivity extends Activity {
             return;
         }
         final String text = UserRules.exportForShare(rules);
-        new AlertDialog.Builder(this)
-                .setTitle("📤 导出规则")
-                .setMessage("已生成 " + rules.size() + " 条规则的分享文本。\n\n"
-                        + "· 想分享给朋友：复制后发 QQ 群，对方在「📥 导入」粘贴即可\n"
+        UiKit.dialog(this, P, R.drawable.ic_upload, "导出规则",
+                "已生成 " + rules.size() + " 条规则的分享文本。\n\n"
+                        + "· 想分享给朋友：复制后发 QQ 群，对方在「导入」粘贴即可\n"
                         + "· 想贡献给官方：复制后发到 GitHub Issue（标签 user-rule）\n"
-                        + "⚠️ 发送前请自行确认短信样本里没有姓名/手机号/住址等隐私")
-                .setPositiveButton("📋 复制", (d, w) -> {
+                        + "· 发送前请自行确认短信样本里没有姓名/手机号/住址等隐私", null,
+                UiKit.primary("复制", () -> {
                     ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     cm.setPrimaryClip(ClipData.newPlainText("user_rules", text));
                     Toast.makeText(this, "已复制，可直接粘贴分享", Toast.LENGTH_LONG).show();
-                })
-                .setNegativeButton("关闭", null)
-                .show();
+                }),
+                UiKit.ghost("关闭", null));
     }
 
     private void doImport() {
         final EditText et = new EditText(this);
         et.setHint("粘贴他人分享的规则文本");
-        et.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        et.setMinLines(5);
-        new AlertDialog.Builder(this)
-                .setTitle("📥 导入规则")
-                .setView(et)
-                .setPositiveButton("导入并自测", (d, w) -> {
+        et.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        et.setTextColor(UiKit.INK2);
+        et.setMinLines(6);
+        et.setBackground(UiKit.bg(P.cardSoft, this, 12, P.line, 1f));
+        et.setPadding(dp(12), dp(10), dp(12), dp(10));
+        UiKit.dialog(this, P, R.drawable.ic_download, "导入规则", null, et, 42,
+                UiKit.keepOpen("导入并自测", () -> {
                     List<UserRules.Rule> imported = UserRules.importFromShare(et.getText().toString());
                     if (imported.isEmpty()) {
                         Toast.makeText(this, "没有解析到规则，请检查格式", Toast.LENGTH_LONG).show();
@@ -673,14 +731,13 @@ public class UserRulesActivity extends Activity {
                                 + (err == null ? " ✓" : "（部分保存失败：" + err + "）"), Toast.LENGTH_LONG).show();
                     }
                     if (bad.length() > 0) {
-                        new AlertDialog.Builder(this).setTitle("部分规则未通过自测")
-                                .setMessage("以下规则被拒绝导入：\n\n" + bad
-                                        + "\n原因通常是分享文本不完整或对方规则本身有问题。")
-                                .setPositiveButton("知道了", null).show();
+                        UiKit.dialog(this, P, R.drawable.ic_alert, "部分规则未通过自测",
+                                "以下规则被拒绝导入：\n\n" + bad
+                                        + "\n原因通常是分享文本不完整或对方规则本身有问题。", null,
+                                UiKit.primary("知道了", null));
                     }
-                })
-                .setNegativeButton("取消", null)
-                .show();
+                }),
+                UiKit.ghost("取消", null));
     }
 
     private TextView action(String label, String bg, View.OnClickListener l) {
@@ -709,7 +766,25 @@ public class UserRulesActivity extends Activity {
         return gd;
     }
 
+    /** v4.0.0：接受 int 颜色（用于跟随配色的强调色等） */
+    private android.graphics.drawable.Drawable roundRect(int color) {
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        gd.setColor(color);
+        gd.setCornerRadius(dp(14));
+        return gd;
+    }
+
+    /** v4.0.0：接受 int 颜色的动作按钮（跟随配色） */
+    private TextView action(String label, int bg, View.OnClickListener l) {
+        TextView b = action(label, "#000000", l);
+        b.setBackground(roundRect(bg));
+        return b;
+    }
+
     private int dp(int v) {
+
+
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
                 getResources().getDisplayMetrics());
     }

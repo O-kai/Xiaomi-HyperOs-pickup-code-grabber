@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="菜鸟裹裹">
+  <rect width="96" height="96" rx="26" fill="#17A398"/>
+  <path d="M28 45c7-9 17-15 29-17" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" fill="none"/>
+  <path d="M26 56c6-8 15-13 25-14" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" fill="none" opacity=".72"/>
+  <rect x="29" y="59" width="38" height="22" rx="6" fill="#FFFFFF"/>
+  <rect x="44" y="59" width="8" height="22" fill="#17A398"/>
+  <path d="M29 67.5h9" stroke="#17A398" stroke-width="4" stroke-linecap="round"/>
+</svg>

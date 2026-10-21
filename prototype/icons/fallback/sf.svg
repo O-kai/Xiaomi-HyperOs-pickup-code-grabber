@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="顺丰速运">
+  <rect width="96" height="96" rx="26" fill="#1F1F1F"/>
+  <rect x="19" y="38" width="33" height="22" rx="4" fill="#FFFFFF"/>
+  <path d="M52 44h11.5L73 53.5V60H52z" fill="#FFFFFF" opacity=".85"/>
+  <circle cx="32" cy="63.5" r="5.6" fill="#FFFFFF"/>
+  <circle cx="61.5" cy="63.5" r="5.6" fill="#FFFFFF"/>
+  <circle cx="32" cy="63.5" r="2.2" fill="#1F1F1F"/>
+  <circle cx="61.5" cy="63.5" r="2.2" fill="#1F1F1F"/>
+</svg>
