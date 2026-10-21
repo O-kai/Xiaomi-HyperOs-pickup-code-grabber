@@ -356,7 +356,12 @@ public class PickupExtractor {
                 if (validCode(r, m3.group(1))) lastEnd = m3.end();
             }
             if (lastEnd > 0 && lastEnd < body.length()) {
-                String tail = body.substring(lastEnd).replaceFirst("^[，,。；;、\\s]+", "").trim();
+                // v6.1：同时剥掉码后紧跟的右括号类符号。
+                // 实测「包裹待签收【取件码-6-4-3009】，手机号已加密…」——
+                // 码后是「】」，原正则只剥逗号句号，】留在尾段开头，导致
+                // 尾段被判成地点（「享号码保护服务」含后缀词「服务」）。
+                String tail = body.substring(lastEnd)
+                        .replaceFirst("^[，,。；;、\\s】》」）)\\]】]+", "").trim();
                 if (tail.length() >= 2 && tail.length() <= 40 && looksLikePlace(r, tail)) {
                     return tail;
                 }
@@ -368,15 +373,28 @@ public class PickupExtractor {
     /** 尾段是否像地点：含地点特征后缀词，且不含明显非地点噪声 */
     private static boolean looksLikePlace(ExtractorRules r, String tail) {
         if (r == null || r.placeSuffixes == null) return false;
+        // v6.1：隐私保护类文案常含「服务」「中心」等后缀词，极易被误判为地点。
+        // 实测「手机号已加密，享号码保护服务，点击查看详情」整段被判成地点。
+        // 这里先做噪声否决，再走后缀词判定。
+        if (containsAny(tail, "号码保护", "已加密", "加密", "点击查看", "详情",
+                "退订", "回复", "客服", "咨询", "如有疑问", "谢谢")) {
+            return false;
+        }
         for (String suf : r.placeSuffixes) {
             if (!suf.isEmpty() && tail.contains(suf)) {
                 // 排除含营销/催单噪声的尾段
-                if (tail.contains("红包") || tail.contains("免单") || tail.contains("券")
-                        || tail.contains("详情页") || tail.contains("客服")) {
+                if (containsAny(tail, "红包", "免单", "券", "详情页", "客服")) {
                     return false;
                 }
                 return true;
             }
+        }
+        return false;
+    }
+
+    private static boolean containsAny(String s, String... words) {
+        for (String w : words) {
+            if (s.contains(w)) return true;
         }
         return false;
     }

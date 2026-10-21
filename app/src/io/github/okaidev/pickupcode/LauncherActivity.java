@@ -283,7 +283,29 @@ public class LauncherActivity extends Activity {
         notiRow.setPadding(0, dp(2), 0, dp(2));
 
         TextView notiLabel = new TextView(this);
-        notiLabel.setText("🔔 通知取件提取（多平台）");
+        // v6.1：「多平台」做成可点击 → 弹出实际支持的 App 列表。
+        // 用 SpannableString 只给「多平台」三个字加点击与下划线，其余文字保持普通样式，
+        // 避免整行都可点造成误触（整行右侧还有开关按钮）。
+        String notiText = "🔔 通知取件提取（多平台）";
+        android.text.SpannableString notiSp = new android.text.SpannableString(notiText);
+        int mpStart = notiText.indexOf("多平台");
+        int mpEnd = mpStart + 3;
+        if (mpStart >= 0) {
+            notiSp.setSpan(new android.text.style.ClickableSpan() {
+                @Override
+                public void onClick(android.view.View w) {
+                    showSupportedAppsDialog();
+                }
+            }, mpStart, mpEnd, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            notiSp.setSpan(new android.text.style.ForegroundColorSpan(
+                            Color.parseColor("#1E6FE8")),
+                    mpStart, mpEnd, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            notiSp.setSpan(new android.text.style.UnderlineSpan(),
+                    mpStart, mpEnd, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        notiLabel.setText(notiSp);
+        notiLabel.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        notiLabel.setHighlightColor(Color.TRANSPARENT);
         notiLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         notiLabel.setTextColor(Color.parseColor("#333333"));
         notiLabel.setPadding(0, 0, dp(8), 0);
@@ -1169,6 +1191,53 @@ public class LauncherActivity extends Activity {
      * 开关开着但缺 android 时，按钮改成警示色「作用域未勾选」并在下方露出灰色说明行。
      * 必须在主线程调用；不重读标志文件（它是 su 异步写的，刚点完就读会读到旧值）。
      */
+    /**
+     * v6.1：「多平台」点击弹窗——列出当前实际支持通知取件提取的 App。
+     *
+     * 数据来源是 NotiHook.currentPkgs()（内置 + 用户追加），而不是写死的常量，
+     * 这样用户自己加了包名也能立刻在这里看到，不会出现「设置里有、列表里没有」。
+     */
+    private void showSupportedAppsDialog() {
+        java.util.List<String> pkgs;
+        try {
+            pkgs = NotiHook.currentPkgs();
+        } catch (Throwable t) {
+            pkgs = new java.util.ArrayList<>();
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (pkgs.isEmpty()) {
+            sb.append("当前没有可用的通知来源。");
+        } else {
+            for (String p : pkgs) {
+                String label = NotiHook.PKG_LABELS.get(p);
+                if (label == null || label.isEmpty()) label = p;   // 用户自定义包名直接显示包名
+                sb.append("· ").append(label).append("\n");
+            }
+            sb.append("\n共 ").append(pkgs.size()).append(" 个应用\n\n");
+            sb.append("说明：只有这些 App 发出的通知会被读取。\n")
+              .append("短信通道不受此限制，任何号码的取件短信都会识别。\n\n")
+              .append("识别规则与短信通道共用同一套规则集，\n")
+              .append("所以「取件码/取货码/凭码」等说法在两边都能识别。");
+        }
+
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        TextView tv = new TextView(this);
+        tv.setText(sb.toString());
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        tv.setTextColor(Color.parseColor("#333333"));
+        tv.setLineSpacing(dp(4), 1f);
+        int pad = dp(20);
+        tv.setPadding(pad, dp(12), pad, dp(4));
+        sv.addView(tv);
+
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("支持的通知来源")
+                .setView(sv)
+                .setPositiveButton("知道了", null)
+                .show();
+    }
+
     private void renderNotiSwitchUi() {
         if (notiBtnView == null) return;
         boolean on = notiSwitchOn;

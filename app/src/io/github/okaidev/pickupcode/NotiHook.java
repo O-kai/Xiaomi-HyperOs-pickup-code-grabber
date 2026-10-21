@@ -46,6 +46,29 @@ public class NotiHook {
             "com.sf.cdsibm"             // 顺丰
     };
 
+    /**
+     * 包名 → 展示名（供设置页「多平台」弹窗列出支持的应用）
+     * v6.1：新增。未收录的包名直接显示包名本身，不会漏。
+     */
+    public static final java.util.Map<String, String> PKG_LABELS;
+    static {
+        java.util.Map<String, String> m = new java.util.LinkedHashMap<>();
+        m.put("com.cainiao.wireless", "菜鸟");
+        m.put("com.cainiao.guoguo", "菜鸟裹裹");
+        m.put("com.jingdong.app.mall", "京东");
+        m.put("com.taobao.taobao", "淘宝");
+        m.put("com.xunmeng.pinduoduo", "拼多多");
+        m.put("com.sf.cdsibm", "顺丰速运");
+        PKG_LABELS = java.util.Collections.unmodifiableMap(m);
+    }
+
+    /** 当前生效的通知白名单快照（内置 + 用户追加） */
+    public static java.util.List<String> currentPkgs() {
+        synchronized (PKG_WHITELIST) {
+            return new java.util.ArrayList<>(PKG_WHITELIST);
+        }
+    }
+
     /** 运行时白名单 = 内置 + 用户追加（v3.1.0 P4） */
     private static final List<String> PKG_WHITELIST = new ArrayList<>(java.util.Arrays.asList(BUILTIN_PKGS));
 
@@ -112,12 +135,25 @@ public class NotiHook {
             // 用户若对通知来源做了号码规则，可用包含匹配（如包名片段）覆盖
             // ⚠️ 本方法运行在 system_server 多线程环境，sender 必须显式传参，不可存全局
             String notiSender = "通知:" + pkg;
-            if (!PickupExtractor.hasFeatureWords(notiSender, text)) return;
 
+            // v3.2.0 加固：通知通道不再用 hasFeatureWords 做前置门禁。
+            //
+            // 原因（Issue 实测）：白名单里的电商 App 通知形态与短信差别很大——
+            //   · 「您的包裹已到站，点击查看详情」：有特征词、没有码
+            //   · 「取件码 4-3-5120」：有码、可能没有特征词（标题是 App 名）
+            //   · 拼多多/淘宝多用 MessagingStyle，正文分散在多条 message 里
+            // 前置门禁会把第二类直接拦掉，连错题本都进不去，表现为
+            // 「用户明明收到通知，App 却毫无反应」。
+            //
+            // 现在改为：白名单命中即无条件尝试提取。
+            // 安全性不受影响——extract() 内部仍有 Tier0 特征门禁 + 四层判定 +
+            // 语义排除（URL/手机号/单号/量词/时间），空结果不会写入任何待办。
             List<String> codes = PickupExtractor.extract(notiSender, text);
             if (codes.isEmpty()) {
-                // 漏抓嫌疑：错题本（system_server 无 Context 写 prefs → 经广播转发给模块 App 记录）
-                NotiRelay.relayMissed(param, pkg, text);
+                // 提取为空：仅在「含特征词」时才记错题本，避免把纯广告通知也记进去
+                if (PickupExtractor.hasFeatureWords(notiSender, text)) {
+                    NotiRelay.relayMissed(param, pkg, text);
+                }
                 return;
             }
             // 提取成功：转发模块 App（与短信通道共用 TodoWriter.handle 的去重与写入）
@@ -151,19 +187,65 @@ public class NotiHook {
         return null;
     }
 
-    /** 拼合通知全部可见文本（title + text + bigText + extras） */
+    /**
+     * 拼合通知全部可见文本
+     *
+     * v3.2.0 加固：此前只取 TITLE / TEXT / BIG_TEXT 三个字段，导致「原文能识别、
+     * 实际收不到」——电商 App（拼多多/淘宝/京东）大量使用 MessagingStyle 与
+     * 多行列表，正文根本不在前三个字段里：
+     *   - EXTRA_TEXT_LINES：InboxStyle 多行（「取件码 xxx」常在第二行）
+     *   - EXTRA_SUB_TEXT / EXTRA_SUMMARY_TEXT：副标题与摘要
+     *   - EXTRA_INFO_TEXT：通知底部补充信息
+     *   - MessagingStyle.messages[]：聊天式通知，正文逐条在 Person 的 message 里
+     *   - EXTRA_TEMPLATE：部分 ROM 把模板名塞这里，一并纳入便于排查
+     * 全部拼进来后由提取引擎自行判断，不会因为多字段而误报（引擎有语义排除）。
+     */
     private static String buildText(Notification n) {
         StringBuilder sb = new StringBuilder();
         try {
             Bundle extras = n.extras;
             if (extras == null) return null;
-            CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
-            CharSequence text = extras.getCharSequence(Notification.EXTRA_TEXT);
-            CharSequence big = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
-            if (title != null) sb.append(title).append(" ");
-            if (text != null) sb.append(text).append(" ");
-            if (big != null) sb.append(big);
+
+            appendCs(sb, extras.getCharSequence(Notification.EXTRA_TITLE));
+            appendCs(sb, extras.getCharSequence(Notification.EXTRA_TEXT));
+            appendCs(sb, extras.getCharSequence(Notification.EXTRA_SUB_TEXT));
+            appendCs(sb, extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT));
+            appendCs(sb, extras.getCharSequence(Notification.EXTRA_INFO_TEXT));
+            appendCs(sb, extras.getCharSequence(Notification.EXTRA_BIG_TEXT));
+
+            // InboxStyle 多行
+            CharSequence[] lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
+            if (lines != null) {
+                for (CharSequence l : lines) appendCs(sb, l);
+            }
+
+            // MessagingStyle：电商 App 最常用的样式，正文在每条 message 里
+            // 注意：extractMessagingStyleFromNotification 是 @hide API，编译期不可直接调用，
+            // 必须走反射；失败则静默跳过（其它字段通常已覆盖同一份文本）
+            try {
+                java.lang.reflect.Method m = Notification.MessagingStyle.class
+                        .getDeclaredMethod("extractMessagingStyleFromNotification", Notification.class);
+                m.setAccessible(true);
+                Object ms = m.invoke(null, n);
+                if (ms instanceof Notification.MessagingStyle) {
+                    for (Notification.MessagingStyle.Message msg
+                            : ((Notification.MessagingStyle) ms).getMessages()) {
+                        if (msg != null) appendCs(sb, msg.getText());
+                    }
+                }
+            } catch (Throwable ignored) { }
+
         } catch (Throwable ignored) { }
         return sb.toString().trim();
+    }
+
+    private static void appendCs(StringBuilder sb, CharSequence cs) {
+        if (cs == null) return;
+        String s = cs.toString().trim();
+        if (s.isEmpty()) return;
+        // 去重：MessagingStyle 的 message 常与 TEXT/BIG_TEXT 重复
+        if (sb.indexOf(s) >= 0) return;
+        if (sb.length() > 0) sb.append(' ');
+        sb.append(s);
     }
 }

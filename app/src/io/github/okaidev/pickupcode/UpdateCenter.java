@@ -83,15 +83,9 @@ public class UpdateCenter {
                             final boolean checkApp, final boolean checkRules,
                             final Runnable onComplete) {
         final Context ctx = act.getApplicationContext();
-        final long now = System.currentTimeMillis();
-        // v3.1.0 修正：时间戳此前在发起网络请求【之前】就写入。
-        // 断网时点一次手动检查 → 时间戳已刷新 → 之后 3 天内自动检查都认为「刚查过」，
-        // 于是用户明明恢复了网络却要干等 3 天。
-        // 现在改为：只有真正查到了结果（拿到版本号 / 拿到规则文件）才记时间戳；
-        // 网络失败一律不记，下次进 App 还会自动重试。
-        if (checkApp && sp(ctx).getLong(KEY_UPDATE_LAST, 0L) == 0L) {
-            // 仅在从未成功检查过时占位，避免并发重复触发；成功后会被覆盖为真实时间
-        }
+        // v3.1.0：时间戳只在真正拿到结果后才记（见 stampOnSuccess）。
+        // 修复前是发起网络请求【之前】就写入，于是断网点一次手动检查
+        // → 之后 3 天内自动检查都认为「刚查过」，用户恢复了网络也得干等。
 
         new Thread(() -> {
             // ① 软件版本
