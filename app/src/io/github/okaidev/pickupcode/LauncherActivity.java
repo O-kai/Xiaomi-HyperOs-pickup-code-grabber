@@ -507,29 +507,57 @@ public class LauncherActivity extends Activity {
                 extraSummary.setVisibility(View.GONE);
             });
             clear.setOnClickListener(v -> {
-                ProcessSync.setExtraNotiPkgs(this, "");
-                Toast.makeText(this, "已恢复为仅内置 App", Toast.LENGTH_SHORT).show();
-                exit[0].run();
+                // v6.2：加二次确认，防止误触清掉用户配置
+                UiKit.dialog(this, P, R.drawable.ic_ban, "恢复为仅内置 App",
+                        "你添加的自定义来源会被清空，只剩内置的 "
+                                + NotiHook.BUILTIN_PKGS.length + " 个。\n\n这个操作可以重新添加，不会影响其它设置。",
+                        null,
+                        UiKit.primary("确认清空", () -> {
+                            ProcessSync.setExtraNotiPkgs(this, "");
+                            Toast.makeText(this, "已恢复为仅内置 App", Toast.LENGTH_SHORT).show();
+                            exit[0].run();
+                        }),
+                        UiKit.ghost("取消", null)).show();
             });
             cancel.setOnClickListener(v -> exit[0].run());
             save.setOnClickListener(v -> {
                 String raw = edit.getText().toString();
-                StringBuilder bad = new StringBuilder();
-                for (String line : raw.split("[\\n,，]+")) {
-                    String p = line.trim();
-                    if (p.isEmpty()) continue;
-                    if (!p.matches("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) {
-                        if (bad.length() > 0) bad.append("、");
-                        bad.append(p);
-                    }
-                }
-                if (bad.length() > 0) {
-                    Toast.makeText(this, "这些看起来不是 App 包名：\n" + bad, Toast.LENGTH_LONG).show();
+
+                // v6.2：统一走 PkgInput 校验 —— 去重、规范化分隔符、
+                // 检查格式、检查是否已安装、检查是否高危 App
+                PkgInput.Result r = PkgInput.parse(raw, this, true);
+
+                String problem = PkgInput.describe(r);
+
+                // 没有任何可用包名：直接拒绝，不落库
+                if (r.valid.isEmpty()) {
+                    Toast.makeText(this,
+                            problem != null ? problem : "请先填写至少一个包名",
+                            Toast.LENGTH_LONG).show();
                     return;
                 }
-                ProcessSync.setExtraNotiPkgs(this, raw.trim());
-                Toast.makeText(this, "已保存 ✓ 需重启手机生效", Toast.LENGTH_SHORT).show();
-                exit[0].run();
+
+                if (problem == null) {
+                    // 一切正常，直接保存清洗后的结果（不是原文）
+                    ProcessSync.setExtraNotiPkgs(this, r.toStorageString());
+                    Toast.makeText(this, "已保存 " + r.valid.size() + " 个来源 ✓\n需重启手机生效",
+                            Toast.LENGTH_SHORT).show();
+                    exit[0].run();
+                    return;
+                }
+
+                // 有问题：说明风险，让用户自己决定是否仍然保存
+                UiKit.dialog(this, P, R.drawable.ic_alert, "请确认",
+                        problem + "\n\n要保存的有效包名：\n  " + r.toStorageString()
+                                + "\n\n仍然保存吗？",
+                        null,
+                        UiKit.primary("仍然保存", () -> {
+                            ProcessSync.setExtraNotiPkgs(this, r.toStorageString());
+                            Toast.makeText(this, "已保存 " + r.valid.size() + " 个来源 ✓\n需重启手机生效",
+                                    Toast.LENGTH_SHORT).show();
+                            exit[0].run();
+                        }),
+                        UiKit.ghost("返回修改", null)).show();
             });
         };
         refresh[0].run();

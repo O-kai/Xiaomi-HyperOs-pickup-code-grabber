@@ -43,7 +43,8 @@ public class NotiHook {
             "com.jingdong.app.mall",    // 京东
             "com.taobao.taobao",        // 淘宝
             "com.xunmeng.pinduoduo",    // 拼多多
-            "com.sf.cdsibm"             // 顺丰
+            "com.sf.cdsibm",            // 顺丰
+            "com.fcbox.hiveconsumer"    // 丰巢（v6.2 新增）
     };
 
     /**
@@ -59,6 +60,7 @@ public class NotiHook {
         m.put("com.taobao.taobao", "淘宝");
         m.put("com.xunmeng.pinduoduo", "拼多多");
         m.put("com.sf.cdsibm", "顺丰速运");
+        m.put("com.fcbox.hiveconsumer", "丰巢");
         PKG_LABELS = java.util.Collections.unmodifiableMap(m);
     }
 
@@ -69,8 +71,13 @@ public class NotiHook {
         }
     }
 
-    /** 运行时白名单 = 内置 + 用户追加（v3.1.0 P4） */
-    private static final List<String> PKG_WHITELIST = new ArrayList<>(java.util.Arrays.asList(BUILTIN_PKGS));
+    /**
+     * 运行时白名单 = 内置 + 用户追加。
+     * v6.2：改用 LinkedHashSet —— 原 List 在用户重复填同一包名时会累积重复项，
+     * 白名单越滚越长（虽不影响匹配结果，但 currentPkgs() 展示会重复）。
+     */
+    private static final java.util.LinkedHashSet<String> PKG_WHITELIST =
+            new java.util.LinkedHashSet<>(java.util.Arrays.asList(BUILTIN_PKGS));
 
     /** 模块入口调用：在 system_server 注册通知管线钩子 */
     public static void install(ClassLoader sysCl) {
@@ -87,7 +94,7 @@ public class NotiHook {
                         PKG_WHITELIST.clear();
                         for (String p : st.notiPkgs.split("[,，\\s]+")) {
                             String t = p.trim();
-                            if (!t.isEmpty() && !PKG_WHITELIST.contains(t)) PKG_WHITELIST.add(t);
+                            if (!t.isEmpty()) PKG_WHITELIST.add(t);   // Set 天然去重
                         }
                     }
                 }

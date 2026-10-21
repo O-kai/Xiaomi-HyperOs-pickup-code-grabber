@@ -38,6 +38,8 @@ public final class AppIcons {
         put("com.taobao.taobao", "taobao", "淘宝", R.drawable.app_fallback_taobao);
         put("com.xunmeng.pinduoduo", "pinduoduo", "拼多多", R.drawable.app_fallback_pinduoduo);
         put("com.sf.cdsibm", "sf", "顺丰速运", R.drawable.app_fallback_sf);
+        // v6.2：丰巢（取件码大户）。无官方位图与矢量素材，用自绘兜底图标
+        put("com.fcbox.hiveconsumer", "fengchao", "丰巢", R.drawable.app_fallback_fengchao);
         // v4.0.1：菜鸟裹裹没有可公开抓取的位图，用用户提供的矢量图标（SVG → 矢量图）
         REAL.put("cainiao-guoguo", R.drawable.app_cainiao_guoguo);
     }

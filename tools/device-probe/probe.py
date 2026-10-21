@@ -54,6 +54,69 @@ def require_device():
     if not lines:
         sys.exit("没有检测到设备，请先连接手机并确认 adb devices 能看到它")
     print("设备：%s" % lines[0].strip())
+    # 每次都现场读设备身份，不靠历史印象（用户明确要求过）
+    print("机型：%s" % device_label())
+
+
+def prop(key):
+    """读一个系统属性，读不到返回空串。"""
+    rc, out, err = run(["shell", "getprop", key], timeout=30)
+    return out.strip() if rc == 0 else ""
+
+
+def device_label():
+    """拼出「市场名（型号 / 代号）· Android X（SDK n）· ROM」这样一行可核对的身份串。"""
+    market = prop("ro.product.marketname") or prop("ro.product.model") or "未知机型"
+    model = prop("ro.product.model")
+    device = prop("ro.product.device")
+    rel = prop("ro.build.version.release")
+    sdk = prop("ro.build.version.sdk")
+    os_ver = prop("ro.mi.os.version.name")
+    os_inc = prop("ro.mi.os.version.incremental")
+    miui = prop("ro.miui.ui.version.name")
+
+    parts = [market]
+    extra = "/".join(x for x in (model, device) if x)
+    if extra and extra != market:
+        parts.append("(%s)" % extra)
+    sysinfo = []
+    if rel:
+        sysinfo.append("Android %s" % rel)
+    if sdk:
+        sysinfo.append("SDK %s" % sdk)
+    if sysinfo:
+        parts.append("· " + " ".join(sysinfo))
+    rom = os_ver or miui
+    if rom:
+        parts.append("· " + rom + ((" " + os_inc) if os_inc else ""))
+    return " ".join(parts)
+
+
+def cmd_info(a):
+    """完整设备信息（排查兼容性问题时贴给开发者用）。"""
+    require_device()
+    print()
+    keys = [
+        ("市场名", "ro.product.marketname"),
+        ("型号", "ro.product.model"),
+        ("代号", "ro.product.device"),
+        ("品牌", "ro.product.brand"),
+        ("厂商", "ro.product.manufacturer"),
+        ("Android", "ro.build.version.release"),
+        ("SDK", "ro.build.version.sdk"),
+        ("HyperOS", "ro.mi.os.version.name"),
+        ("OS 增量版本", "ro.mi.os.version.incremental"),
+        ("MIUI 版本", "ro.miui.ui.version.name"),
+        ("安全补丁", "ro.build.version.security_patch"),
+        ("序列号", "ro.serialno"),
+    ]
+    for label, k in keys:
+        print("%-12s %s" % (label, prop(k) or "(无)"))
+    rc, out, err = run(["shell", "wm", "size"], timeout=30)
+    print("%-12s %s" % ("屏幕", out.strip()))
+    rc, out, err = run(["shell", "wm", "density"], timeout=30)
+    print("%-12s %s" % ("密度", out.strip()))
+    return 0
 
 
 def cmd_inject(a):
@@ -167,6 +230,9 @@ def main():
 
     p = sub.add_parser("doctor", help="检查设备侧前置条件")
     p.set_defaults(fn=cmd_doctor)
+
+    p = sub.add_parser("info", help="打印设备完整信息（机型/系统/分辨率）")
+    p.set_defaults(fn=cmd_info)
 
     p = sub.add_parser("ui", help="截屏保存到 shots/")
     p.set_defaults(fn=cmd_ui)

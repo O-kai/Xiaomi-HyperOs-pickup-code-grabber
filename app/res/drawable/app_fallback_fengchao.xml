@@ -1,0 +1,37 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <!-- 圆角底：丰巢品牌绿 -->
+    <path
+        android:pathData="M52.0,0.0 h44.0 a26.0,26.0 0 0 1 26.0,26.0 v44.0 a26.0,26.0 0 0 1 -26.0,26.0 h-44.0 a26.0,26.0 0 0 1 -26.0,-26.0 v-44.0 a26.0,26.0 0 0 1 26.0,-26.0 z"
+        android:fillColor="#FF1AA260" />
+    <!-- 智能柜柜体 -->
+    <path
+        android:pathData="M24.0,26.0 h48.0 a3.0,3.0 0 0 1 3.0,3.0 v42.0 a3.0,3.0 0 0 1 -3.0,3.0 h-48.0 a3.0,3.0 0 0 1 -3.0,-3.0 v-42.0 a3.0,3.0 0 0 1 3.0,-3.0 z"
+        android:fillColor="#FFFFFFFF" />
+    <!-- 柜门分割线（横） -->
+    <path
+        android:pathData="M21.0,48.0 h54.0"
+        android:strokeColor="#FF1AA260"
+        android:strokeWidth="2.4" />
+    <!-- 柜门分割线（竖） -->
+    <path
+        android:pathData="M48.0,29.0 v42.0"
+        android:strokeColor="#FF1AA260"
+        android:strokeWidth="2.4" />
+    <!-- 四个柜门的把手点 -->
+    <path
+        android:pathData="M40.0,37.0 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0 z"
+        android:fillColor="#FF1AA260" />
+    <path
+        android:pathData="M52.0,37.0 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0 z"
+        android:fillColor="#FF1AA260" />
+    <path
+        android:pathData="M40.0,59.0 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0 z"
+        android:fillColor="#FF1AA260" />
+    <path
+        android:pathData="M52.0,59.0 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0 z"
+        android:fillColor="#FF1AA260" />
+</vector>
