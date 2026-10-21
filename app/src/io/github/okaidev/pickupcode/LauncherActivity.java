@@ -86,6 +86,10 @@ public class LauncherActivity extends Activity {
 
     // ==================== 应用 ====================
     private TextView backendValue, envValue, extraSummary;
+    /** v4.6：「取件码写入目标」整行（用于切换后就地刷新） */
+    private LinearLayout backendRowRef;
+    /** v4.6：该行右侧值视图的容器（放「自动/手动 · 目标名」组合 View） */
+    private LinearLayout backendValueHolder;
     private LinearLayout extraBox;
 
     // ==================== 规则 ====================
@@ -354,8 +358,14 @@ public class LauncherActivity extends Activity {
 
         // 取件码写入目标（4.3：改名 + 右侧同时显示「自动」与自动选中的具体目标）
         LinearLayout waCard = UiKit.card(this, P);
+        // v4.6：右侧值放进一个可复用的容器，切换后替换容器内容即可就地刷新
+        backendValueHolder = new LinearLayout(this);
+        backendValueHolder.setOrientation(LinearLayout.HORIZONTAL);
+        backendValueHolder.setGravity(Gravity.CENTER_VERTICAL);
+        backendValueHolder.addView(buildBackendValueView());
         LinearLayout backendRow = UiKit.row(this, P, R.drawable.ic_target, "取件码写入目标",
-                null, buildBackendValueView());
+                null, backendValueHolder);
+        backendRowRef = backendRow;
         LinearLayout backendAcc = (LinearLayout) backendRow.getChildAt(backendRow.getChildCount() - 1);
         backendAcc.addView(UiKit.icon(this, R.drawable.ic_chev_down, 17, P.muteInk));
         backendRow.setOnClickListener(v -> showBackendPicker());
@@ -464,7 +474,7 @@ public class LauncherActivity extends Activity {
         notiCard.addView(notiScopeHintView);
         box.addView(notiCard, UiKit.cardLp(this, 0f));
 
-        box.addView(UiKit.groupLabel(this, P, "已支持的 App（" + AppIcons.PKGS.length + "）"));
+        box.addView(UiKit.groupLabel(this, P, "已支持的 App"));
         LinearLayout appCard = UiKit.card(this, P);
         for (int i = 0; i < AppIcons.PKGS.length; i++) {
             String pkg = AppIcons.PKGS[i];
@@ -480,9 +490,30 @@ public class LauncherActivity extends Activity {
             row.addView(iv, 0);
             appCard.addView(row);
         }
+
+        // v4.6：手动添加的来源直接列在这里（排在内置之后），标注「手动添加」，
+        // 右侧可点删除。原先只在弹窗里能看到，用户根本不知道加了什么。
+        final java.util.List<String> extras = new java.util.ArrayList<>();
+        for (String p : ProcessSync.getExtraNotiPkgs(this).split("[\\n,，\\s]+")) {
+            String t = p.trim();
+            if (!t.isEmpty()) extras.add(t);
+        }
+        for (String pkg : extras) {
+            appCard.addView(UiKit.divider(this, P));
+            String label = NotiHook.PKG_LABELS.containsKey(pkg)
+                    ? NotiHook.PKG_LABELS.get(pkg) : pkg;
+            LinearLayout row = UiKit.row(this, P, 0, label, pkg,
+                    UiKit.badgeMute(this, P, "手动添加"));
+            row.setOnClickListener(v -> confirmRemoveExtra(pkg));
+            appCard.addView(row);
+        }
+
         appCard.addView(UiKit.divider(this, P));
         LinearLayout addBox = UiKit.row(this, P, R.drawable.ic_plus, "添加自定义来源",
-                "高级：填入任意 App 包名，随规则一起热同步", UiKit.chevron(this, P));
+                extras.isEmpty()
+                        ? "高级：填入任意 App 包名，随规则一起热同步"
+                        : "已手动添加 " + extras.size() + " 个 · 点此增删",
+                UiKit.chevron(this, P));
         appCard.addView(addBox);
         box.addView(appCard);
 
@@ -501,6 +532,32 @@ public class LauncherActivity extends Activity {
 
         // 4.1：写入与适配已移到首页（原在「应用」页，与设置页重复）
         return sv;
+    }
+
+    /**
+     * v4.6：从列表里直接移除某个手动添加的来源（二次确认）。
+     */
+    private void confirmRemoveExtra(final String pkg) {
+        UiKit.dialog(this, P, R.drawable.ic_ban, "移除这个来源？",
+                pkg + "\n\n移除后它的通知不再被读取，需要重启手机生效。",
+                null,
+                UiKit.primary("移除", () -> {
+                    java.util.List<String> keep = new java.util.ArrayList<>();
+                    for (String p : ProcessSync.getExtraNotiPkgs(this).split("[\\n,，\\s]+")) {
+                        String t = p.trim();
+                        if (!t.isEmpty() && !t.equals(pkg)) keep.add(t);
+                    }
+                    StringBuilder sb = new StringBuilder();
+                    for (String p : keep) {
+                        if (sb.length() > 0) sb.append(',');
+                        sb.append(p);
+                    }
+                    ProcessSync.setExtraNotiPkgs(this, sb.toString());
+                    Toast.makeText(this, "已移除 " + pkg + "（重启手机后生效）",
+                            Toast.LENGTH_SHORT).show();
+                    rebuildUi();
+                }),
+                UiKit.ghost("取消", null)).show();
     }
 
     /**
@@ -777,13 +834,13 @@ public class LauncherActivity extends Activity {
 
         // 4.2：官方规则集已移到首页，本页只放「高级规则」。
         // 加一段说明：这里是高级用户的自定义场景，普通用户一般不需要动。
+        // v4.6：删掉「这里是高级用户的自定义场景」这句空话与随后的空行（用户要求）
         TextView advNote = UiKit.text(this,
-                "这里是高级用户的自定义场景。\n\n"
-                        + "内置的官方规则已覆盖菜鸟、京东、顺丰、丰巢、驿收发等主流驿站的"
+                "内置的官方规则已覆盖菜鸟、京东、顺丰、丰巢、驿收发等主流驿站的"
                         + "常见取件短信写法，绝大多数情况开箱即用，不需要在这里添加任何东西。\n\n"
                         + "只有当你遇到「官方规则认不出、但确实是取件短信」的情况时，"
                         + "才需要在这里为那个驿站单独写一条规则。\n\n"
-                        + "如果不确定怎么填，建议先到「设置 → 排查」导出诊断报告反馈，"
+                        + "如果不确定怎么填，建议先到「设置 → 排查」运行排查向导，"
                         + "比自行修改更稳妥。",
                 12.5f, UiKit.INK3);
         advNote.setLineSpacing(dp(3), 1.15f);
@@ -791,20 +848,21 @@ public class LauncherActivity extends Activity {
         advNote.setPadding(dp(15), dp(13), dp(15), dp(13));
         box.addView(advNote, UiKit.cardLp(this, 12));
 
+        // v4.6：整张卡片可点击进入子页面；「新建规则」不再暴露在外（用户要求：
+        // 新建/测试/停用/删除/编辑 全部收进「用户自定义高级规则」页面内操作）
         box.addView(UiKit.groupLabel(this, P, "我的规则"));
         LinearLayout urCard = UiKit.card(this, P);
         urSubView = UiKit.text(this, userRuleSummary(), 12.5f, UiKit.INK3);
         urBadgeView = UiKit.badgeMute(this, P, "未启用");
-        LinearLayout urRow = UiKit.row(this, P, R.drawable.ic_rules, "用户自定义规则", null, urBadgeView);
+        LinearLayout urRow = UiKit.row(this, P, R.drawable.ic_rules,
+                "用户自定义高级规则", null, urBadgeView);
         urRow.setOnClickListener(v -> openUserRules());
         urCard.addView(urRow);
         urCard.addView(urSubView);
-        urCard.addView(UiKit.spacer(this, 12));
-        urCard.addView(UiKit.divider(this, P));
-        LinearLayout newRuleRow = UiKit.row(this, P, R.drawable.ic_template, "新建规则",
-                "四层发送方匹配 · 自测样本不通过不允许启用", UiKit.chevron(this, P));
-        newRuleRow.setOnClickListener(v -> openUserRules());
-        urCard.addView(newRuleRow);
+        // v4.6：子标题也绑定点击，避免「点了文字没反应」（用户反馈点不开）
+        urSubView.setOnClickListener(v -> openUserRules());
+        urCard.addView(UiKit.spacer(this, 10));
+        urCard.setOnClickListener(v -> openUserRules());
         box.addView(urCard, UiKit.cardLp(this, 0f));
 
         box.addView(UiKit.groupLabel(this, P, "过滤与兜底"));
@@ -963,24 +1021,19 @@ public class LauncherActivity extends Activity {
         });
         perCard.addView(UiKit.row(this, P, R.drawable.ic_blur, "模糊效果",
                 "底栏半透明（85%）；关闭则使用纯实底", blurSw));
+        // ⑥ 排查两项并入基础设置（v4.6：用户要求把「排查」两条合并到这里，
+        // 并删掉「导出诊断报告」——那个只在排查之后才需要，不该常驻）
+        perCard.addView(UiKit.divider(this, P));
+        int missed = 0;
+        try { missed = MissedSmsStore.getAll(this).size(); } catch (Throwable ignored) { }
+        perCard.addView(toolRow(R.drawable.ic_notebook, "疑似漏抓错题本",
+                "当前 " + missed + " 条 · 一键脱敏复制上报", v -> showMissedSmsDialog()));
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(toolRow(R.drawable.ic_search, "排查问题向导",
+                "未注入 → root → 作用域 → 通知 → sqlite3 → 笔记库", v -> runTroubleshoot()));
         // 4.2：「语言」项已移除——目前只有中文，该行永远显示「跟随系统」且无实际功能。
         // 将来真要做多语言时再加，届时需要同步做字符串外置与文案适配。
         box.addView(perCard, UiKit.cardLp(this, 0f));
-
-        // 4.1：新增「排查」分组——原先散在首页和「规则 → 工具」里
-        box.addView(UiKit.groupLabel(this, P, "排查"));
-        LinearLayout diagCard = UiKit.card(this, P);
-        int missed = 0;
-        try { missed = MissedSmsStore.getAll(this).size(); } catch (Throwable ignored) { }
-        diagCard.addView(toolRow(R.drawable.ic_notebook, "疑似漏抓错题本",
-                "当前 " + missed + " 条 · 一键脱敏复制上报", v -> showMissedSmsDialog()));
-        diagCard.addView(UiKit.divider(this, P));
-        diagCard.addView(toolRow(R.drawable.ic_search, "排查问题向导",
-                "未注入 → root → 作用域 → 通知 → sqlite3 → 笔记库", v -> runTroubleshoot()));
-        diagCard.addView(UiKit.divider(this, P));
-        diagCard.addView(toolRow(R.drawable.ic_doc, "导出诊断报告",
-                "自动脱敏，可直接发给作者", v -> exportDiag()));
-        box.addView(diagCard, UiKit.cardLp(this, 0f));
 
         // v4.5：帮助与关于大幅精简。原来 7 项里有 4 项都要跳 GitHub/独立页，
         // 堆在一起很乱。现按用户指定顺序，并把多个 GitHub 入口合并：
@@ -1510,12 +1563,30 @@ public class LauncherActivity extends Activity {
         else if (NotesBackend.BACKEND_COLOROS_NOTE.equals(value)) name = "ColorOS 便签置顶笔记";
         else name = "自动识别";
         Toast.makeText(this, "写入目标已切换：\n" + name
-                + "\n（下次收到取件短信即写入新目标；可点「规则 → 一键链路测试」立即验证）",
+                + "\n（下次收到取件短信即写入新目标；可点首页「一键链路测试」立即验证）",
                 Toast.LENGTH_LONG).show();
-        if (backendValue != null) backendValue.setText(backendLabel());
+        // v4.6：就地刷新右侧值。
+        // 原先只更新 backendValue（TextView），但 v4.3 起该控件改为
+        // buildBackendValueView() 返回的组合 View，backendValue 从未被赋值，
+        // 于是这段刷新是空操作——表现为「切换后界面不变，退出重进才生效」。
+        refreshBackendValue();
         headerSub.setText(headerSubtitle(currentTab));
         updateSdwDisplay();
         refreshHealth();
+    }
+
+    /**
+     * v4.6：就地重建「取件码写入目标」右侧的值视图。
+     *
+     * 该行右侧不是单个 TextView，而是「自动/手动 · 目标名」的组合 View，
+     * 无法靠 setText 更新，只能把它从父容器里换掉。
+     */
+    private void refreshBackendValue() {
+        if (backendRowRef == null || backendValueHolder == null) return;
+        View fresh = buildBackendValueView();
+        // 组合 View 是 backendAcc 里的子项，用新的替换旧的
+        backendValueHolder.removeAllViews();
+        backendValueHolder.addView(fresh);
     }
 
     private static String backendAppName(String value) {

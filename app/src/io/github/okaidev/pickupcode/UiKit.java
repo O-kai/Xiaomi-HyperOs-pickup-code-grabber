@@ -585,6 +585,14 @@ public final class UiKit {
         if (contentView != null) {
             ScrollView sc = new ScrollView(a);
             sc.setClipToPadding(false);
+            // v4.6：contentView 可能已经被 addView 到别的容器（调用方常先塞进一个
+            // LinearLayout 再传进来）。若已有父容器，必须先 detach，
+            // 否则 ScrollView.addView 会抛
+            // IllegalStateException: The specified child already has a parent
+            // ——这正是「用户自定义规则 → 编辑」闪退的根因。
+            if (contentView.getParent() instanceof ViewGroup) {
+                ((ViewGroup) contentView.getParent()).removeView(contentView);
+            }
             sc.addView(contentView);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
