@@ -14,6 +14,19 @@
     <queries>
         <package android:name="com.coloros.note" />
         <package android:name="com.miui.notes" />
+
+        <!--
+          v4.4：允许看到「有桌面入口」的应用。
+          用户可以在「通知提取 → 添加自定义来源 → 从已安装选择」里挑任意 App 加进白名单。
+          Android 11+ 的包可见性机制下，不声明这条 queries，queryIntentActivities 只能看到
+          上面显式列出的两个包，列表会是空的——这正是「点从已安装选择什么也读不到」的原因。
+          这里只声明「能查询 LAUNCHER 类应用」，不是 QUERY_ALL_PACKAGES 那种全量权限，
+          范围可控，也不涉及敏感数据。
+        -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <application

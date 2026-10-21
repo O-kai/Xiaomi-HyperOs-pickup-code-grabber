@@ -355,7 +355,8 @@ public class LauncherActivity extends Activity {
         backendAcc.addView(UiKit.icon(this, R.drawable.ic_chev_down, 17, P.muteInk));
         backendRow.setOnClickListener(v -> showBackendPicker());
         waCard.addView(backendRow);
-        box.addView(waCard, UiKit.cardLp(this, 0f));
+        // v4.4：这两张是独立卡片，必须有间距（原为 0f 导致与上面的规则集贴在一起）
+        box.addView(waCard, UiKit.cardLp(this, 12));
 
         // 写入格式（待办模板）
         LinearLayout tplCard = UiKit.card(this, P);
@@ -370,7 +371,7 @@ public class LauncherActivity extends Activity {
         tplEditorBox.setVisibility(View.GONE);
         buildTplEditor();
         tplCard.addView(tplEditorBox);
-        box.addView(tplCard, UiKit.cardLp(this, 10));
+        box.addView(tplCard, UiKit.cardLp(this, 12));
 
         // 一键链路测试（放在页面最下方——整套流程走完后的最终验证）
         LinearLayout ctCard = UiKit.card(this, P);
@@ -425,12 +426,16 @@ public class LauncherActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box);
 
-        // v4.3：说明文案放到最上面，开关在其下（用户要求「先写文案，再写开关」）
+        // v4.4：把原先「多平台」弹窗里的说明整合到这里（那个弹窗已移除——
+        // 本页已经直接列出所有支持的 App，没必要再点开看一遍）。
         TextView intro = UiKit.text(this,
-                "App 收到取件码通知时会被写入待办。\n"
-                        + "短信通道不受此限制——任何号码的取件短信都会识别，无需在此添加。",
+                "本页管理「从 App 通知里提取取件码」这一条通道。\n\n"
+                        + "· 下面列出的 App，收到含取件码的通知时会被自动读取，写入待办\n"
+                        + "· 短信通道不受此限制：任何号码的取件短信都会识别，无需在此添加\n"
+                        + "· 识别规则与短信通道共用同一套规则集，所以「取件码 / 取货码 / 凭码」"
+                        + "等说法在两边都能识别",
                 12.5f, UiKit.INK3);
-        intro.setLineSpacing(dp(3), 1.15f);
+        intro.setLineSpacing(dp(4), 1.15f);
         intro.setBackground(UiKit.bg(P.cardSoft, this, 14));
         intro.setPadding(dp(15), dp(13), dp(15), dp(13));
         box.addView(intro, UiKit.cardLp(this, 12));
@@ -439,9 +444,10 @@ public class LauncherActivity extends Activity {
         notiSwitchOn = isNotiHookFlagOn();
         notiSw = new UiKit.Switch(this, P, notiSwitchOn);
         notiSw.setOnToggle(this::onNotiToggle);
-        CharSequence notiSub = buildNotiSubtitle();
+        // v4.4：去掉「多平台」可点击（弹窗已移除），副标题改为说明这个开关的作用
         LinearLayout notiRow = UiKit.row(this, P, R.drawable.ic_bell, "通知取件提取",
-                notiSub, notiSw);
+                "开启：拦截下方 App 的通知并提取取件码\n"
+                        + "关闭：不再从这些 App 的通知里提取", notiSw);
         notiCard.addView(notiRow);
 
         notiScopeHintView = UiKit.text(this,
@@ -639,13 +645,18 @@ public class LauncherActivity extends Activity {
         btnRow.setVisibility(View.GONE);
         final TextView pick = smallButton("从已安装选择", "ghostLine");
         final TextView save = smallButton("保存", "primary");
-        final TextView clear = smallButton("只留内置", "mute");
+        final TextView clear = smallButton("恢复默认", "mute");
         final TextView cancel = smallButton("取消", "mute");
         btnRow.addView(pick, weighted(1f, 0));
         btnRow.addView(save, weighted(1f, 8));
         btnRow.addView(clear, weighted(1f, 8));
         btnRow.addView(cancel, weighted(1f, 8));
         extraBox.addView(btnRow, UiKit.cardLp(this, 8));
+
+        // v4.4：已添加的自定义来源逐条列出，可单独删除（原先只能整体清空）
+        final LinearLayout addedBox = new LinearLayout(this);
+        addedBox.setOrientation(LinearLayout.VERTICAL);
+        extraBox.addView(addedBox);
 
         final Runnable[] refresh = new Runnable[1];
         final Runnable[] exit = new Runnable[1];
@@ -657,25 +668,67 @@ public class LauncherActivity extends Activity {
         };
         refresh[0] = () -> {
             final String extra = ProcessSync.getExtraNotiPkgs(this).trim();
-            extraSummary.setText(extra.isEmpty()
+            final java.util.List<String> extras = new java.util.ArrayList<>();
+            for (String p : extra.split("[\\n,，\\s]+")) {
+                String t = p.trim();
+                if (!t.isEmpty()) extras.add(t);
+            }
+            extraSummary.setText(extras.isEmpty()
                     ? "当前：仅内置 " + AppIcons.PKGS.length + " 个"
-                    : "当前：内置 " + AppIcons.PKGS.length + " 个 + 你添加的 "
-                      + extra.split("[\\n,，]+").length + " 个");
+                    : "当前：内置 " + AppIcons.PKGS.length + " 个 + 你添加的 " + extras.size() + " 个");
             extraSummary.setOnClickListener(v -> {
                 edit.setText(extra);
                 edit.setVisibility(View.VISIBLE);
                 btnRow.setVisibility(View.VISIBLE);
                 extraSummary.setVisibility(View.GONE);
             });
+
+            // 已添加项：逐条可删
+            addedBox.removeAllViews();
+            if (!extras.isEmpty()) {
+                for (String pkg : extras) {
+                    LinearLayout row = UiKit.row(this, P, 0,
+                            NotiHook.PKG_LABELS.containsKey(pkg)
+                                    ? NotiHook.PKG_LABELS.get(pkg) : pkg,
+                            pkg,
+                            UiKit.icon(this, R.drawable.ic_x, 17, UiKit.DANGER));
+                    row.setOnClickListener(v -> {
+                        final String target = pkg;
+                        UiKit.dialog(this, P, R.drawable.ic_ban, "移除这个来源？",
+                                target + "\n\n移除后它的通知不再被读取。",
+                                null,
+                                UiKit.primary("移除", () -> {
+                                    java.util.List<String> keep = new java.util.ArrayList<>();
+                                    for (String p : ProcessSync.getExtraNotiPkgs(this)
+                                            .split("[\\n,，\\s]+")) {
+                                        String t = p.trim();
+                                        if (!t.isEmpty() && !t.equals(target)) keep.add(t);
+                                    }
+                                    StringBuilder sb = new StringBuilder();
+                                    for (String p : keep) {
+                                        if (sb.length() > 0) sb.append(',');
+                                        sb.append(p);
+                                    }
+                                    ProcessSync.setExtraNotiPkgs(this, sb.toString());
+                                    Toast.makeText(this, "已移除 " + target
+                                            + "（重启手机后生效）", Toast.LENGTH_SHORT).show();
+                                    refresh[0].run();
+                                }),
+                                UiKit.ghost("取消", null)).show();
+                    });
+                    addedBox.addView(row);
+                }
+            }
             clear.setOnClickListener(v -> {
                 // v6.2：加二次确认，防止误触清掉用户配置
-                UiKit.dialog(this, P, R.drawable.ic_ban, "恢复为仅内置 App",
+                // v4.4：按钮名改为「恢复默认」（用户建议，比「只留内置」好懂）
+                UiKit.dialog(this, P, R.drawable.ic_ban, "恢复默认",
                         "你添加的自定义来源会被清空，只剩内置的 "
                                 + NotiHook.BUILTIN_PKGS.length + " 个。\n\n这个操作可以重新添加，不会影响其它设置。",
                         null,
-                        UiKit.primary("确认清空", () -> {
+                        UiKit.primary("确认恢复", () -> {
                             ProcessSync.setExtraNotiPkgs(this, "");
-                            Toast.makeText(this, "已恢复为仅内置 App", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, "已恢复默认", Toast.LENGTH_SHORT).show();
                             exit[0].run();
                         }),
                         UiKit.ghost("取消", null)).show();
@@ -1219,8 +1272,11 @@ public class LauncherActivity extends Activity {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt("todo_mode", mode).apply();
         ProcessSync.push(this);
         restyleModes();
-        renderTplPreview();
+        // v4.4：切换模式时先收起编辑态（否则自定义→极简时编辑框会残留），
+        // 再渲染预览——三种模式都必须能看到效果预览
         collapseTplEditState();
+        if (tplPreview != null) tplPreview.setVisibility(View.VISIBLE);
+        renderTplPreview();
         Toast.makeText(this, "待办模板已切换为「" + label + "」", Toast.LENGTH_SHORT).show();
     }
 
@@ -1351,14 +1407,17 @@ public class LauncherActivity extends Activity {
     }
 
     private void showAboutDialog() {
-        // 4.2：补上合作者。按「做了什么」分条写，比只列名字更能说明贡献。
+        // v4.4：合作者按实际分工写。VWV2005 是最早实现 ColorOS 适配的人（代码贡献），
+        // Artifical0 提交了对应的 PR——两人独立，都列出。
         UiKit.dialog(this, P, R.drawable.ic_info, "关于模块",
                 "取件码助手 " + appVersionLabel() + "\n"
                         + "自动提取快递取件码并写入待办（小米笔记 / ColorOS 日历·便签）\n\n"
                         + "【作者】\n"
                         + "欧锴（O-kai）· 项目发起与主要开发\n\n"
                         + "【合作者】\n"
-                        + "Artifical0 · ColorOS 捕获侧适配\n"
+                        + "VWV2005 · ColorOS 适配\n"
+                        + "　（最早实现 ColorOS 上的捕获与写入，奠定了跨 ROM 支持的基础）\n"
+                        + "Artifical0 · ColorOS Hook 修正\n"
                         + "　（修正 ColorOS 上失效的 Hook 类名，让短信能在 ColorOS 16 正常捕获）\n"
                         + "Seven2023Six · 界面布局重构\n"
                         + "　（四 Tab 结构、UiKit 设计系统、矢量图标体系）\n\n"
@@ -1568,73 +1627,6 @@ public class LauncherActivity extends Activity {
                         + "echo " + (on ? "1" : "0") + " > " + flag + "; chmod 644 " + flag, 15);
             } catch (Throwable ignored) { }
         }).start();
-    }
-
-    /**
-     * v6.1：通知取件提取行的副标题——「多平台」三个字可点击，弹出支持的应用列表。
-     *
-     * 只给「多平台」加 ClickableSpan，其余文字保持普通样式，避免整行可点造成误触
-     * （同一行右侧还有开关）。
-     */
-    private CharSequence buildNotiSubtitle() {
-        String text = "拦截菜鸟 / 京东 / 淘宝 / 拼多多等 App 的取件通知 · 查看多平台";
-        android.text.SpannableString sp = new android.text.SpannableString(text);
-        int start = text.indexOf("多平台");
-        if (start < 0) return text;
-        int end = start + 3;
-        sp.setSpan(new android.text.style.ClickableSpan() {
-            @Override
-            public void onClick(android.view.View w) {
-                showSupportedAppsDialog();
-            }
-        }, start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        sp.setSpan(new android.text.style.ForegroundColorSpan(P.accentInk),
-                start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        sp.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
-                start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        return sp;
-    }
-
-    /**
-     * v6.1：「多平台」点击弹窗——列出当前实际支持通知取件提取的 App。
-     *
-     * 数据来源是 NotiHook.currentPkgs()（内置 + 用户追加），而不是写死的常量，
-     * 这样用户自己加了包名也能立刻在这里看到，不会出现「设置里有、列表里没有」。
-     */
-    private void showSupportedAppsDialog() {
-        java.util.List<String> pkgs;
-        try {
-            pkgs = NotiHook.currentPkgs();
-        } catch (Throwable t) {
-            pkgs = new java.util.ArrayList<>();
-        }
-
-        StringBuilder sb = new StringBuilder();
-        if (pkgs.isEmpty()) {
-            sb.append("当前没有可用的通知来源。");
-        } else {
-            for (String p : pkgs) {
-                String label = NotiHook.PKG_LABELS.get(p);
-                if (label == null || label.isEmpty()) label = p;   // 用户自定义包名直接显示包名
-                sb.append("· ").append(label).append("\n");
-            }
-            sb.append("\n共 ").append(pkgs.size()).append(" 个应用\n\n");
-            sb.append("说明：只有这些 App 发出的通知会被读取。\n")
-              .append("短信通道不受此限制，任何号码的取件短信都会识别。\n\n")
-              .append("识别规则与短信通道共用同一套规则集，\n")
-              .append("所以「取件码/取货码/凭码」等说法在两边都能识别。");
-        }
-
-        android.widget.ScrollView sv = new android.widget.ScrollView(this);
-        TextView tv = UiKit.text(this, sb.toString(), 14f, UiKit.INK2);
-        tv.setLineSpacing(dp(5), 1.0f);
-        int pad = dp(20);
-        tv.setPadding(pad, dp(12), pad, dp(4));
-        sv.addView(tv);
-
-        // v6.1：改用 UiKit 自绘弹窗（PR #8 统一了弹窗风格，系统 AlertDialog 已全量替换）
-        UiKit.dialog(this, P, R.drawable.ic_bell, "支持的通知来源", null, sv,
-                UiKit.primary("知道了", null)).show();
     }
 
     /**
