@@ -26,7 +26,7 @@ ColorOS 16 (OnePlus/OPPO/realme), auto-detected. Copy-on-tap notifications. Requ
 ### 🧩 社区改编版本
 
 - **ColorOS 16 适配版**：[Vv-Ww/pickup-code-grabber-coloros](https://github.com/Vv-Ww/pickup-code-grabber-coloros) ——
-  由社区开发者 [Vv-Ww](https://github.com/Vv-Ww) 完成的 ColorOS 16（一加 / OPPO / realme）适配：
+  由社区开发者 [VWV2005](https://github.com/VWV2005) 完成的 ColorOS 16（一加 / OPPO / realme）适配：
   待办写入**日历**（ColorOS 16 已把待办从便签整体迁移到日历），在一加 9 Pro 上端到端实测通过；
   MIT 协议、二改声明规范。
   **v2.7.0 起该能力已整合为本仓库官方功能**（同源代码，逆向侦察与验证记录见
