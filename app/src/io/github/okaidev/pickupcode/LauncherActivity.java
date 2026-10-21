@@ -304,7 +304,8 @@ public class LauncherActivity extends Activity {
         // 项目版本信息
         LinearLayout verCard = UiKit.card(this, P);
         verCard.addView(UiKit.row(this, P, R.drawable.ic_box, "项目版本信息",
-                appVersionLabel() + " (310) · 规则集 v" + PickupExtractor.getActiveRulesVersion()
+                appVersionLabel() + " (" + appVersionCode() + ") · 规则集 v"
+                        + PickupExtractor.getActiveRulesVersion()
                         + " · MIT License", UiKit.chevron(this, P)));
         verCard.setOnClickListener(v -> showVersionDialog());
         box.addView(verCard, UiKit.cardLp(this, 12));
@@ -1106,7 +1107,7 @@ public class LauncherActivity extends Activity {
         String counts = r == null ? "—" :
                 r.keywordAnchors.size() + " 组锚点词 / " + r.featureWords.size() + " 特征词 / "
                         + r.negativeKeywords.size() + " 负向词";
-        String msg = "模块版本：" + appVersionLabel() + " (310)\n"
+        String msg = "模块版本：" + appVersionLabel() + " (" + appVersionCode() + ")\n"
                 + "规则集：v" + PickupExtractor.getActiveRulesVersion() + "\n"
                 + "词表规模：" + counts + "\n"
                 + "许可协议：MIT License\n\n"
@@ -1990,6 +1991,22 @@ public class LauncherActivity extends Activity {
             return "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Throwable t) {
             return "v?";
+        }
+    }
+
+    /**
+     * 动态读取 versionCode。
+     * v6.1：此前版本信息里把 versionCode 写死成 (310)，发版改了 build.gradle 也不会变，
+     * 界面会长期显示错误的构建号。改为从 PackageManager 读取，与 build.gradle 永远一致。
+     */
+    private int appVersionCode() {
+        try {
+            android.content.pm.PackageInfo pi =
+                    getPackageManager().getPackageInfo(getPackageName(), 0);
+            return android.os.Build.VERSION.SDK_INT >= 28
+                    ? (int) pi.getLongVersionCode() : pi.versionCode;
+        } catch (Throwable t) {
+            return 0;
         }
     }
 

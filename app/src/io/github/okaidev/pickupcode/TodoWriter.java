@@ -301,6 +301,13 @@ public class TodoWriter {
         if (inner.isEmpty() || inner.length() > 12) return null;
         // 排除明显不是品牌名的内容（含数字/网址/标点的多半是正文）
         if (inner.contains("http") || inner.contains("www.")) return null;
+        // v6.1：括号里含数字 → 是取件码/编号之类的正文，不是品牌名。
+        // 实测「包裹待签收【取件码-7-7-6622】，手机号已加密…」——
+        // 原逻辑把「取件码-7-7-6622」整个当成来源写进待办。
+        // 品牌名（菜鸟驿站/兔喜生活/驿小哥…）不会含数字，这条判据足够安全。
+        for (int i = 0; i < inner.length(); i++) {
+            if (Character.isDigit(inner.charAt(i))) return null;
+        }
         return inner;
     }
 
@@ -337,7 +344,10 @@ public class TodoWriter {
             String guess = dot >= 0 ? pkg.substring(dot + 1) : pkg;
             return guess.isEmpty() ? "—" : guess;
         }
-        return sender == null || sender.isEmpty() ? "—" : sender;
+        // v6.1：识别不出来源时不再回显发送方号码。
+        // 号码（1069888877 之类）对用户没有任何意义，写进待办只是噪音；
+        // 按「识别不到就不显示」的原则统一显示「—」。
+        return "—";
     }
 
     /** 简单 SQL 单引号转义（供 NotesBackend 组 SQL 用） */
