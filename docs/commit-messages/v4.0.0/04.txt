@@ -1,0 +1,41 @@
+merge: 规则 v6 + 通知通道加固，并适配 PR #8 的新 UI 结构
+
+把规则修复分支合入 PR #8 重构后的新界面。
+
+## 冲突处理
+
+LauncherActivity.java 冲突（PR #8 几乎重写了这个文件，+1552/-1701）。
+我的改动原本插在旧结构的位置上，合并后落到了错误的地方：
+
+1) 「多平台」可点击代码块被插到了 modeLabel() 方法内部
+   → 删除错位代码，保留 PR #8 的 modeLabel
+
+2) showSupportedAppsDialog() 与 checkNotiHookScopeAsync() 的注释互相穿插
+   → 保留我的弹窗方法，去掉重复注释
+
+3) renderNotiSwitchUi() 重复定义
+   PR #8 已用 notiSw 重写（旧版依赖 notiBtnView），我的合并又带回了旧版本
+   → 删除旧版，保留 PR #8 的新版
+
+## 把「多平台」功能移植到新 UI
+
+旧实现是给 TextView 套 SpannableString + ClickableSpan。PR #8 把这一行
+改成了 UiKit.row(...)，副标题参数是 String，无法直接传 Span。
+
+做法：
+- 给 UiKit.row 增加一个 CharSequence 重载（保留 String 版本，既有调用点不变），
+  内部检测到 ClickableSpan 时自动挂 LinkMovementMethod + 透明高亮
+- 新增 buildNotiSubtitle() 生成带 Span 的副标题
+  「拦截菜鸟 / 京东 / 淘宝 / 拼多多等 App 的取件通知 · 查看多平台」
+  只给「多平台」三个字加点击与主题色加粗，避免整行可点造成误触
+  （同一行右侧还有开关）
+- 弹窗改用 UiKit.dialog（PR #8 已把系统 AlertDialog 全量替换为自绘套件）
+
+## 数据来源
+
+弹窗列表来自 NotiHook.currentPkgs()（内置 + 用户追加），不是写死的常量，
+这样用户自己加了包名也能立刻看到，不会出现「设置里有、列表里没有」。
+
+## 验证
+
+编译通过；FullReg 20/20、ChannelParity 7/7、三份规则副本一致 v6。

@@ -1,0 +1,66 @@
+merge: PR #9 —— ColorOS 捕获侧适配（修正 S1/S5 类名，新增 S9–S11）
+
+合并贡献者 Artifical0 的 pr-coloros-hooks 分支（2 个 commit）。
+
+## 这个 PR 解决什么
+
+ColorOS 16 上实测到一个具体现象：真实取件短信解析成功（去重表已写入、
+漏抓错题本为空），但待办里没有。翻模块日志发现捕获侧的多个 Hook 点在
+ColorOS 上必然失败：
+
+  S1 NOT FOUND @com.android.phone: ClassNotFoundException:
+     com$android$internal$telephony$SmsBroadcastReceiver
+  S5 NOT FOUND (com.android.mms.transaction.HighPrivilegedSmsReceiver)
+  S2/S3/S7 NOT FOUND @com.android.mms
+
+实际生效的只有 S8（SmsProvider）+ WAKE 兜底。也就是说 ColorOS 上能抓到短信，
+靠的是兜底路径而不是正规广播入口。
+
+## 关键改动
+
+S1 类名过时（ColorOS / Android 12+ 必然 NOT FOUND）
+  com.android.internal.telephony.SmsBroadcastReceiver 是旧版 AOSP 的顶层类，
+  新版已改为 InboundSmsHandler 的内部类：
+  com.android.internal.telephony.InboundSmsHandler$SmsBroadcastReceiver
+  现两个候选都挂，命中即用；全部未命中时输出明确日志便于定位 ROM 差异。
+
+S5 类名多了一个词
+  ColorOS / 新 AOSP 实际是 PrivilegedSmsReceiver，没有 "High" 前缀。
+  现同时挂 PrivilegedSmsReceiver（S5）与 HighPrivilegedSmsReceiver（S5H，旧 MIUI）。
+
+新增 S9 / S10 / S11（ColorOS 侧）
+  S9  com.android.mms.receiver.SmsReceiver
+  S10 com.android.mms.receiver.SmsDeliverReceiver
+  S11 com.oplus.mms.datamodel.SmsReceivedReceiver
+  关键点：com.android.mms.transaction.SmsReceiver（S4）类虽然存在，
+  但不在 AndroidManifest 里，系统广播不会调用它；
+  manifest 中真正注册的是 com.android.mms.receiver.SmsReceiver。
+
+## 类名来源（不是猜的）
+
+  Mms.apk (/product/priv-app/Mms)           → PrivilegedSmsReceiver、
+                                              receiver.SmsReceiver、SmsDeliverReceiver、
+                                              com.oplus.mms.datamodel.SmsReceivedReceiver
+  TeleService.apk (/system_ext/priv-app)    → 除语音信箱外没有任何短信接收器
+  telephony-common.jar (/system/framework)  → InboundSmsHandler$SmsBroadcastReceiver
+  dumpsys package com.android.mms           → manifest 注册的是 receiver.SmsReceiver
+
+## 附带修复：CI 构建中断
+
+.github/workflows/build.yml 里 android-actions/setup-android@v3 的默认
+packages 是 'tools platform-tools'，而 SDK 仓库早已移除 legacy tools 包，
+导致 job 在第 4 步就失败，Gradle 根本跑不到。
+现显式指定 packages: 'platform-tools'，并补装 platforms;android-34
+与 build-tools;34.0.0（与 compileSdk 34 对齐）。
+
+## 对小米/HyperOS 的影响
+
+无副作用。新增的都是「候选类名」，找不到就跳过，不影响既有 Hook 路径。
+真机验证：REDMI K90 Pro Max（HyperOS 4.0 / Android 17）上
+首页显示「LSPosed 已注入 · 六项体检全部通过」。
+
+## 文档
+
+docs/14-hooks.md 同步更新 Hook 点清单；补充作用域说明——
+com.android.phone 与 com.android.providers.telephony 同为 uid 1001，
+KernelSU / Magisk 的 root 授权按 uid 记录，给其中一个授权即对两者生效。

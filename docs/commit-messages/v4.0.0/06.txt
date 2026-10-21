@@ -1,0 +1,51 @@
+chore(tools): 整理真机探针工具与诊断脚本，补充文档与 gitignore
+
+## 起因
+
+上一轮工作把 21 个临时文件（编译日志、临时 SQL、截图、调试脚本）
+随手写在了 D:\project 根目录（项目目录之外）。项目产物应当留在项目里。
+
+## 处理
+
+根目录清掉 21 个散落文件：
+- 编译日志 _c1.txt / _c2.txt / _c3.txt / _compile.txt / _r3.txt / _rel.txt / _rel2.txt → 删除
+- 临时 SQL _q.sql / _q2.sql → 删除
+- 截图 _ui*.png / _u5.png / _u6.png → 有保留价值的移入 docs/screenshots/，其余删除
+- 脚本 _inject.py / _verify_final.py / _checkdb*.py → 合并重构为 tools/device-probe/probe.py
+
+## 新增 tools/device-probe/
+
+把 5 个零散脚本合并重写成一个参数化工具：
+
+  python probe.py doctor                     检查设备前置条件
+  python probe.py info                       打印设备完整信息
+  python probe.py inject "短信" --code 6-4-3009  注入并自动判定 PASS/FAIL
+  python probe.py list --limit 10            查看小米笔记待办
+  python probe.py ui                         截屏
+
+比原来好在：
+- 一个入口覆盖全部场景，不用记 5 个文件名
+- --code 自动判定 PASS/FAIL
+- 能区分「没识别」和「去重命中」这两种 result=[]
+- 路径可配置（ADB_PATH 环境变量），换机器能用
+- 附 README.md 说明用法和坑
+
+## 附带新增 tap.py
+
+按文本精确查找控件坐标再点击，避免靠猜坐标点错地方。
+用法：python tap.py "文本" [--find] [--exact]
+
+## test/ 诊断工具去重
+
+删除 3 个冗余的：
+- T1.java（临时正则调试脚本，无保留价值）
+- BatchReg.java / NewCases.java（功能被 FullReg 覆盖）
+
+保留 5 个有长期价值的：FullReg / ChannelParity / ProbeRule / ProbeTierD / ProbeLook，
+并在 test/README.md 里补上各自的用途说明。
+
+## gitignore
+
+新增忽略：
+  tools/device-probe/shots/
+  tools/device-probe/_probe_q.sql
