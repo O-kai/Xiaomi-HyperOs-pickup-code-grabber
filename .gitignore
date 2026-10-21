@@ -50,3 +50,8 @@ test/out/
 # ---------- 内部实验代码（不对外发布）----------
 # 未启用/未公开的内部实验实现，仅本地留存备查，不进公开仓库
 experimental-disabled/
+
+# ---------- 真机探针产物 ----------
+# tools/device-probe 的脚本与说明要提交，截图和临时 SQL 不提交
+tools/device-probe/shots/
+tools/device-probe/_probe_q.sql

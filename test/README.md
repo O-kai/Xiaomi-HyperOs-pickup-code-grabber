@@ -8,11 +8,18 @@
 | 文件 | 说明 |
 |---|---|
 | `RulesRegression.java` | **官方规则引擎回归**：跑 `sms-cases.txt` 全部用例 + 冒烟自检 |
+| `FullReg.java` | **全量回归（码 + 地点，20 项）**：一次性验证提取码与地点解析，含反例拦截。改规则后首选跑这个 |
+| `ChannelParity.java` | **双通道一致性（7 项）**：同一段文本分别用「短信 sender」与「通知 sender」跑，结果必须完全一致。保证短信通道与通知通道共用同一套规则集、不会各跑各的 |
+| `ProbeRule.java` | **单条短信分层诊断**：打印 Tier0/TierA/B/C/D 每一层是否命中、命中了什么，用来定位「这条短信为什么没识别」 |
+| `ProbeTierD.java` | **TierD 评分复刻**：逐项打印特征词/动作词/码形各得几分、离阈值差多少 |
+| `ProbeLook.java` | **门禁诊断**：`lookLikePickupSms` / `hasFeatureWords` / `patternAnyToken` 为何通过或失败 |
 | `TierExclusionTest.java` | **语义排除回归（v3.1.0 新增，21 项）**：锁住「TierA/TierB 不得绕过 `isExcludedToken`」。一半用例验证该拦的拦住（格口号/金额/尾号/订单号/掩码手机号），一半验证真码不被误伤——**这组是红线，加新规则时最容易踩坏的地方** |
 | `UserRulesTest.java` | **用户自定义规则安全测试**：危险正则拦截 / 强制自测 / 50ms 熔断 / 四层发送方匹配 / 优先级 / 导入导出往返 |
 | `check_rules_consistency.py` | **规则三副本一致性校验**（改规则后必跑，见下） |
 | `sms-cases.txt` | 官方规则用例集（`ID｜期望码｜短信原文`，期望为 `-` 表示反例） |
 | `sms-corpus-public.jsonl` | **公开脱敏语料集**（18 条，正例 12 / 反例 6），供研究与二次开发 |
+
+> 真机验证（识别 → 写入待办全链路）用 `tools/device-probe/probe.py`，见该目录 README。
 
 ## ⚠️ 改规则后必跑：一致性校验
 
