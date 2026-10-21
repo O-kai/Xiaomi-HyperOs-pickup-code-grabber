@@ -25,11 +25,20 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # 注意：setup-android v3 的默认 packages 是 'tools platform-tools'，
+      # 而 SDK 仓库早已移除 legacy 'tools' 包 → sdkmanager 以 exit code 1 退出
+      # （报错 "Failed to find package 'tools'"），job 会在这一步直接失败、Gradle 根本跑不到。
+      # runner 镜像本身自带 Android SDK，这里只需要 platform-tools。
       - name: 设置 Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
 
       - name: 接受 SDK 许可
         run: yes | sdkmanager --licenses || true
+
+      - name: 安装编译所需 SDK 组件
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - name: 构建 APK
         run: ./gradlew assembleDebug
