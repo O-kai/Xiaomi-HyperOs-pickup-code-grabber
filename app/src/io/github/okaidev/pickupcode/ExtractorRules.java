@@ -64,7 +64,7 @@ public class ExtractorRules {
 
     public static ExtractorRules createDefault() {
         ExtractorRules r = new ExtractorRules();
-        r.version = 5;
+        r.version = 6;
         r.minAppVersionCode = 293;
         r.description = "内置默认提取规则集 v5（补齐取件凭证叫法变体：提货码/取货号/提货号/收货码/取件密码；严格码形 + 正反双向闸门 + 四层判定 + 排除语义上下文）";
 
@@ -76,6 +76,10 @@ public class ExtractorRules {
         r.featureWords.add("妈妈驿站"); r.featureWords.add("中邮"); r.featureWords.add("熊猫快收");
         r.featureWords.add("收发室"); r.featureWords.add("快递"); r.featureWords.add("代收");
         r.featureWords.add("欢猫驿站");
+        // v6：新增驿站品牌（【驿小哥】「顺丰速运驿收发」这类写法此前特征词全不命中，
+        // 导致 TierD 窗口内特征词得分 0、总分只有 3 而卡在阈值 4 之下）
+        r.featureWords.add("驿收发"); r.featureWords.add("驿小哥"); r.featureWords.add("快宝");
+        r.featureWords.add("小兵驿站"); r.featureWords.add("邻里驿站");
         // 注：「已到」已从特征词移除——它会误命中「已到账/已到您账户」等营销短信
 
         // ===== 取件动作词（TierD 弱兜底评分用）=====
@@ -97,6 +101,11 @@ public class ExtractorRules {
         r.byWords.add("凭"); r.byWords.add("出示");
         r.byLookaheadWords.add("到"); r.byLookaheadWords.add("至"); r.byLookaheadWords.add("去");
         r.byLookaheadWords.add("取"); r.byLookaheadWords.add("领"); r.byLookaheadWords.add("票");
+        // v6：「凭4-3-5120免费取」——码后紧跟「免」字，原词表不含则整条 TierB 不命中。
+        // 补常见引导字，覆盖「凭码免费取/可领/即取/自取/请取」等句式
+        r.byLookaheadWords.add("免"); r.byLookaheadWords.add("可"); r.byLookaheadWords.add("即");
+        r.byLookaheadWords.add("立"); r.byLookaheadWords.add("自"); r.byLookaheadWords.add("请");
+        r.byLookaheadWords.add("务");
 
         // ===== 地点 =====
         r.placePrefixes.add("已到站[，,包到至\\s]*"); r.placePrefixes.add("已到达");
@@ -221,8 +230,13 @@ public class ExtractorRules {
         String alnum = alnumPatternStr;
 
         // A: 关键词锚定正则
+        // v6.1：锚点与码之间的分隔符补上「-」。
+        // 实测【包裹待签收【取件码-6-4-3009】…】——横线直接连在「取件码」后面，
+        // 原分隔符类不含「-」，于是把横线一起抓进捕获组得到 "-6-4-3009"，
+        // 形状校验判为非法而丢弃，整条短信静默漏抓。
         String kwOr = String.join("|", keywordAnchors);
-        String pKw = "(?:" + kwOr + ")[为是：:\\s]*[\"'“”「」《》【】\\[\\]\\s]*([A-Za-z0-9-]{3,20}(?:\\s*[,，、;；]\\s*[A-Za-z0-9-]{3,20})*)";
+        String pKw = "(?:" + kwOr + ")[为是：:\\s]*[\"'“”「」《》【】\\[\\]\\s\\-—–]*"
+                + "([A-Za-z0-9-]{3,20}(?:\\s*[,，、;；]\\s*[A-Za-z0-9-]{3,20})*)";
         patternKeyword = Pattern.compile(pKw);
 
         // B: 凭/出示 + 码（后接引导字由 byLookaheadWords 驱动，如「凭552577至…取件」）
@@ -235,7 +249,11 @@ public class ExtractorRules {
         patternBy = Pattern.compile(pBy);
 
         // C: 全文候选 token
-        String pAny = "(?<![A-Za-z0-9-])(" + dash + "|" + alnum + ")(?![A-Za-z0-9-])";
+        // v6.1：前向断言原本是 (?<![A-Za-z0-9-])，把「取件码-6-4-3009」里的 6-4-3009
+        // 也排除了——因为它前面紧邻分隔用的横线。现改为「前面不能是字母数字」，
+        // 横线只作为码内分隔符看待；后向保持原样（后面不能再接码字符）。
+        // 安全性：URL/单号/手机号等仍由 isExcludedToken 做语义排除。
+        String pAny = "(?<![A-Za-z0-9])(" + dash + "|" + alnum + ")(?![A-Za-z0-9-])";
         patternAnyToken = Pattern.compile(pAny);
 
         // 特征词 = 内置词表 + 热更新追加词

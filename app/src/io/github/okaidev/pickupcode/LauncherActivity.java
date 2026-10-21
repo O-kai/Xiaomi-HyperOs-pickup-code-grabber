@@ -742,8 +742,12 @@ public class LauncherActivity extends Activity {
         notiSwitchOn = isNotiHookFlagOn();
         notiSw = new UiKit.Switch(this, P, notiSwitchOn);
         notiSw.setOnToggle(this::onNotiToggle);
+        // v6.1：副标题里的「多平台」可点击 → 弹出实际支持的 App 列表。
+        // PR #8 把这一行改成 UiKit.row(...)，副标题是普通 String，这里改用
+        // 带 ClickableSpan 的 SpannableString 传入，保持既有布局不变。
+        CharSequence notiSub = buildNotiSubtitle();
         LinearLayout notiRow = UiKit.row(this, P, R.drawable.ic_bell, "通知取件提取",
-                "拦截菜鸟 / 京东 / 淘宝 / 拼多多等 App 的取件通知", notiSw);
+                notiSub, notiSw);
         setCard.addView(notiRow);
 
         notiScopeHintView = UiKit.text(this,
@@ -1318,6 +1322,90 @@ public class LauncherActivity extends Activity {
         }).start();
     }
 
+    /**
+     * v6.1：通知取件提取行的副标题——「多平台」三个字可点击，弹出支持的应用列表。
+     *
+     * 只给「多平台」加 ClickableSpan，其余文字保持普通样式，避免整行可点造成误触
+     * （同一行右侧还有开关）。
+     */
+    private CharSequence buildNotiSubtitle() {
+        String text = "拦截菜鸟 / 京东 / 淘宝 / 拼多多等 App 的取件通知 · 查看多平台";
+        android.text.SpannableString sp = new android.text.SpannableString(text);
+        int start = text.indexOf("多平台");
+        if (start < 0) return text;
+        int end = start + 3;
+        sp.setSpan(new android.text.style.ClickableSpan() {
+            @Override
+            public void onClick(android.view.View w) {
+                showSupportedAppsDialog();
+            }
+        }, start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        sp.setSpan(new android.text.style.ForegroundColorSpan(P.accentInk),
+                start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        sp.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return sp;
+    }
+
+    /**
+     * v6.1：「多平台」点击弹窗——列出当前实际支持通知取件提取的 App。
+     *
+     * 数据来源是 NotiHook.currentPkgs()（内置 + 用户追加），而不是写死的常量，
+     * 这样用户自己加了包名也能立刻在这里看到，不会出现「设置里有、列表里没有」。
+     */
+    private void showSupportedAppsDialog() {
+        java.util.List<String> pkgs;
+        try {
+            pkgs = NotiHook.currentPkgs();
+        } catch (Throwable t) {
+            pkgs = new java.util.ArrayList<>();
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (pkgs.isEmpty()) {
+            sb.append("当前没有可用的通知来源。");
+        } else {
+            for (String p : pkgs) {
+                String label = NotiHook.PKG_LABELS.get(p);
+                if (label == null || label.isEmpty()) label = p;   // 用户自定义包名直接显示包名
+                sb.append("· ").append(label).append("\n");
+            }
+            sb.append("\n共 ").append(pkgs.size()).append(" 个应用\n\n");
+            sb.append("说明：只有这些 App 发出的通知会被读取。\n")
+              .append("短信通道不受此限制，任何号码的取件短信都会识别。\n\n")
+              .append("识别规则与短信通道共用同一套规则集，\n")
+              .append("所以「取件码/取货码/凭码」等说法在两边都能识别。");
+        }
+
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        TextView tv = UiKit.text(this, sb.toString(), 14f, UiKit.INK2);
+        tv.setLineSpacing(dp(5), 1.0f);
+        int pad = dp(20);
+        tv.setPadding(pad, dp(12), pad, dp(4));
+        sv.addView(tv);
+
+        // v6.1：改用 UiKit 自绘弹窗（PR #8 统一了弹窗风格，系统 AlertDialog 已全量替换）
+        UiKit.dialog(this, P, R.drawable.ic_bell, "支持的通知来源", null, sv,
+                UiKit.primary("知道了", null)).show();
+    }
+
+    /**
+     * 后台核对 LSPosed 作用域里有没有勾「Android 系统（android）」，有结论再回来改按钮。
+     *
+     * 复用现成能力，不自己重写查库逻辑：Diagnostics.checkScope 内部就是调
+     * Repair.lsposedStatus(ctx)（root 跑 sqlite3 读 /data/adb/lspd/config/modules_config.db），
+     * 但它是 private 且需要先知道 root 是否可用；这里直接用底层的公开方法
+     * Repair.lsposedStatus，拿它已经算好的 missingScope 即可。
+     *
+     * 取舍（简化版）：**只在开关为「已开启」时才查**——
+     *  ① 作用域检查要 root + sqlite3，约 2-5 秒，不能同步跑在按钮初始化里（界面必须秒开）；
+     *  ② 开关默认关闭，对绝大多数用户这次查库毫无意义，白白多一次 su；
+     *  ③ 「缺 android」这个结论只在开关打开时才有意义，关着时按钮本来就显示「已关闭」。
+     * 另外：配置库读不到（没 root / 没装 LSPosed）或模块未启用时不下结论，
+     * 保持标志文件的原始显示——这两种情况由上方「🔍 排查问题」向导负责。
+     *
+     * @param force true=忽略节流强制复查（开关刚被切换时用）
+     */
     private void checkNotiHookScopeAsync(boolean force) {
         long now = System.currentTimeMillis();
         if (!force && now - lastNotiScopeCheck < NOTI_SCOPE_CHECK_INTERVAL) return;

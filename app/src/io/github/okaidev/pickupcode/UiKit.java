@@ -230,6 +230,16 @@ public final class UiKit {
      * accessory 为 null 时右侧放一个右箭头（表示可点进二级页）
      */
     public static LinearLayout row(Context ctx, Palette p, int iconRes, String title, String sub, View accessory) {
+        return row(ctx, p, iconRes, title, (CharSequence) sub, accessory);
+    }
+
+    /**
+     * v6.1：副标题支持 CharSequence 的重载。
+     * 用于副标题里嵌 ClickableSpan（例：设置页「通知取件提取」的「多平台」可点开支持列表），
+     * 同时保留 String 版本的既有调用点不变。
+     */
+    public static LinearLayout row(Context ctx, Palette p, int iconRes, String title,
+                                   CharSequence sub, View accessory) {
         LinearLayout r = new LinearLayout(ctx);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
@@ -247,9 +257,19 @@ public final class UiKit {
         col.setOrientation(LinearLayout.VERTICAL);
         TextView t = text(ctx, title, 15.5f, INK);
         col.addView(t);
-        if (sub != null && !sub.isEmpty()) {
-            TextView s = text(ctx, sub, 12.5f, INK3);
+        if (sub != null && sub.length() > 0) {
+            // text(...) 只接受 String，这里直接 setText 以保留 CharSequence 上的 Span
+            TextView s = new TextView(ctx);
+            s.setText(sub);
+            s.setTextSize(12.5f);
+            s.setTextColor(INK3);
             s.setLineSpacing(dp(ctx, 1), 1.0f);
+            if (sub instanceof android.text.Spanned
+                    && ((android.text.Spanned) sub).getSpans(0, sub.length(),
+                        android.text.style.ClickableSpan.class).length > 0) {
+                s.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                s.setHighlightColor(android.graphics.Color.TRANSPARENT);
+            }
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(0, dp(ctx, 3), 0, 0);
