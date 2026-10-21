@@ -79,6 +79,8 @@ public class LauncherActivity extends Activity {
     private TextView deployBtn, troubleshootBtn;
     /** 4.1：一键链路测试入口（从「规则 → 工具」移到首页） */
     private LinearLayout chainTestBtn;
+    /** 4.2：自定义模板的占位符说明卡（选「自定义」时显示） */
+    private LinearLayout tplVarHelp;
 
     // ==================== 应用 ====================
     private TextView backendValue, envValue, extraSummary;
@@ -208,7 +210,7 @@ public class LauncherActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         // 4.1：Tab 名「应用」→「来源」（页面内容是"哪些 App 的通知会被读取"，
         // 叫「应用」容易与「写入目标 App」混淆）
-        String[] titles = { "取件码助手", "来源", "规则", "设置" };
+        String[] titles = { "取件码助手", "取件通知", "高级规则", "设置" };
         headerTitle.setText(titles[index]);
         headerSub.setText(appVersionLabel() + " · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
 
@@ -296,38 +298,41 @@ public class LauncherActivity extends Activity {
         troubleshootBtn.setOnClickListener(v -> runTroubleshoot());
         box.addView(troubleshootBtn);
 
-        // ============ 4.1 信息架构调整 ============
+        // ============ 4.1 / 4.2 信息架构调整 ============
         // 首页只回答一个问题：它现在能正常工作吗？不能的话我该做什么？
         // 移出：双统计卡（无实际用途）、项目版本信息、检查更新、反馈入口 → 设置
-        // 移入：一键链路测试（原「规则」页）、写入与适配（原「应用」页）、官方规则集版本（原「规则」页）
+        // 移入：待办模板（原设置）、写入目标（原应用页）、官方规则集版本（原规则页）、
+        //       一键链路测试（原规则页工具组）
+        // 4.2 调整：链路测试移到页面最下方（它是整套流程走完后的最终验证）；
+        //           环境适配从首页移除（自动识别结果，无需用户关心）
 
-        // 一键链路测试（原在「规则 → 工具」）
-        chainTestBtn = toolRow(R.drawable.ic_flask, "一键链路测试",
-                "不消耗短信 · 分步验证「识别 → 写入」", v -> precheckThenOpenChainTest());
-        LinearLayout ctCard = UiKit.card(this, P);
-        ctCard.addView(chainTestBtn);
-        box.addView(ctCard, UiKit.cardLp(this, 12));
-
-        // 写入与适配（原在「应用」页）
-        box.addView(UiKit.groupLabel(this, P, "写入与适配"));
+        // 写入与适配（原在「应用」页；4.2：只保留写入目标，环境适配已移除）
+        box.addView(UiKit.groupLabel(this, P, "写入目标"));
         LinearLayout waCard = UiKit.card(this, P);
         backendValue = UiKit.value(this, P, backendLabel());
         LinearLayout backendRow = UiKit.row(this, P, R.drawable.ic_target, "待办写入目标",
-                "取件码写进哪个 App 的待办", backendValue);
+                "取件码写进哪个 App", backendValue);
         LinearLayout backendAcc = (LinearLayout) backendRow.getChildAt(backendRow.getChildCount() - 1);
         backendAcc.addView(UiKit.icon(this, R.drawable.ic_chev_down, 17, P.muteInk));
         backendRow.setOnClickListener(v -> showBackendPicker());
         waCard.addView(backendRow);
+        box.addView(waCard, UiKit.cardLp(this, 12));
 
-        waCard.addView(UiKit.divider(this, P));
-        envValue = UiKit.value(this, P, envLabel());
-        LinearLayout envRow = UiKit.row(this, P, R.drawable.ic_phone, "环境适配",
-                envDetail(), envValue);
-        LinearLayout envAcc = (LinearLayout) envRow.getChildAt(envRow.getChildCount() - 1);
-        envAcc.addView(UiKit.icon(this, R.drawable.ic_chev_down, 17, P.muteInk));
-        envRow.setOnClickListener(v -> showEnvPicker());
-        waCard.addView(envRow);
-        box.addView(waCard, UiKit.cardLp(this, 0f));
+        // 待办模板（4.2：从「设置 → 提取与写入」移来，放在官方规则集下面）
+        box.addView(UiKit.groupLabel(this, P, "待办模板"));
+        LinearLayout tplCard = UiKit.card(this, P);
+        tplValueView = UiKit.value(this, P, modeLabel(currentMode));
+        LinearLayout tplRow = UiKit.row(this, P, R.drawable.ic_template, "写入格式",
+                "极简 / 完整 / 自定义占位符", tplValueView);
+        tplRow.setOnClickListener(v -> toggleTplEditor());
+        tplCard.addView(tplRow);
+
+        tplEditorBox = new LinearLayout(this);
+        tplEditorBox.setOrientation(LinearLayout.VERTICAL);
+        tplEditorBox.setVisibility(View.GONE);
+        buildTplEditor();
+        tplCard.addView(tplEditorBox);
+        box.addView(tplCard, UiKit.cardLp(this, 0f));
 
         // 官方规则集版本（原在「规则」页顶部，这里只显示状态，检查更新已移到设置）
         box.addView(UiKit.groupLabel(this, P, "官方规则集"));
@@ -340,6 +345,13 @@ public class LauncherActivity extends Activity {
                 "官方规则集 v" + PickupExtractor.getActiveRulesVersion(), hrCounts,
                 UiKit.badgeAccent(this, P, "已是最新")));
         box.addView(ruleCard, UiKit.cardLp(this, 12));
+
+        // 一键链路测试（4.2：放在页面最下方——整套流程走完后的最终验证）
+        LinearLayout ctCard = UiKit.card(this, P);
+        chainTestBtn = toolRow(R.drawable.ic_flask, "一键链路测试",
+                "不消耗短信 · 分步验证「识别 → 写入」", v -> precheckThenOpenChainTest());
+        ctCard.addView(chainTestBtn);
+        box.addView(ctCard, UiKit.cardLp(this, 12));
 
         return sv;
     }
@@ -387,7 +399,27 @@ public class LauncherActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box);
 
-        // 4.1：页面说明——把「这个页面在干什么」说清楚
+        // 4.2：通知取件提取开关移到本页最上面（从「设置 → 提取与写入」移来）。
+        // 理由：这个开关直接决定「下面这些 App 的通知要不要读」，
+        // 放在来源列表上方才是它该在的位置。
+        LinearLayout notiCard = UiKit.card(this, P);
+        notiSwitchOn = isNotiHookFlagOn();
+        notiSw = new UiKit.Switch(this, P, notiSwitchOn);
+        notiSw.setOnToggle(this::onNotiToggle);
+        CharSequence notiSub = buildNotiSubtitle();
+        LinearLayout notiRow = UiKit.row(this, P, R.drawable.ic_bell, "通知取件提取",
+                notiSub, notiSw);
+        notiCard.addView(notiRow);
+
+        notiScopeHintView = UiKit.text(this,
+                "LSPosed 作用域未勾选「Android 系统（android）」，此时通知取件提取不会生效（重启手机也没用）。",
+                11.5f, UiKit.INK3);
+        notiScopeHintView.setLineSpacing(dp(2), 1.0f);
+        notiScopeHintView.setVisibility(View.GONE);
+        notiCard.addView(notiScopeHintView);
+        box.addView(notiCard, UiKit.cardLp(this, 12));
+
+        // 页面说明——把「这个页面在干什么」说清楚
         TextView intro = UiKit.text(this,
                 "以下 App 收到含取件码的通知时，会被自动读取并写入待办。\n"
                         + "短信通道不受此限制，任何号码的取件短信都会识别。",
@@ -594,18 +626,21 @@ public class LauncherActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box);
 
-        ExtractorRules rules = PickupExtractor.getActiveRules();
-        String counts = rules == null ? "" :
-                rules.keywordAnchors.size() + " 组锚点词 · " + rules.featureWords.size() + " 特征词 · "
-                + rules.negativeKeywords.size() + " 负向词";
-
-        box.addView(UiKit.groupLabel(this, P, "官方规则集"));
-        LinearLayout offCard = UiKit.card(this, P);
-        offCard.addView(UiKit.row(this, P, R.drawable.ic_link,
-                "官方规则集 v" + PickupExtractor.getActiveRulesVersion(), counts,
-                UiKit.badgeAccent(this, P, "已是最新")));
-        // 4.1：「检查更新」已移到「设置 → 更新」（原先首页/规则/设置三处重复）
-        box.addView(offCard);
+        // 4.2：官方规则集已移到首页，本页只放「高级规则」。
+        // 加一段说明：这里是高级用户的自定义场景，普通用户一般不需要动。
+        TextView advNote = UiKit.text(this,
+                "这里是高级用户的自定义场景。\n\n"
+                        + "内置的官方规则已覆盖菜鸟、京东、顺丰、丰巢、驿收发等主流驿站的"
+                        + "常见取件短信写法，绝大多数情况开箱即用，不需要在这里添加任何东西。\n\n"
+                        + "只有当你遇到「官方规则认不出、但确实是取件短信」的情况时，"
+                        + "才需要在这里为那个驿站单独写一条规则。\n\n"
+                        + "如果不确定怎么填，建议先到「设置 → 排查」导出诊断报告反馈，"
+                        + "比自行修改更稳妥。",
+                12.5f, UiKit.INK3);
+        advNote.setLineSpacing(dp(3), 1.15f);
+        advNote.setBackground(UiKit.bg(P.cardSoft, this, 14));
+        advNote.setPadding(dp(15), dp(13), dp(15), dp(13));
+        box.addView(advNote, UiKit.cardLp(this, 12));
 
         box.addView(UiKit.groupLabel(this, P, "我的规则"));
         LinearLayout urCard = UiKit.card(this, P);
@@ -716,44 +751,11 @@ public class LauncherActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box);
 
-        box.addView(UiKit.groupLabel(this, P, "提取与写入"));
+        box.addView(UiKit.groupLabel(this, P, "写入行为"));
         LinearLayout setCard = UiKit.card(this, P);
 
-        // 4.1：「写入目标」已移到首页（原与「应用」页重复）。
-        // 这里只保留待办模板——它属于「写出来的东西长什么样」，与写到哪里无关。
-
-        // 待办模板（就地展开编辑）
-        tplValueView = UiKit.value(this, P, modeLabel(currentMode));
-        LinearLayout tplRow = UiKit.row(this, P, R.drawable.ic_template, "待办模板",
-                "极简 / 完整 / 自定义占位符", tplValueView);
-        tplRow.setOnClickListener(v -> toggleTplEditor());
-        setCard.addView(tplRow);
-
-        tplEditorBox = new LinearLayout(this);
-        tplEditorBox.setOrientation(LinearLayout.VERTICAL);
-        tplEditorBox.setVisibility(View.GONE);
-        buildTplEditor();
-        setCard.addView(tplEditorBox);
-
-        // 通知取件提取
-        setCard.addView(UiKit.divider(this, P));
-        notiSwitchOn = isNotiHookFlagOn();
-        notiSw = new UiKit.Switch(this, P, notiSwitchOn);
-        notiSw.setOnToggle(this::onNotiToggle);
-        // v6.1：副标题里的「多平台」可点击 → 弹出实际支持的 App 列表。
-        // PR #8 把这一行改成 UiKit.row(...)，副标题是普通 String，这里改用
-        // 带 ClickableSpan 的 SpannableString 传入，保持既有布局不变。
-        CharSequence notiSub = buildNotiSubtitle();
-        LinearLayout notiRow = UiKit.row(this, P, R.drawable.ic_bell, "通知取件提取",
-                notiSub, notiSw);
-        setCard.addView(notiRow);
-
-        notiScopeHintView = UiKit.text(this,
-                "LSPosed 作用域未勾选「Android 系统（android）」，此时通知取件提取不会生效（重启手机也没用）。",
-                11.5f, UiKit.INK3);
-        notiScopeHintView.setLineSpacing(dp(2), 1.0f);
-        notiScopeHintView.setVisibility(View.GONE);
-        setCard.addView(notiScopeHintView);
+        // 4.1/4.2：写入目标 → 首页；待办模板 → 首页；通知取件提取 → 「来源」页。
+        // 这里只剩「冻结免疫直写」这类真正属于系统行为的开关。
 
         // 冻结免疫直写（仅 ColorOS 环境显示）
         sdwRow = new LinearLayout(this);
@@ -786,8 +788,8 @@ public class LauncherActivity extends Activity {
         });
         perCard.addView(UiKit.row(this, P, R.drawable.ic_blur, "模糊效果",
                 "底栏半透明（85%）；关闭则使用纯实底", blurSw));
-        perCard.addView(UiKit.divider(this, P));
-        perCard.addView(UiKit.row(this, P, R.drawable.ic_globe, "语言", "跟随系统", null));
+        // 4.2：「语言」项已移除——目前只有中文，该行永远显示「跟随系统」且无实际功能。
+        // 将来真要做多语言时再加，届时需要同步做字符串外置与文案适配。
         box.addView(perCard, UiKit.cardLp(this, 0f));
 
         // 常规
@@ -960,6 +962,39 @@ public class LauncherActivity extends Activity {
         tplEdit.setHint("自定义模板，占位符：{code} {source} {place} {time}");
         tplEdit.setVisibility(View.GONE);
         tplEditorBox.addView(tplEdit, UiKit.cardLp(this, 8));
+
+        // v4.2：自定义模式的占位符说明。
+        // 用户反馈：选了「自定义」却看不到有哪些占位符，占位符被删掉后就不知道怎么写了。
+        // 这里在编辑框下方常驻一张说明卡，逐条列出占位符与它代表的内容。
+        tplVarHelp = UiKit.card(this, P);
+        tplVarHelp.setPadding(dp(13), dp(11), dp(13), dp(11));
+        TextView vhTitle = UiKit.text(this, "可用占位符（点击可插入）", 12.5f, UiKit.INK3);
+        tplVarHelp.addView(vhTitle);
+        String[][] vars = {
+                {"{code}", "取件码，如 6-4-3009（必填）"},
+                {"{source}", "来源，如 菜鸟驿站（识别不到显示 —）"},
+                {"{place}", "地点，如 江南绿城西门（识别不到显示 —）"},
+                {"{time}", "写入时间，如 2026-10-22 00:39"},
+        };
+        for (String[] v : vars) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(0, dp(7), 0, 0);
+            TextView key = UiKit.text(this, v[0], 12.5f, P.accentInk);
+            key.setTypeface(Typeface.create("monospace", Typeface.NORMAL));
+            LinearLayout.LayoutParams klp = new LinearLayout.LayoutParams(
+                    dp(66), ViewGroup.LayoutParams.WRAP_CONTENT);
+            row.addView(key, klp);
+            row.addView(UiKit.text(this, v[1], 12f, UiKit.INK3),
+                    new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            row.setOnClickListener(click -> {
+                int st = tplEdit.getSelectionStart();
+                if (st < 0) st = tplEdit.getText().length();
+                tplEdit.getText().insert(st, v[0]);
+            });
+            tplVarHelp.addView(row);
+        }
+        tplEditorBox.addView(tplVarHelp, UiKit.cardLp(this, 8));
 
         tplBtnRow = new LinearLayout(this);
         tplBtnRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -1159,10 +1194,17 @@ public class LauncherActivity extends Activity {
     }
 
     private void showAboutDialog() {
+        // 4.2：补上合作者。按「做了什么」分条写，比只列名字更能说明贡献。
         UiKit.dialog(this, P, R.drawable.ic_info, "关于模块",
                 "取件码助手 " + appVersionLabel() + "\n"
                         + "自动提取快递取件码并写入待办（小米笔记 / ColorOS 日历·便签）\n\n"
-                        + "作者：欧锴（O-kai）\n"
+                        + "【作者】\n"
+                        + "欧锴（O-kai）· 项目发起与主要开发\n\n"
+                        + "【合作者】\n"
+                        + "Artifical0 · ColorOS 捕获侧适配\n"
+                        + "　（修正 ColorOS 上失效的 Hook 类名，让短信能在 ColorOS 16 正常捕获）\n"
+                        + "Seven2023Six · 界面布局重构\n"
+                        + "　（四 Tab 结构、UiKit 设计系统、矢量图标体系）\n\n"
                         + "LSPosed 模块仓库已上架，酷安同步更新\n\n"
                         + "遇到问题欢迎附「导出诊断报告」反馈", null,
                 UiKit.primary("知道了", null),
