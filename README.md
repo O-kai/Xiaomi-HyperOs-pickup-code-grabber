@@ -109,9 +109,9 @@ ColorOS 16 (OnePlus/OPPO/realme), auto-detected. Copy-on-tap notifications. Requ
 
 ## 📷 效果截图
 
-**设置页（v3.1.0）**（多 ROM 写入目标切换 · 折叠体检 · 模板所见即所得 · 通知取件开关 · 联网开关 · 一键链路测试）
+**首页（v4.0.0 新版界面）**（状态卡 + 六项体检清单 · 双统计卡 · 项目版本信息 · 反馈入口 · 悬浮底栏）
 
-![设置页](docs/screenshots/settings.jpg)
+![首页](docs/screenshots/home-v4.png)
 
 **待办列表呈现效果**（一码一条、新码自动置顶；真实地点与来源解析）
 

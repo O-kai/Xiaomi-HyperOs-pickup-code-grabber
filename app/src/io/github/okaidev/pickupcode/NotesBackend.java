@@ -201,8 +201,8 @@ public class NotesBackend {
     public static String markDoneSqlOf(String b, String code) {
         String pat = likeOf(code);
         if (BACKEND_COLOROS_NOTE.equals(b)) {
-            return "UPDATE rich_notes SET text = text || '（✅ 已取件）',"
-                    + " summary_content = summary_content || '（✅ 已取件）',"
+            return "UPDATE rich_notes SET text = text || '（已取件）',"
+                    + " summary_content = summary_content || '（已取件）',"
                     + " top_time = 0, update_time = strftime('%s','now')*1000"
                     + " WHERE deleted = 0 AND text" + pat
                     + " AND text NOT LIKE '%已取件%';\n";

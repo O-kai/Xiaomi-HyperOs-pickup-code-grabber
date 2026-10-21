@@ -1,0 +1,1055 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>取件码助手 · UI 重构原型（雾霾蓝 · 透明磨砂底栏）</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="t-mist">
+
+<!-- ============================ SVG 图标库 ============================ -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <!-- 底栏 -->
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.6 12 4l8 6.6"/><path d="M6 9.7V19a1.2 1.2 0 0 0 1.2 1.2h3.2v-4.6h3.2v4.6h3.2A1.2 1.2 0 0 0 18 19V9.7"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><circle cx="6" cy="6" r="1.75" fill="currentColor" stroke="none"/><circle cx="12" cy="6" r="1.75" fill="currentColor" stroke="none"/><circle cx="18" cy="6" r="1.75" fill="currentColor" stroke="none"/><circle cx="6" cy="12" r="1.75" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.75" fill="currentColor" stroke="none"/><circle cx="6" cy="18" r="1.75" fill="currentColor" stroke="none"/><circle cx="12" cy="18" r="1.75" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.75" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M11 3.4 12.5 8.5 17.6 10 12.5 11.5 11 16.6 9.5 11.5 4.4 10 9.5 8.5z"/><path d="M17.6 15.4v4.2M15.5 17.5h4.2"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M12 3.2v2.3M12 18.5v2.3M4.6 12H2.3M21.7 12h-2.3M6.8 6.8 5.1 5.1M18.9 18.9l-1.7-1.7M17.2 6.8l1.7-1.7M5.1 18.9l1.7-1.7"/></symbol>
+  <!-- 通用 -->
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="m8.4 12.3 2.5 2.5 4.8-5.2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.8v4.9"/><circle cx="12" cy="16.1" r=".95" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9.6 5.8 6.2 6.2-6.2 6.2"/></symbol>
+  <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="m5.8 9.6 6.2 6.2 6.2-6.2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.4v13.2M5.4 12h13.2"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3.6a8.4 8.4 0 1 0 0 16.8c1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7h2A4 4 0 0 0 20.4 12c0-4.7-3.8-8.4-8.4-8.4z"/><circle cx="8.4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="10.5" cy="8.3" r="1" fill="currentColor" stroke="none"/><circle cx="14.7" cy="8.3" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-blur" viewBox="0 0 24 24"><circle cx="7.4" cy="7.4" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="7.4" r="1.5" fill="currentColor" stroke="none"/><circle cx="16.6" cy="7.4" r="1" fill="currentColor" stroke="none"/><circle cx="7.4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none"/><circle cx="16.6" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="7.4" cy="16.6" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="16.6" r="1.5" fill="currentColor" stroke="none"/><circle cx="16.6" cy="16.6" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M3.6 12h16.8"/><path d="M12 3.6c2.2 2.3 3.4 5.2 3.4 8.4S14.2 18.1 12 20.4C9.8 18.1 8.6 15.2 8.6 12S9.8 5.9 12 3.6z"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7.4 18.4h9.4a4 4 0 0 0 .5-8 5.6 5.6 0 0 0-10.8 1.4 3.4 3.4 0 0 0 .9 6.6z"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 19.4V9.2"/><path d="m7.9 13.1 4.1-4.1 4.1 4.1"/><path d="M4.6 4.6h14.8"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4.2v10.2"/><path d="m7.9 10.5 4.1 4.1 4.1-4.1"/><path d="M4.6 19.4h14.8"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M12 3.4 20 7.4v9.2l-8 4-8-4V7.4z"/><path d="M4 7.4l8 4 8-4M12 11.4V20.6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19.6 5.4v4.4h-4.4"/><path d="M19.1 9.8A7.5 7.5 0 1 0 19.6 12"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><rect x="5.2" y="3.6" width="13.6" height="16.8" rx="2.4"/><path d="M8.6 8.4h6.8M8.6 12h6.8M8.6 15.6h4"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6.4 3.6h7.4l4.6 4.6v12.2H6.4z"/><path d="M13.8 3.6v4.6h4.6"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M12 4.2a5.3 5.3 0 0 1 5.3 5.3c0 3.7 1.4 5 1.4 5H5.3s1.4-1.3 1.4-5A5.3 5.3 0 0 1 12 4.2z"/><path d="M10.3 18.3a1.9 1.9 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.4 5.6 5.9v5.3c0 4.1 2.7 7.7 6.4 9.4 3.7-1.7 6.4-5.3 6.4-9.4V5.9z"/><path d="m9.4 12 2 2 3.4-3.7"/></symbol>
+  <symbol id="i-rules" viewBox="0 0 24 24"><path d="M9.4 6.6h10.2M9.4 12h10.2M9.4 17.4h10.2"/><circle cx="4.9" cy="6.6" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.9" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.9" cy="17.4" r="1.3" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="m6.1 6.1 11.8 11.8"/></symbol>
+  <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9.5 3.6h5"/><path d="M10.4 3.6v5.1L6.2 17.1a2 2 0 0 0 1.8 3h8a2 2 0 0 0 1.8-3l-4.2-8.4V3.6"/><path d="M8 14.4h8"/></symbol>
+  <symbol id="i-notebook" viewBox="0 0 24 24"><rect x="5.4" y="3.6" width="13.2" height="16.8" rx="2.2"/><path d="M9.2 3.6v16.8"/><path d="M12.4 8.4h3.4M12.4 12h3.4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.4"/><path d="m15.9 15.9 4.1 4.1"/></symbol>
+  <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M12 3.4c3 1.7 4.6 4.5 4.6 7.9l-1.9 6.3H9.3L7.4 11.3c0-3.4 1.6-6.2 4.6-7.9z"/><circle cx="12" cy="10" r="1.6"/><path d="M9.6 17.6 8 20.4M14.4 17.6l1.6 2.8"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="4.2"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-template" viewBox="0 0 24 24"><path d="M4.6 19.4h3.9l10-10a2.05 2.05 0 0 0-2.9-2.9l-10 10z"/><path d="m14.4 6.6 3 3"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M12 11v5.3"/><circle cx="12" cy="7.9" r=".95" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.2s-7.6-4.5-7.6-9.6A4.3 4.3 0 0 1 12 8.1a4.3 4.3 0 0 1 7.6 2.5c0 5.1-7.6 9.6-7.6 9.6z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M12 4.4c-4 0-7.1 2.9-7.1 6.5 0 1.3.4 2.5 1.2 3.5l-.9 3.6 3.5-1.4c1 .4 2.1.6 3.3.6 4 0 7.1-2.9 7.1-6.3S16 4.4 12 4.4z"/><circle cx="9.4" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="14.6" cy="11" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-github" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M9.8 14.2 14.2 9.8"/><path d="m11.4 7.4 1.5-1.5a3.3 3.3 0 0 1 4.7 4.7l-1.5 1.5"/><path d="m12.6 16.6-1.5 1.5a3.3 3.3 0 0 1-4.7-4.7l1.5-1.5"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M5.2 4.6h9.6a2.6 2.6 0 0 1 2.6 2.6v12.2H7.8a2.6 2.6 0 0 1-2.6-2.6z"/><path d="M5.2 16.8a2.6 2.6 0 0 1 2.6-2.6h9.6"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7.1" y="2.8" width="9.8" height="18.4" rx="2.4"/><path d="M10.6 18.5h2.8"/></symbol>
+  <symbol id="i-call" viewBox="0 0 24 24"><path d="M6.4 3.6h2.9l1.4 3.6-1.9 1.4a10.6 10.6 0 0 0 6.6 6.6l1.4-1.9 3.6 1.4v2.9a1.7 1.7 0 0 1-1.9 1.7A15.3 15.3 0 0 1 4.7 5.5a1.7 1.7 0 0 1 1.7-1.9z"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 20.4s6.3-5.5 6.3-10a6.3 6.3 0 1 0-12.6 0c0 4.5 6.3 10 6.3 10z"/><circle cx="12" cy="10.2" r="2.3"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M4.2 9.2a11 11 0 0 1 15.6 0"/><path d="M7 12.4a7 7 0 0 1 10 0"/><path d="M9.8 15.6a3 3 0 0 1 4.4 0"/><circle cx="12" cy="18.6" r="1" fill="currentColor" stroke="none"/></symbol>
+</svg>
+
+<!-- ============================== 展板头部 ============================== -->
+<header class="board-head">
+  <span class="board-kicker">UI Prototype · 雾霾蓝 · 磨砂底栏</span>
+  <h1 class="board-title">取件码助手 · 界面重构原型</h1>
+  <p class="board-sub">
+    整体布局不变；按你给的酷安参考图只改两处：<b>页面底色换成参考图的浅灰 #F2F3F5</b>，
+    <b>底栏换成透明磨砂胶囊</b>（选中项 = 强调色圆角块 + 白色图标，无中间按钮）。
+    配色仍用之前定下的雾霾蓝这一套，强调色与语义色均未改动。把现有界面
+    <b>按功能域拆成 4 个 Tab（首页 / 应用 / 规则 / 设置）+ 2 个子页（链路测试 / 自定义规则）</b>。
+    数字、文案均取自本项目真实实现：通知来源白名单 6 个 App、识别 9 家快递、官方规则集 v5
+    （13 组锚点词·18 特征词·29 负向词）、QQ 群 901543676、默认黑名单 8 词、六项部署体检。
+  </p>
+  <div class="swatches">
+    <span class="swatch"><i style="background:#F2F3F5"></i>页面底色 <code>#F2F3F5</code></span>
+    <span class="swatch"><i style="background:#FFFFFF"></i>卡片白 <code>#FFFFFF</code></span>
+    <span class="swatch"><i style="background:#4A6FA5"></i>强调色 <code>#4A6FA5</code></span>
+    <span class="swatch"><i style="background:#3D5C8A"></i>缎带深色 <code>#3D5C8A</code></span>
+    <span class="swatch"><i style="background:#D6E4F2"></i>状态卡底 <code>#D6E4F2</code></span>
+    <span class="swatch"><i style="background:#191919"></i>主文字 <code>#191919</code></span>
+    <span class="swatch"><i style="background:#8E8E8E"></i>次文字 <code>#8E8E8E</code></span>
+    <span class="swatch"><i style="background:#C2543C"></i>失败 <code>#C2543C</code></span>
+    <span class="swatch"><i style="background:#C97F2E"></i>警示 <code>#C97F2E</code></span>
+    <span class="swatch"><i style="background:#3E8E5E"></i>成功 <code>#3E8E5E</code></span>
+  </div>
+  <div class="board-meta">
+    <span>字体：MiSans / 系统默认</span>
+    <span>卡片圆角 18px · 卡间距 10-12px</span>
+    <span>底栏：72px 透明磨砂胶囊 + 强调色选中块</span>
+    <span>开关：52×31 强调色轨道</span>
+    <span>标题 26px / 行标题 15.5px / 说明 12.5px</span>
+  </div>
+</header>
+
+<!-- ========================== 配色方案（四选一） ========================== -->
+<section class="palette-board">
+  <h2 class="pb-title">配色方案 · 四选一（当前默认 B · 雾霾蓝）</h2>
+  <p class="pb-sub">
+    配色沿用之前定下的这一套（文字色与语义色四套通用，只换「底色 + 强调色 + 选中态」）；
+    按参考图只改了两处：<b>页面底色换成浅灰</b>、<b>底栏改为透明磨砂胶囊</b>
+    （选中项为强调色圆角块，无中间按钮）。下面四块是同一套组件的真实渲染。
+  </p>
+  <div class="pb-grid">
+    <div class="pb-item t-sand">
+      <div class="pb-name">A · 米金 Warm Sand</div>
+      <div class="pb-demo">
+        <div class="demo-title">取件码助手</div>
+        <div class="hero">
+          <div class="ribbon"><span>Release</span></div>
+          <div class="hero-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg></div>
+          <div class="hero-main"><div class="hero-title">一切正常 · 已激活</div><div class="hero-sub">v3.1.0 · 六项体检全部通过</div></div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-bell"/></svg></div>
+            <div class="row-main"><div class="row-title">通知取件提取</div><div class="row-sub">拦截快递 App 通知</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-globe"/></svg></div>
+            <div class="row-main"><div class="row-title">语言</div><div class="row-sub">跟随系统</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+        <nav class="tabbar">
+          <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+        </nav>
+        <div class="home-bar"></div>
+      </div>
+      <div class="pb-colors">
+        <span class="pb-chip"><i style="background:#FBEDE1"></i>底色 <code>#FBEDE1</code></span>
+        <span class="pb-chip"><i style="background:#F9DDB8"></i>状态卡 <code>#F9DDB8</code></span>
+        <span class="pb-chip"><i style="background:#A8813C"></i>强调 <code>#A8813C</code></span>
+        <span class="pb-chip"><i style="background:#EFDFC7"></i>选中块 <code>#EFDFC7</code></span>
+      </div>
+    </div>
+
+    <div class="pb-item t-mist">
+      <div class="pb-name">B · 雾霾蓝 Mist Blue<span class="pb-tag">当前 / 默认</span></div>
+      <div class="pb-demo">
+        <div class="demo-title">取件码助手</div>
+        <div class="hero">
+          <div class="ribbon"><span>Release</span></div>
+          <div class="hero-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg></div>
+          <div class="hero-main"><div class="hero-title">一切正常 · 已激活</div><div class="hero-sub">v3.1.0 · 六项体检全部通过</div></div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-bell"/></svg></div>
+            <div class="row-main"><div class="row-title">通知取件提取</div><div class="row-sub">拦截快递 App 通知</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-globe"/></svg></div>
+            <div class="row-main"><div class="row-title">语言</div><div class="row-sub">跟随系统</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+        <nav class="tabbar">
+          <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+        </nav>
+        <div class="home-bar"></div>
+      </div>
+      <div class="pb-colors">
+        <span class="pb-chip"><i style="background:#F2F3F5"></i>底色 <code>#F2F3F5</code></span>
+        <span class="pb-chip"><i style="background:#D6E4F2"></i>状态卡 <code>#D6E4F2</code></span>
+        <span class="pb-chip"><i style="background:#4A6FA5"></i>强调 <code>#4A6FA5</code></span>
+        <span class="pb-chip"><i style="background:#DCE7F2"></i>选中块 <code>#DCE7F2</code></span>
+      </div>
+    </div>
+
+    <div class="pb-item t-teal">
+      <div class="pb-name">C · 青瓷绿 Teal</div>
+      <div class="pb-demo">
+        <div class="demo-title">取件码助手</div>
+        <div class="hero">
+          <div class="ribbon"><span>Release</span></div>
+          <div class="hero-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg></div>
+          <div class="hero-main"><div class="hero-title">一切正常 · 已激活</div><div class="hero-sub">v3.1.0 · 六项体检全部通过</div></div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-bell"/></svg></div>
+            <div class="row-main"><div class="row-title">通知取件提取</div><div class="row-sub">拦截快递 App 通知</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-globe"/></svg></div>
+            <div class="row-main"><div class="row-title">语言</div><div class="row-sub">跟随系统</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+        <nav class="tabbar">
+          <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+        </nav>
+        <div class="home-bar"></div>
+      </div>
+      <div class="pb-colors">
+        <span class="pb-chip"><i style="background:#E9F2EE"></i>底色 <code>#E9F2EE</code></span>
+        <span class="pb-chip"><i style="background:#CFE8DE"></i>状态卡 <code>#CFE8DE</code></span>
+        <span class="pb-chip"><i style="background:#2F7F6F"></i>强调 <code>#2F7F6F</code></span>
+        <span class="pb-chip"><i style="background:#D5E8E1"></i>选中块 <code>#D5E8E1</code></span>
+      </div>
+    </div>
+
+    <div class="pb-item t-rose">
+      <div class="pb-name">D · 藕荷玫瑰 Rose</div>
+      <div class="pb-demo">
+        <div class="demo-title">取件码助手</div>
+        <div class="hero">
+          <div class="ribbon"><span>Release</span></div>
+          <div class="hero-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg></div>
+          <div class="hero-main"><div class="hero-title">一切正常 · 已激活</div><div class="hero-sub">v3.1.0 · 六项体检全部通过</div></div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-bell"/></svg></div>
+            <div class="row-main"><div class="row-title">通知取件提取</div><div class="row-sub">拦截快递 App 通知</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-globe"/></svg></div>
+            <div class="row-main"><div class="row-title">语言</div><div class="row-sub">跟随系统</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+        <nav class="tabbar">
+          <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+          <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+        </nav>
+        <div class="home-bar"></div>
+      </div>
+      <div class="pb-colors">
+        <span class="pb-chip"><i style="background:#F7EDF1"></i>底色 <code>#F7EDF1</code></span>
+        <span class="pb-chip"><i style="background:#F2D8E0"></i>状态卡 <code>#F2D8E0</code></span>
+        <span class="pb-chip"><i style="background:#A65D78"></i>强调 <code>#A65D78</code></span>
+        <span class="pb-chip"><i style="background:#EEDAE2"></i>选中块 <code>#EEDAE2</code></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<main class="devices">
+
+<!-- ═══════════════════════════ 1. 首页（体检正常） ═══════════════════════════ -->
+<section class="device">
+  <div class="device-cap">
+    <h3>① 首页 · 体检正常<span class="tag">默认态</span></h3>
+    <p>状态卡（纯色 + Release 斜缎带）→ 双统计卡 → 项目版本信息 / 是否有新版本 → 反馈入口 → 透明磨砂底栏。对应现有 LauncherActivity 顶部。</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar">
+      <span class="sb-time">16:07</span>
+      <div class="sb-right">
+        <svg class="i" viewBox="0 0 24 24" width="15" height="15"><use href="#i-wifi"/></svg>
+        <span class="sb-5g">5G</span>
+        <span class="batt"><i></i></span>
+        <span class="sb-pct">74</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="scroll">
+        <div class="page-head"><div class="page-title">取件码助手</div></div>
+
+        <div class="hero">
+          <div class="ribbon"><span>Release</span></div>
+          <div class="hero-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg></div>
+          <div class="hero-main">
+            <div class="hero-title">一切正常 · 已激活</div>
+            <div class="hero-sub">v3.1.0 · LSPosed 已注入 · 六项体检全部通过<br>规则集 v5 · 写入目标：小米笔记待办</div>
+          </div>
+        </div>
+
+        <div class="stat-grid" style="margin-top:12px">
+          <div class="stat">
+            <div class="stat-label">适配应用</div>
+            <div class="stat-value">6</div>
+            <div class="stat-hint">通知取件来源</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">识别来源</div>
+            <div class="stat-value">9</div>
+            <div class="stat-hint">菜鸟 · 丰巢 · 京东 …</div>
+          </div>
+        </div>
+
+        <!-- 项目版本信息 -->
+        <div class="card" style="margin-top:12px">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-box"/></svg></div>
+            <div class="row-main">
+              <div class="row-title">项目版本信息</div>
+              <div class="row-sub">v3.1.0 (310) · 规则集 v5 · MIT License</div>
+            </div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+
+        <!-- 是否有新版本 -->
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-refresh"/></svg></div>
+            <div class="row-main">
+              <div class="row-title">是否有新版本</div>
+              <div class="row-sub">3 天前自动检查过 · 也可在「设置」手动检查</div>
+            </div>
+            <span class="badge badge-ok">已是最新</span>
+          </div>
+        </div>
+
+        <!-- 反馈入口（仅保留 GitHub 图标） -->
+        <div class="card" style="margin-top:12px;padding:16px 16px 8px">
+          <div style="font-size:16.5px;font-weight:600">遇到问题?</div>
+          <div class="row" style="padding:11px 0 10px 0">
+            <div class="row-main"><div class="row-title">在 GitHub 反馈 <span style="color:#A9A096;font-size:12px">Issues</span></div></div>
+            <div class="row-acc">
+              <svg class="i-fill" viewBox="0 0 16 16" width="21" height="21" style="color:#26221E"><use href="#i-github"/></svg>
+            </div>
+          </div>
+          <div class="row" style="padding:10px 0 12px 0">
+            <div class="row-main"><div class="row-title">加入开发者 QQ 群 901543676</div></div>
+            <div class="row-acc"><span class="row-link">复制群号</span></div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="tabbar">
+        <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+      </nav>
+      <div class="home-bar"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ 2. 首页（体检异常） ═══════════════════════════ -->
+<section class="device">
+  <div class="device-cap">
+    <h3>② 首页 · 体检异常<span class="tag">错误路径</span></h3>
+    <p>同一张状态卡换成警示纯色 + Debug 缎带；清单自动展开（哪几项没过一目了然），下方出现「排查问题向导」与「一键部署 sqlite3」行动按钮。此帧为聚焦错误路径省略了版本卡。</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar">
+      <span class="sb-time">16:07</span>
+      <div class="sb-right">
+        <svg class="i" viewBox="0 0 24 24" width="15" height="15"><use href="#i-wifi"/></svg>
+        <span class="sb-5g">5G</span>
+        <span class="batt"><i style="width:34%"></i></span>
+        <span class="sb-pct">34</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="scroll">
+        <div class="page-head"><div class="page-title">取件码助手</div></div>
+
+        <div class="hero warn">
+          <div class="ribbon debug"><span>Debug</span></div>
+          <div class="hero-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-alert"/></svg></div>
+          <div class="hero-main">
+            <div class="hero-title">2 项待处理</div>
+            <div class="hero-sub">体检 4/6 通过 · 点下方「排查问题向导」逐层定位<br>v3.1.0 · 写入目标：小米笔记待办</div>
+          </div>
+        </div>
+
+        <!-- 体检清单（自动展开） -->
+        <div class="card" style="margin-top:12px;padding:6px 16px">
+          <div class="checklist">
+            <div class="check"><span class="dot ok"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg></span>LSPosed 注入<span class="why">已激活</span></div>
+            <div class="check"><span class="dot ok"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg></span>root 授权<span class="why">Magisk 已授权</span></div>
+            <div class="check"><span class="dot no"><svg class="i" viewBox="0 0 24 24"><use href="#i-x"/></svg></span>LSPosed 作用域<span class="why" style="color:#C2543C">缺「Android 系统」</span></div>
+            <div class="check"><span class="dot ok"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg></span>通知权限<span class="why">已允许</span></div>
+            <div class="check"><span class="dot no"><svg class="i" viewBox="0 0 24 24"><use href="#i-x"/></svg></span>sqlite3<span class="why" style="color:#C2543C">未部署</span></div>
+            <div class="check"><span class="dot ok"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg></span>笔记库<span class="why">可读写</span></div>
+          </div>
+        </div>
+
+        <div class="btn warn" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><use href="#i-search"/></svg>排查问题向导（点不了 / 收不到？）</div>
+        <div class="btn ok" style="margin-top:10px"><svg class="i" viewBox="0 0 24 24"><use href="#i-rocket"/></svg>一键部署 sqlite3（自动完成）</div>
+
+        <div class="note quiet" style="margin-top:12px">
+          <svg class="i" viewBox="0 0 24 24"><use href="#i-info"/></svg>
+          作用域需勾选「Android 系统」（列表底部、不带推荐角标），不是「系统框架 system」。
+        </div>
+
+      </div>
+
+      <nav class="tabbar">
+        <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+      </nav>
+      <div class="home-bar"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ 3. 应用 ═══════════════════════════════ -->
+<section class="device">
+  <div class="device-cap">
+    <h3>③ 应用 · 通知来源与写入目标<span class="tag">新 Tab</span></h3>
+    <p>把「哪些 App 的通知会被提取」「取件码写进哪个待办」两件最容易搞混的事收进一个页签；写入目标与环境适配改为下拉列表——收起时一行一个，展开见下一帧。</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar">
+      <span class="sb-time">16:07</span>
+      <div class="sb-right">
+        <svg class="i" viewBox="0 0 24 24" width="15" height="15"><use href="#i-wifi"/></svg>
+        <span class="sb-5g">5G</span>
+        <span class="batt"><i></i></span>
+        <span class="sb-pct">74</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="scroll compact">
+        <div class="page-head"><div class="page-title">应用</div></div>
+
+        <div class="group-label">通知取件来源（6）</div>
+        <div class="card">
+          <div class="row">
+            <img class="app-ico" src="icons/cainiao.png" alt="菜鸟" width="38" height="38"
+               onerror="this.onerror=null;this.src='icons/fallback/cainiao.svg'">
+            <div class="row-main"><div class="row-title">菜鸟</div><div class="row-sub">com.cainiao.wireless</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <img class="app-ico" src="icons/cainiao-guoguo.svg" alt="菜鸟裹裹" width="38" height="38">
+
+            <div class="row-main"><div class="row-title">菜鸟裹裹</div><div class="row-sub">com.cainiao.guoguo</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <img class="app-ico" src="icons/jd.png" alt="京东" width="38" height="38"
+               onerror="this.onerror=null;this.src='icons/fallback/jd.svg'">
+            <div class="row-main"><div class="row-title">京东</div><div class="row-sub">com.jingdong.app.mall</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <img class="app-ico" src="icons/taobao.png" alt="淘宝" width="38" height="38"
+               onerror="this.onerror=null;this.src='icons/fallback/taobao.svg'">
+            <div class="row-main"><div class="row-title">淘宝</div><div class="row-sub">com.taobao.taobao</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <img class="app-ico" src="icons/pinduoduo.png" alt="拼多多" width="38" height="38"
+               onerror="this.onerror=null;this.src='icons/fallback/pinduoduo.svg'">
+            <div class="row-main"><div class="row-title">拼多多</div><div class="row-sub">com.xunmeng.pinduoduo</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <img class="app-ico" src="icons/sf.png" alt="顺丰速运" width="38" height="38"
+               onerror="this.onerror=null;this.src='icons/fallback/sf.svg'">
+            <div class="row-main"><div class="row-title">顺丰速运</div><div class="row-sub">com.sf.cdsibm</div></div>
+            <span class="tg"></span>
+          </div>
+          <div class="row">
+            <span class="app-tile tile-add"><svg class="i" viewBox="0 0 24 24" width="19" height="19"><use href="#i-plus"/></svg></span>
+            <div class="row-main"><div class="row-title" style="color:#7A5A22">添加自定义来源</div><div class="row-sub">高级：填入任意 App 包名</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+        <div class="note" style="margin-top:10px">
+          <svg class="i" viewBox="0 0 24 24"><use href="#i-alert"/></svg>
+          需在 LSPosed 作用域勾选「Android 系统」并重启后生效
+        </div>
+
+        <div class="group-label">写入与适配</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-target"/></svg></div>
+            <div class="row-main"><div class="row-title">待办写入目标</div><div class="row-sub">取件码写进哪个 App 的待办</div></div>
+            <div class="row-acc"><span class="sel-value">自动识别</span><svg class="i chev-down" viewBox="0 0 24 24"><use href="#i-chev-down"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-phone"/></svg></div>
+            <div class="row-main"><div class="row-title">环境适配</div><div class="row-sub">MIUI · HyperOS · 已适配</div></div>
+            <div class="row-acc"><span class="sel-value">小米 / 红米</span><svg class="i chev-down" viewBox="0 0 24 24"><use href="#i-chev-down"/></svg></div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="tabbar">
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+        <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+      </nav>
+      <div class="home-bar"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ 3b. 应用（下滚状态） ═══════════════════ -->
+<section class="device">
+  <div class="device-cap">
+    <h3>③b 应用 · 下拉列表展开<span class="tag">同一页展开后</span></h3>
+    <p>下拉列表展开后是一个浮层菜单，当前项带强调色对勾；环境适配收起时右侧直接显示识别结果。顶部渐隐表示上方还有内容。</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar">
+      <span class="sb-time">16:07</span>
+      <div class="sb-right">
+        <svg class="i" viewBox="0 0 24 24" width="15" height="15"><use href="#i-wifi"/></svg>
+        <span class="sb-5g">5G</span>
+        <span class="batt"><i></i></span>
+        <span class="sb-pct">74</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="scroll has-tabbar fade-top">
+        <div class="group-label">写入与适配</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-target"/></svg></div>
+            <div class="row-main"><div class="row-title">待办写入目标</div><div class="row-sub">取件码写进哪个 App 的待办</div></div>
+            <div class="row-acc"><span class="sel-value">自动识别</span><svg class="i chev-down up" viewBox="0 0 24 24"><use href="#i-chev-down"/></svg></div>
+          </div>
+        </div>
+
+        <!-- 下拉列表展开（浮层菜单，当前项带对勾） -->
+        <div class="menu">
+          <div class="menu-item sel"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg>自动识别（推荐）</div>
+          <div class="menu-item"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg>小米笔记待办</div>
+          <div class="menu-item"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg>ColorOS 日历待办</div>
+          <div class="menu-item"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg>ColorOS 便签置顶笔记</div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-phone"/></svg></div>
+            <div class="row-main"><div class="row-title">环境适配</div><div class="row-sub">MIUI · HyperOS · 已适配</div></div>
+            <div class="row-acc"><span class="sel-value">小米 / 红米</span><svg class="i chev-down" viewBox="0 0 24 24"><use href="#i-chev-down"/></svg></div>
+          </div>
+        </div>
+
+        <div class="note quiet" style="margin-top:10px">
+          <svg class="i" viewBox="0 0 24 24"><use href="#i-info"/></svg>
+          环境适配为自动识别结果；写入目标切换后立即生效，无需重启。
+        </div>
+      </div>
+
+      <nav class="tabbar">
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+        <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+      </nav>
+      <div class="home-bar"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ 4. 规则 ═══════════════════════════════ -->
+<section class="device">
+  <div class="device-cap">
+    <h3>④ 规则 · 提取能力的全部入口<span class="tag">原「拓展」位</span></h3>
+    <p>官方规则集 / 我的规则 / 黑名单 / 工具四组。原先把它们散在设置页一大条长列表里，现在收进独立 Tab；「一键链路测试」作为唯一的行动主按钮。</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar">
+      <span class="sb-time">16:07</span>
+      <div class="sb-right">
+        <svg class="i" viewBox="0 0 24 24" width="15" height="15"><use href="#i-wifi"/></svg>
+        <span class="sb-5g">5G</span>
+        <span class="batt"><i></i></span>
+        <span class="sb-pct">74</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="scroll">
+        <div class="page-head"><div class="page-title">规则</div></div>
+
+        <div class="group-label">官方规则集</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-link"/></svg></div>
+            <div class="row-main"><div class="row-title">官方规则集 v5</div><div class="row-sub">13 组锚点词 · 18 特征词 · 29 负向词 · 15 地点后缀</div></div>
+            <span class="badge badge-gold">已是最新</span>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-refresh"/></svg></div>
+            <div class="row-main"><div class="row-title">检查更新（软件 + 规则）</div><div class="row-sub">一次查完，先拉规则再提示软件升级</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+
+        <div class="group-label">我的规则</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-rules"/></svg></div>
+            <div class="row-main"><div class="row-title">用户自定义规则</div><div class="row-sub">官方没覆盖的驿站，为自家那一家单独写一条</div></div>
+            <span class="badge badge-mute">未启用</span>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-template"/></svg></div>
+            <div class="row-main"><div class="row-title">新建规则</div><div class="row-sub">四层发送方匹配 · 自测样本不通过不允许启用</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+
+        <div class="group-label">过滤与兜底</div>
+        <div class="card">
+          <div class="row tall" style="align-items:flex-start">
+            <div class="row-ico" style="margin-top:2px"><svg class="i" viewBox="0 0 24 24"><use href="#i-ban"/></svg></div>
+            <div class="row-main">
+              <div class="row-title">黑名单关键词</div>
+              <div class="chips" style="padding-top:9px;padding-bottom:2px">
+                <span class="chip">12306</span><span class="chip">验证码</span><span class="chip">余额</span>
+                <span class="chip">充值</span><span class="chip">账单</span><span class="chip">银行</span>
+                <span class="chip">优惠券</span><span class="chip">退订</span>
+              </div>
+            </div>
+            <span class="row-link">修改</span>
+          </div>
+        </div>
+
+        <div class="group-label">工具</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-flask"/></svg></div>
+            <div class="row-main"><div class="row-title">一键链路测试</div><div class="row-sub">不消耗短信 · 分步验证「识别 → 写入」</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-notebook"/></svg></div>
+            <div class="row-main"><div class="row-title">疑似漏抓错题本</div><div class="row-sub">当前 0 条 · 一键脱敏复制上报</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-search"/></svg></div>
+            <div class="row-main"><div class="row-title">排查问题向导</div><div class="row-sub">未注入 → root → 作用域 → 通知 → sqlite3 → 笔记库</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-doc"/></svg></div>
+            <div class="row-main"><div class="row-title">导出诊断报告</div><div class="row-sub">自动脱敏，可直接发给作者</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="tabbar">
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+        <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+      </nav>
+      <div class="home-bar"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ 5. 设置 ═══════════════════════════════ -->
+<section class="device">
+  <div class="device-cap">
+    <h3>⑤ 设置 · 分组卡片 + 开关<span class="tag">对齐参考图</span></h3>
+    <p>与参考图第二张一一对应：分组小标题 + 白色卡内分隔行 + 强调色开关。<b>「个性化」组（外观 / 模糊效果 / 语言）是新增建议项</b>，实现成本低、纯 UI；不需要可整组删掉。</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar">
+      <span class="sb-time">16:07</span>
+      <div class="sb-right">
+        <svg class="i" viewBox="0 0 24 24" width="15" height="15"><use href="#i-wifi"/></svg>
+        <span class="sb-5g">5G</span>
+        <span class="batt"><i></i></span>
+        <span class="sb-pct">74</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="scroll">
+        <div class="page-head"><div class="page-title">设置</div></div>
+
+        <div class="group-label">提取与写入</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-target"/></svg></div>
+            <div class="row-main"><div class="row-title">写入目标</div><div class="row-sub">小米笔记待办 · 自动识别</div></div>
+            <div class="row-acc"><span class="row-link">切换</span></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-template"/></svg></div>
+            <div class="row-main"><div class="row-title">待办模板</div><div class="row-sub">完整 · 码 + 来源 + 地点 + 时间</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-bell"/></svg></div>
+            <div class="row-main"><div class="row-title">通知取件提取</div><div class="row-sub">拦截菜鸟 / 京东 / 淘宝 / 拼多多等 App 的取件通知</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-shield"/></svg></div>
+            <div class="row-main"><div class="row-title">冻结免疫直写</div><div class="row-sub">仅 ColorOS：划掉后台仍可写入（需给系统进程授权 root）</div></div>
+            <span class="tg"></span>
+          </div>
+        </div>
+
+        <div class="group-label">个性化</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-palette"/></svg></div>
+            <div class="row-main"><div class="row-title">外观</div><div class="row-sub">更改模块界面主题模式</div></div>
+            <div class="row-acc"><span>跟随系统</span><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-blur"/></svg></div>
+            <div class="row-main"><div class="row-title">模糊效果</div><div class="row-sub">为模块界面增加模糊效果</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-globe"/></svg></div>
+            <div class="row-main"><div class="row-title">语言</div><div class="row-sub">跟随系统</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+
+        <div class="group-label">常规</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-refresh"/></svg></div>
+            <div class="row-main"><div class="row-title">自动检查更新</div><div class="row-sub">应用启动时自动检测新版本（3 天最多一次）</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-download"/></svg></div>
+            <div class="row-main"><div class="row-title">检查更新</div><div class="row-sub">软件 + 规则一次查完</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-doc"/></svg></div>
+            <div class="row-main"><div class="row-title">更新日志</div><div class="row-sub">查看模块的更新日志</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-cloud"/></svg></div>
+            <div class="row-main"><div class="row-title">允许联网</div><div class="row-sub">关闭后进入纯离线模式，核心功能零影响</div></div>
+            <span class="tg on"></span>
+          </div>
+        </div>
+
+        <div class="group-label">帮助与关于</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-file"/></svg></div>
+            <div class="row-main"><div class="row-title">用户协议</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-info"/></svg></div>
+            <div class="row-main"><div class="row-title">关于模块</div><div class="row-sub">v3.1.0 · MIT License</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-heart"/></svg></div>
+            <div class="row-main"><div class="row-title">打赏作者</div><div class="row-sub">纯自愿，不影响任何功能</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i-fill" viewBox="0 0 16 16" width="21" height="21"><use href="#i-github"/></svg></div>
+            <div class="row-main"><div class="row-title">项目仓库</div><div class="row-sub">github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="tabbar">
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+        <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+      </nav>
+      <div class="home-bar"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ 5b. 设置（下滚状态） ═══════════════════ -->
+<section class="device">
+  <div class="device-cap">
+    <h3>⑤b 设置 · 下滚状态<span class="tag">同一页滚动后</span></h3>
+    <p>常规组四项（自动检查更新 / 检查更新 / 更新日志 / 允许联网）+ 帮助与关于组。所有行都遵循同一套行高、图标与右侧配件规则。</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar">
+      <span class="sb-time">16:07</span>
+      <div class="sb-right">
+        <svg class="i" viewBox="0 0 24 24" width="15" height="15"><use href="#i-wifi"/></svg>
+        <span class="sb-5g">5G</span>
+        <span class="batt"><i></i></span>
+        <span class="sb-pct">74</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="scroll has-tabbar fade-top">
+        <div class="group-label">常规</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-refresh"/></svg></div>
+            <div class="row-main"><div class="row-title">自动检查更新</div><div class="row-sub">应用启动时自动检测新版本（3 天最多一次）</div></div>
+            <span class="tg on"></span>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-download"/></svg></div>
+            <div class="row-main"><div class="row-title">检查更新</div><div class="row-sub">软件 + 规则一次查完</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-doc"/></svg></div>
+            <div class="row-main"><div class="row-title">更新日志</div><div class="row-sub">查看模块的更新日志</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-cloud"/></svg></div>
+            <div class="row-main"><div class="row-title">允许联网</div><div class="row-sub">关闭后进入纯离线模式，核心功能零影响</div></div>
+            <span class="tg on"></span>
+          </div>
+        </div>
+
+        <div class="group-label">帮助与关于</div>
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-file"/></svg></div>
+            <div class="row-main"><div class="row-title">用户协议</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-info"/></svg></div>
+            <div class="row-main"><div class="row-title">关于模块</div><div class="row-sub">v3.1.0 · MIT License</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-heart"/></svg></div>
+            <div class="row-main"><div class="row-title">打赏作者</div><div class="row-sub">纯自愿，不影响任何功能</div></div>
+            <div class="row-acc"><svg class="i chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg></div>
+          </div>
+        </div>
+
+        <div class="note quiet" style="margin-top:10px">
+          <svg class="i" viewBox="0 0 24 24"><use href="#i-chat"/></svg>
+          开发者 QQ 群 901543676（进群备注「取件码助手」）· 酷安更新动态同步发布
+        </div>
+      </div>
+
+      <nav class="tabbar">
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-home"/></svg></span><span class="tab-label">首页</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-grid"/></svg></span><span class="tab-label">应用</span></div>
+        <div class="tab"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span><span class="tab-label">规则</span></div>
+        <div class="tab active"><span class="tab-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-gear"/></svg></span><span class="tab-label">设置</span></div>
+      </nav>
+      <div class="home-bar"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 6. 一键链路测试 · 第 1 步 ═══════════════════════ -->
+<section class="device">
+  <div class="device-cap">
+    <h3>⑥ 一键链路测试 · 第 1 步<span class="tag">子页</span></h3>
+    <p>三步流程顶部常驻进度胶囊；输入框支持「填入官方案例」一键铺数据，发送方可选（用于验证号码专属规则）。</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar">
+      <span class="sb-time">16:07</span>
+      <div class="sb-right">
+        <svg class="i" viewBox="0 0 24 24" width="15" height="15"><use href="#i-wifi"/></svg>
+        <span class="sb-5g">5G</span>
+        <span class="batt"><i></i></span>
+        <span class="sb-pct">74</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="scroll" style="padding-bottom:30px">
+        <div class="page-head">
+          <span class="back"><svg class="i" viewBox="0 0 24 24"><use href="#i-chev"/></svg></span>
+          <div class="page-title sm">一键链路测试</div>
+        </div>
+
+        <div class="steps">
+          <div class="step on"><i>1</i>输入</div>
+          <div class="step-line"></div>
+          <div class="step"><i>2</i>解析</div>
+          <div class="step-line"></div>
+          <div class="step"><i>3</i>写入</div>
+        </div>
+
+        <div class="card" style="padding:14px 16px">
+          <div style="font-size:14px;font-weight:600;margin-bottom:9px">短信内容</div>
+          <div class="field">【菜鸟驿站】您的包裹已到站，请凭取件码 <span class="kbd">16-4-9626</span> 到 学苑路店 菜鸟驿站 及时取件。</div>
+          <div style="font-size:14px;font-weight:600;margin:14px 0 9px">发送方 <span style="color:#8E8E8E;font-weight:400;font-size:12.5px">可选 · 留空 = 不限来源</span></div>
+          <div class="field">1069888877</div>
+          <div class="note quiet" style="margin-top:10px">
+            <svg class="i" viewBox="0 0 24 24"><use href="#i-info"/></svg>
+            填了发送方，第 2 步解析与第 3 步写入都会用同一个号码，可验证「前缀 / 精确匹配」的自定义规则。
+          </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:14px">
+          <div class="btn ghost sm" style="height:46px"><svg class="i" viewBox="0 0 24 24"><use href="#i-book"/></svg>填入官方案例</div>
+          <div class="btn primary" style="height:46px"><svg class="i" viewBox="0 0 24 24"><use href="#i-flask"/></svg>开始解析</div>
+        </div>
+
+        <div class="note" style="margin-top:14px">
+          <svg class="i" viewBox="0 0 24 24"><use href="#i-flask"/></svg>
+          全程不消耗真实短信、不产生任何费用；第 2 步只解析不写库，第 3 步确认后才真实写入。
+        </div>
+      </div>
+      <div class="home-bar"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 7. 一键链路测试 · 第 2 步 ═══════════════════════ -->
+<section class="device">
+  <div class="device-cap">
+    <h3>⑦ 一键链路测试 · 第 2 步 解析结果<span class="tag">子页</span></h3>
+    <p>解析结果用键值行呈现（取件码放大加粗），末尾一行标明「写库：尚未写入 · 等第 3 步确认」；未命中时这里直接给「上报」入口。</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar">
+      <span class="sb-time">16:07</span>
+      <div class="sb-right">
+        <svg class="i" viewBox="0 0 24 24" width="15" height="15"><use href="#i-wifi"/></svg>
+        <span class="sb-5g">5G</span>
+        <span class="batt"><i></i></span>
+        <span class="sb-pct">74</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="scroll" style="padding-bottom:30px">
+        <div class="page-head">
+          <span class="back"><svg class="i" viewBox="0 0 24 24"><use href="#i-chev"/></svg></span>
+          <div class="page-title sm">解析结果</div>
+        </div>
+
+        <div class="steps">
+          <div class="step done"><i><svg class="i" viewBox="0 0 24 24" style="width:11px;height:11px"><use href="#i-check"/></svg></i>输入</div>
+          <div class="step-line"></div>
+          <div class="step on"><i>2</i>解析</div>
+          <div class="step-line"></div>
+          <div class="step"><i>3</i>写入</div>
+        </div>
+
+        <div class="card" style="padding:14px 16px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span class="badge badge-ok">解析成功</span>
+            <span style="font-size:12.5px;color:#8E8E8E">耗时 3 ms · 未触发 50ms 熔断</span>
+          </div>
+          <dl class="kv"><dt>取件码</dt><dd class="big">16-4-9626</dd></dl>
+          <dl class="kv"><dt>来源</dt><dd>菜鸟驿站</dd></dl>
+          <dl class="kv"><dt>地点</dt><dd>学苑路店 <span style="color:#8E8E8E;font-size:12.5px">（后缀策略 · 命中「店」）</span></dd></dl>
+          <dl class="kv"><dt>命中规则</dt><dd>官方规则集 v5 · 锚点词「取件码」+ 横线簇码形</dd></dl>
+          <dl class="kv"><dt>去重指纹</dt><dd>未命中 · 将作为新码写入</dd></dl>
+          <dl class="kv"><dt>写库</dt><dd style="color:#C97F2E">尚未写入（第 2 步只解析）</dd></dl>
+        </div>
+
+        <div class="note quiet" style="margin-top:12px">
+          <svg class="i" viewBox="0 0 24 24"><use href="#i-info"/></svg>
+          第 3 步会走完整链路（含去重与通知），写入后请在待办 App 中确认。
+        </div>
+
+        <div class="btn-row" style="margin-top:14px">
+          <div class="btn ghost" style="flex:0 0 108px"><svg class="i flip" viewBox="0 0 24 24"><use href="#i-chev"/></svg>返回修改</div>
+          <div class="btn ok"><svg class="i" viewBox="0 0 24 24"><use href="#i-check"/></svg>写入待办</div>
+        </div>
+      </div>
+      <div class="home-bar"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 8. 用户自定义规则（列表） ═══════════════════════ -->
+<section class="device">
+  <div class="device-cap">
+    <h3>⑧ 用户自定义规则 · 列表<span class="tag">子页</span></h3>
+    <p>必读提示收成一张金色提示卡；启用开关独立成行；每条规则显示「发送方范围 / 自测样本是否通过」——这两项决定规则能不能被启用。</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar">
+      <span class="sb-time">16:07</span>
+      <div class="sb-right">
+        <svg class="i" viewBox="0 0 24 24" width="15" height="15"><use href="#i-wifi"/></svg>
+        <span class="sb-5g">5G</span>
+        <span class="batt"><i></i></span>
+        <span class="sb-pct">74</span>
+      </div>
+    </div>
+    <div class="screen">
+      <div class="scroll" style="padding-bottom:30px">
+        <div class="page-head">
+          <span class="back"><svg class="i" viewBox="0 0 24 24"><use href="#i-chev"/></svg></span>
+          <div class="page-title sm">用户自定义规则</div>
+        </div>
+
+        <div class="note" style="margin-bottom:12px">
+          <svg class="i" viewBox="0 0 24 24"><use href="#i-alert"/></svg>
+          <span><b>使用前必读</b><br>自定义规则只定义「从短信里提取什么」，无法修改任何数据库写入行为；<br>危险正则会被静态拦截，规则必须先通过自测样本才能启用。</span>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-rules"/></svg></div>
+            <div class="row-main"><div class="row-title">启用我的规则</div><div class="row-sub">开启后优先于官方规则匹配</div></div>
+            <span class="tg on"></span>
+          </div>
+        </div>
+
+        <div class="group-label" style="padding-top:16px">共 1 条规则，已启用 1 条（上限 50）</div>
+        <div class="card">
+          <div class="rule-card">
+            <div class="row-ico"><svg class="i" viewBox="0 0 24 24"><use href="#i-rules"/></svg></div>
+            <div class="row-main">
+              <div class="row-title">学苑路菜鸟驿站 · 提货码</div>
+              <div class="row-sub subseg-col">
+                <span class="subseg"><svg class="i mini" viewBox="0 0 24 24"><use href="#i-call"/></svg>前缀匹配 10698</span>
+                <span class="subseg"><svg class="i mini" viewBox="0 0 24 24"><use href="#i-pin"/></svg>地点取捕获组 1</span>
+                <span class="subseg ok"><svg class="i mini" viewBox="0 0 24 24"><use href="#i-check"/></svg>自测样本已通过</span>
+              </div>
+            </div>
+            <span class="tg on"></span>
+          </div>
+        </div>
+
+        <div class="btn btn-row" style="margin-top:12px;background:none;height:auto">
+          <div class="btn primary sm" style="height:46px"><svg class="i" viewBox="0 0 24 24"><use href="#i-plus"/></svg>新建规则</div>
+        </div>
+
+        <div class="note quiet" style="margin-top:12px">
+          <svg class="i" viewBox="0 0 24 24"><use href="#i-info"/></svg>
+          <span>不会写正则？点「新建规则」后照着
+            <span class="subseg"><svg class="i mini" viewBox="0 0 24 24"><use href="#i-book"/></svg>参考案例</span>
+            改；样本不通过不允许启用。</span>
+        </div>
+
+        <div class="btn ghost-line sm" style="margin-top:12px"><svg class="i" viewBox="0 0 24 24"><use href="#i-book"/></svg>查看完整参考手册（GitHub）</div>
+
+        <div class="note" style="margin-top:12px">
+          <svg class="i" viewBox="0 0 24 24"><use href="#i-chat"/></svg>
+          完全本地，不经过任何服务器；支持导出分享与社区贡献。
+        </div>
+      </div>
+      <div class="home-bar"></div>
+    </div>
+  </div>
+</section>
+
+</main>
+</body>
+</html>

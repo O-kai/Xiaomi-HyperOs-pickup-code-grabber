@@ -88,7 +88,7 @@ public class TodoWriter {
         synchronized (DEDUP_LOCK) {
         Set<String> seen = new LinkedHashSet<>(prefs.getStringSet("seen", new LinkedHashSet<>()));
         int mode = prefs.getInt("todo_mode", MODE_FULL);
-        String customTpl = prefs.getString("todo_custom", "📦 取件码 {code}｜{source}｜{place}｜{time}");
+        String customTpl = prefs.getString("todo_custom", "取件码 {code}｜{source}｜{place}｜{time}");
         for (String code : codes) {
             String fingerprint = code + "|" + place;
             if (seen.contains(fingerprint)) {
@@ -158,14 +158,14 @@ public class TodoWriter {
             case MODE_MIN:
                 return code;
             case MODE_CUSTOM:
-                String tpl = customTpl == null || customTpl.isEmpty() ? "📦 取件码 {code}｜{source}｜{place}｜{time}" : customTpl;
+                String tpl = customTpl == null || customTpl.isEmpty() ? "取件码 {code}｜{source}｜{place}｜{time}" : customTpl;
                 return tpl.replace("{code}", code)
                         .replace("{source}", source)
                         .replace("{place}", place)
                         .replace("{time}", time);
             case MODE_FULL:
             default:
-                return "📦 取件码 " + code + "｜" + source + "｜" + place + "｜" + time;
+                return "取件码 " + code + "｜" + source + "｜" + place + "｜" + time;
         }
     }
 
@@ -285,7 +285,7 @@ public class TodoWriter {
 
     /** 笔记标题（ColorOS rich_notes 的 summary_title 展示用）：取内容首个「｜」前的短句 */
     public static String buildTitle(String code, String content) {
-        if (content == null) return "📦 " + code;
+        if (content == null) return code;
         int cut = content.indexOf('｜');
         String t = cut > 0 ? content.substring(0, cut) : content;
         return t.length() > 40 ? t.substring(0, 40) : t;

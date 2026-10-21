@@ -33,7 +33,7 @@ public class Notifier {
             }
 
             String codesJoined = String.join(" ", codes);
-            String title = "📦 " + codesJoined;
+            String title = codesJoined;
             String text = titleExtra == null || titleExtra.isEmpty()
                     ? "点击复制并查看待办" : titleExtra + " · 点击复制";
 
@@ -110,10 +110,10 @@ public class Notifier {
                     ? new Notification.Builder(ctx, "pickup_error")
                     : new Notification.Builder(ctx);
             b.setSmallIcon(ctx.getApplicationInfo().icon);
-            b.setContentTitle("⚠️ 取件码已识别，但未能写入待办");
+            b.setContentTitle("取件码已识别，但未能写入待办");
             b.setContentText(text);
             b.setStyle(new Notification.BigTextStyle().bigText(
-                    text + "\n\n可打开模块点「🔍 排查问题」按向导处理，"
+                    text + "\n\n可打开模块点「排查问题向导」按向导处理，"
                             + "或点上方体检卡查看详情。"));
             b.setContentIntent(pi);
             b.setAutoCancel(true);

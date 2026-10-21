@@ -75,10 +75,10 @@ public class ChainTestActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(22), dp(20), dp(20));
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(UiKit.palette(this).bg);
 
         TextView title = new TextView(this);
-        title.setText("🧪 一键链路测试");
+        title.setText("一键链路测试");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         title.setTextColor(Color.parseColor("#1A1A1A"));
         title.setTypeface(null, Typeface.BOLD);
@@ -97,13 +97,13 @@ public class ChainTestActivity extends Activity {
         // 第一行：两个辅助操作并排（等宽对称）
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.addView(btn("📋 填入官方案例", "#7A5AF8", v -> {
+        row1.addView(btn("填入官方案例", "#7A5AF8", v -> {
             input.setText(sample());
             // 发送方一并填好：否则用户永远看不到「号码专属规则」这条最推荐的用法
             senderInput.setText(SAMPLE_SENDER);
             Toast.makeText(this, "已填入官方案例（含示例发送方），点下方「② 解析」继续", Toast.LENGTH_SHORT).show();
         }), lp());
-        row1.addView(btn("📥 粘贴剪贴板", "#0FA968", v -> {
+        row1.addView(btn("粘贴剪贴板", UiKit.OK, v -> {
             try {
                 ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
@@ -150,7 +150,7 @@ public class ChainTestActivity extends Activity {
         senderInput.setSingleLine(true);
         senderInput.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         senderInput.setPadding(dp(12), dp(10), dp(12), dp(10));
-        senderInput.setBackground(roundRect("#F7F8FA"));
+        senderInput.setBackground(roundRect(UiKit.palette(this).cardSoft));
         if (lastSender != null && !lastSender.isEmpty()) senderInput.setText(lastSender);
         LinearLayout.LayoutParams senderLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -159,7 +159,7 @@ public class ChainTestActivity extends Activity {
         root.addView(senderInput);
 
         TextView senderTip = new TextView(this);
-        senderTip.setText("💡 填了发送方，第 2 步解析与第 3 步写入都会用同一个号码，\n"
+        senderTip.setText("填了发送方，第 2 步解析与第 3 步写入都会用同一个号码，\n"
                 + "号码专属规则（精确/前缀/包含）才有可能匹配上。");
         senderTip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
         senderTip.setTextColor(Color.parseColor("#999999"));
@@ -176,7 +176,7 @@ public class ChainTestActivity extends Activity {
         input.setMinLines(5);
         input.setMaxLines(10);
         input.setPadding(dp(12), dp(10), dp(12), dp(10));
-        input.setBackground(roundRect("#F7F8FA"));
+        input.setBackground(roundRect(UiKit.palette(this).cardSoft));
         if (lastBody != null && !lastBody.isEmpty()) input.setText(lastBody);
         LinearLayout.LayoutParams inLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
@@ -185,9 +185,9 @@ public class ChainTestActivity extends Activity {
         root.addView(input);
 
         TextView tip = new TextView(this);
-        tip.setText("💡 第一次使用建议点「填入官方案例」；\n"
+        tip.setText("第一次使用建议点「填入官方案例」；\n"
                 + "若某条真实短信没被抓到，粘贴进来点下方按钮看是否匹配，\n"
-                + "这正是「🧩 用户自定义规则」该出手的场景。\n"
+                + "这正是「用户自定义规则」该出手的场景。\n"
                 + "注：号码专属规则（精确/前缀/包含匹配）必须在上方填「发送方」才能验证，\n"
                 + "留空＝不限来源时这类规则永远不会命中。");
         tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
@@ -197,7 +197,7 @@ public class ChainTestActivity extends Activity {
         root.addView(tip);
 
         // 底部主操作：通栏、与其他步骤的主按钮位置保持一致（视觉对称）
-        TextView parseBtn = btn("② 解析（不写库）", "#1E6FE8", v -> doParse());
+        TextView parseBtn = btn("② 解析（不写库）", UiKit.palette(this).accent, v -> doParse());
         root.addView(parseBtn);
 
         setContentView(root);
@@ -243,7 +243,7 @@ public class ChainTestActivity extends Activity {
         TextView t2 = new TextView(this);
         t2.setText("第 2 步 / 共 3 步：解析结果");
         t2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        t2.setTextColor(Color.parseColor(hit ? "#0FA968" : "#D93025"));
+        t2.setTextColor(hit ? UiKit.OK : UiKit.DANGER);
         t2.setTypeface(null, Typeface.BOLD);
         t2.setPadding(0, dp(6), 0, dp(14));
         page.addView(t2);
@@ -251,7 +251,7 @@ public class ChainTestActivity extends Activity {
         // 结果卡片
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(roundRect(hit ? "#EEF9F1" : "#FDF0EF"));
+        card.setBackground(roundRect(hit ? UiKit.OK_SOFT : UiKit.DANGER_SOFT));
         card.setPadding(dp(14), dp(14), dp(14), dp(14));
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -261,8 +261,8 @@ public class ChainTestActivity extends Activity {
 
         // v3.0.1：明示本次用的是官方规则还是哪条用户自定义规则
         addResultRow(card, "规则来源", hitUserRule != null
-                ? "🧩 用户自定义规则 · " + hitUserRule
-                : "📘 官方规则集 v" + PickupExtractor.getActiveRulesVersion());
+                ? "用户自定义规则 · " + hitUserRule
+                : "官方规则集 v" + PickupExtractor.getActiveRulesVersion());
         addResultRow(card, "发 送 方", sender != null
                 ? sender + "（号码专属规则已参与匹配）"
                 : "未填（不限来源：号码专属规则不会命中）");
@@ -273,13 +273,13 @@ public class ChainTestActivity extends Activity {
         TextView note = new TextView(this);
         note.setText(hit
                 ? (hitUserRule != null
-                    ? "✅ 识别成功（由你的自定义规则「" + hitUserRule + "」匹配）。\n\n"
+                    ? "识别成功（由你的自定义规则「" + hitUserRule + "」匹配）。\n\n"
                         + "下一步可写入待办，验证完整链路（去重 + 通知）。"
-                    : "✅ 识别成功（由官方规则集匹配）。\n\n"
+                    : "识别成功（由官方规则集匹配）。\n\n"
                         + "下一步可写入待办，验证完整链路（去重 + 通知）。")
-                : "❌ 没能识别到取件码。\n\n"
+                : "没能识别到取件码。\n\n"
                 + "可能是短信模板较特殊，官方规则没覆盖到。\n"
-                + "这正是「🧩 用户自定义规则」该出手的场景。\n"
+                + "这正是「用户自定义规则」该出手的场景。\n"
                 + "也可以把这条短信上报给作者，下一版规则就能适配。");
         note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         note.setTextColor(Color.parseColor("#666666"));
@@ -292,15 +292,15 @@ public class ChainTestActivity extends Activity {
         if (hit) {
             // v3.1.1：写入已移到后台线程，这里先把按钮置灰并改成"写入中"，
             // 否则长达数秒的 su+sqlite3 期间按钮毫无反馈，用户会以为"点了没反应"
-            page.addView(btn("③ 写入待办（验证完整链路）", "#0FA968", v -> {
+            page.addView(btn("③ 写入待办（验证完整链路）", UiKit.OK, v -> {
                 v.setEnabled(false);
                 ((TextView) v).setText("⏳ 正在写入…（su + sqlite3，可能需数秒）");
                 doWrite(sms, sender);
             }), vlp());
         } else {
-            page.addView(btn("✍️ 上报这条短信给作者", "#F0A020", v -> report()), vlp());
+            page.addView(btn("上报这条短信给作者", "#F0A020", v -> report()), vlp());
         }
-        page.addView(btn("← 返回修改短信", "#8A8A8A", v -> showStep1(sms, sender)), vlp());
+        page.addView(btn("返回修改短信", "#8A8A8A", v -> showStep1(sms, sender)), vlp());
 
         setContentView(page);
     }
@@ -330,7 +330,7 @@ public class ChainTestActivity extends Activity {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
         p.setPadding(dp(20), dp(22), dp(20), dp(20));
-        p.setBackgroundColor(Color.WHITE);
+        p.setBackgroundColor(UiKit.palette(this).bg);
         return p;
     }
 
@@ -380,11 +380,9 @@ public class ChainTestActivity extends Activity {
                 dedup = (d == null) ? "" : d;
             } catch (final Throwable t) {
                 final String msg = String.valueOf(t.getMessage());
-                runOnUiThread(() -> new AlertDialog.Builder(this)
-                        .setTitle("❌ 写入异常")
-                        .setMessage(msg)
-                        .setPositiveButton("知道了", null)
-                        .show());
+                runOnUiThread(() -> UiKit.dialog(this, UiKit.palette(this),
+                        R.drawable.ic_alert, "写入异常", msg, null,
+                        UiKit.primary("知道了", null)));
                 return;
             }
             runOnUiThread(() -> showWriteResult(wrote, dedup));
@@ -405,20 +403,20 @@ public class ChainTestActivity extends Activity {
         // 命中去重时 wrote 同样是空的（本来就写过了），此前被误报成「写入失败」。
         boolean dedupHit = dedup != null && !dedup.trim().isEmpty();
         if (dedupHit) {
-            title = "✅ 写入成功（命中去重）";
-            msg = "解析 ✅　识别 ✅　去重 ✅　通知 ✅\n\n"
+            title = "写入成功（命中去重）";
+            msg = "解析：通过　识别：通过　去重：通过　通知：通过\n\n"
                     + "这条取件码之前已写入过，去重机制正常拦截——"
                     + "说明整条链路是通的，且不会重复打扰你。\n\n"
                     + "想看写入效果？换一条没测过的短信再试一次即可。";
         } else if (wrote.isEmpty()) {
             String diag = TodoWriter.getLastWriteDiag();
             if (diag.length() > 160) diag = diag.substring(0, 160) + "…";
-            title = "❌ 写入未成功";
+            title = "写入未成功";
             msg = "解析出了取件码，但写入待办这步没通过。\n\n可能原因：\n" + diag
-                    + "\n\n可回主界面展开「⚙️ 更多设置」点「🔍 排查问题」按向导定位。";
+                    + "\n\n可回主界面点「规则 → 排查问题向导」按向导定位。";
         } else {
-            title = "🎉 全链路已跑通";
-            msg = "解析 ✅　识别 ✅　写入 ✅　去重 ✅　通知 ✅\n\n"
+            title = "全链路已跑通";
+            msg = "解析：通过　识别：通过　写入：通过　去重：通过　通知：通过\n\n"
                     + "整条链路工作正常。以后收到真实取件短信会自动写进待办，\n"
                     + "这条测试记录可随时删除。\n\n已写入：" + wrote;
         }
@@ -427,8 +425,7 @@ public class ChainTestActivity extends Activity {
         TextView t3 = new TextView(this);
         t3.setText(title);
         t3.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        t3.setTextColor(Color.parseColor(
-                dedupHit || !wrote.isEmpty() ? "#0FA968" : "#D93025"));
+        t3.setTextColor(dedupHit || !wrote.isEmpty() ? UiKit.OK : UiKit.DANGER);
         t3.setTypeface(null, Typeface.BOLD);
         t3.setPadding(0, dp(6), 0, dp(14));
         page.addView(t3);
@@ -441,8 +438,8 @@ public class ChainTestActivity extends Activity {
         page.addView(body, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f));
 
-        page.addView(btn("✅ 完成", "#1E6FE8", v -> finish()), vlp());
-        page.addView(btn("← 再测一条", "#8A8A8A", v -> showStep1(null, null)), vlp());
+        page.addView(btn("完成", UiKit.palette(this).accent, v -> finish()), vlp());
+        page.addView(btn("再测一条", "#8A8A8A", v -> showStep1(null, null)), vlp());
         setContentView(page);
     }
 
@@ -455,7 +452,7 @@ public class ChainTestActivity extends Activity {
                         ? "\n发送方：未填（不限来源）"
                         : "\n发送方：" + lastSender)
                     + "\n\n### 2. 期望结果\n（应提取到的取件码 / 来源 / 地点）\n\n"
-                    + "### 3. 实际表现\n· 在「🧪 一键链路测试」中解析结果：\n\n"
+                    + "### 3. 实际表现\n· 在「一键链路测试」中解析结果：\n\n"
                     + "### 4. 运行环境\n"
                     + "- 模块版本：v" + getPackageManager()
                     .getPackageInfo(getPackageName(), 0).versionName + "\n"
@@ -508,7 +505,31 @@ public class ChainTestActivity extends Activity {
         p2.setMargins(0, dp(5), 0, dp(5));
         return p2;
     }
+    /** v4.0.0：接受 int 颜色（用于跟随配色的强调色等） */
+    private android.graphics.drawable.Drawable roundRect(int color) {
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        gd.setColor(color);
+        gd.setCornerRadius(dp(14));
+        return gd;
+    }
+
+    /** v4.0.0：接受 int 颜色的按钮（跟随配色） */
+    private TextView btn(String label, int bg, View.OnClickListener l) {
+        TextView b = new TextView(this);
+        b.setText(label);
+        b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+        b.setTextColor(Color.WHITE);
+        b.setBackground(roundRect(bg));
+        b.setPadding(dp(14), dp(12), dp(14), dp(12));
+        b.setGravity(android.view.Gravity.CENTER);
+        b.setOnClickListener(l);
+        return b;
+    }
+
     private int dp(int v) {
+
+
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
                 getResources().getDisplayMetrics());
     }

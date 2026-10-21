@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="拼多多">
+  <rect width="96" height="96" rx="26" fill="#E22E1F"/>
+  <path d="M32 38h32l3.6 29.8A6 6 0 0 1 61.6 74H34.4a6 6 0 0 1-6-6.2z" fill="#FFFFFF"/>
+  <path d="M39 44.5v-6a9 9 0 0 1 18 0v6" stroke="#FFFFFF" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M48 64.6c-6.4-4.1-10.1-7.3-10.1-10.8a5.2 5.2 0 0 1 10.1-1.5 5.2 5.2 0 0 1 10.1 1.5c0 3.5-3.7 6.7-10.1 10.8z" fill="#E22E1F"/>
+</svg>

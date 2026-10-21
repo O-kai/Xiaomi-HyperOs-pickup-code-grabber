@@ -236,6 +236,11 @@ public class PickupExtractor {
         return activeRules != null ? activeRules.description : "默认内置规则";
     }
 
+    /** v4.0.0：把当前生效的规则集本体暴露给界面（规则页展示词表规模用，只读） */
+    public static ExtractorRules getActiveRules() {
+        return activeRules;
+    }
+
     /** 本地端侧沙箱冒烟门禁：对候选规则执行严苛回归检验 */
     public static boolean runSmokeTest(ExtractorRules rules) {
         if (rules == null) return false;
