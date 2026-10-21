@@ -77,6 +77,8 @@ public class LauncherActivity extends Activity {
     private LinearLayout checklistCard;
     private LinearLayout checklistBox;
     private TextView deployBtn, troubleshootBtn;
+    /** v4.3：新用户「开始配置」引导入口（未完全就绪时显示） */
+    private TextView guideBtn;
     /** 4.1：一键链路测试入口（从「规则 → 工具」移到首页） */
     private LinearLayout chainTestBtn;
     /** 4.2：自定义模板的占位符说明卡（选「自定义」时显示） */
@@ -210,16 +212,36 @@ public class LauncherActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         // 4.1：Tab 名「应用」→「来源」（页面内容是"哪些 App 的通知会被读取"，
         // 叫「应用」容易与「写入目标 App」混淆）
-        String[] titles = { "取件码助手", "取件通知", "高级规则", "设置" };
+        String[] titles = { "取件码助手", "通知提取", "高级规则", "设置" };
         headerTitle.setText(titles[index]);
-        headerSub.setText(appVersionLabel() + " · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
+        headerSub.setText(headerSubtitle(index));
 
         navHolder.removeAllViews();
         LinearLayout bar = UiKit.tabbar(this, P, UiKit.navBlur(this), index, this::showTab);
         navHolder.addView(bar, UiKit.tabbarLp(this));
     }
 
-    /** 全局换肤（配色 / 模糊效果）：重建界面，保留当前 Tab（onSaveInstanceState 兜底） */
+    /**
+     * v4.3：每个 Tab 的头部副标题——只做这一页的信息归总，不再四个页面共用一句。
+     *
+     * 写法思路：首页给版本与定位（新用户第一次看到，需要知道这是什么）；
+     * 其余三页给「这一页在干什么」的一句话总结。
+     */
+    private String headerSubtitle(int index) {
+        switch (index) {
+            case 0:
+                return appVersionLabel() + " · LSPosed 模块 · 自动提取取件码写入 " + backendLabel();
+            case 1:
+                return "从 App 通知里提取取件码 · 短信通道不受此限制";
+            case 2:
+                return "官方规则之外的自定义识别规则 · 一般无需改动";
+            case 3:
+                return "外观、更新、排查与关于";
+            default:
+                return "";
+        }
+    }
+
     private void rebuildUi() {
         recreate();
     }
@@ -298,28 +320,44 @@ public class LauncherActivity extends Activity {
         troubleshootBtn.setOnClickListener(v -> runTroubleshoot());
         box.addView(troubleshootBtn);
 
-        // ============ 4.1 / 4.2 信息架构调整 ============
-        // 首页只回答一个问题：它现在能正常工作吗？不能的话我该做什么？
-        // 移出：双统计卡（无实际用途）、项目版本信息、检查更新、反馈入口 → 设置
-        // 移入：待办模板（原设置）、写入目标（原应用页）、官方规则集版本（原规则页）、
-        //       一键链路测试（原规则页工具组）
-        // 4.2 调整：链路测试移到页面最下方（它是整套流程走完后的最终验证）；
-        //           环境适配从首页移除（自动识别结果，无需用户关心）
+        // v4.3：「开始配置」——新用户首次安装的总入口，按顺序走完六步。
+        // 仅在未完全就绪时出现（全绿时藏起来，不打扰已用起来的用户）。
+        guideBtn = UiKit.buttonIcon(this, P, R.drawable.ic_rocket, "开始配置（按顺序走完）", "ok");
+        LinearLayout.LayoutParams gLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        gLp.setMargins(0, dp(10), 0, 0);
+        guideBtn.setLayoutParams(gLp);
+        guideBtn.setVisibility(View.GONE);
+        guideBtn.setOnClickListener(v -> showSetupGuide());
+        box.addView(guideBtn);
 
-        // 写入与适配（原在「应用」页；4.2：只保留写入目标，环境适配已移除）
-        box.addView(UiKit.groupLabel(this, P, "写入目标"));
+        // ============ v4.3 首页 ============
+        // 用户要求：去掉所有分组小标题（写入目标 / 待办模板 / 官方规则集），
+        // 卡片本身已经能表达含义，小标题是冗余。
+        // 顺序：状态卡 → 官方规则集 → 取件码写入目标 → 写入格式 → 一键链路测试
+
+        // 官方规则集（4.3：移到状态卡正下方）
+        ExtractorRules hr = PickupExtractor.getActiveRules();
+        String hrCounts = hr == null ? "" :
+                hr.keywordAnchors.size() + " 组锚点词 · " + hr.featureWords.size() + " 特征词 · "
+                        + hr.negativeKeywords.size() + " 负向词";
+        LinearLayout ruleCard = UiKit.card(this, P);
+        ruleCard.addView(UiKit.row(this, P, R.drawable.ic_link,
+                "官方规则集 v" + PickupExtractor.getActiveRulesVersion(), hrCounts,
+                UiKit.badgeAccent(this, P, "已是最新")));
+        box.addView(ruleCard, UiKit.cardLp(this, 12));
+
+        // 取件码写入目标（4.3：改名 + 右侧同时显示「自动」与自动选中的具体目标）
         LinearLayout waCard = UiKit.card(this, P);
-        backendValue = UiKit.value(this, P, backendLabel());
-        LinearLayout backendRow = UiKit.row(this, P, R.drawable.ic_target, "待办写入目标",
-                "取件码写进哪个 App", backendValue);
+        LinearLayout backendRow = UiKit.row(this, P, R.drawable.ic_target, "取件码写入目标",
+                null, buildBackendValueView());
         LinearLayout backendAcc = (LinearLayout) backendRow.getChildAt(backendRow.getChildCount() - 1);
         backendAcc.addView(UiKit.icon(this, R.drawable.ic_chev_down, 17, P.muteInk));
         backendRow.setOnClickListener(v -> showBackendPicker());
         waCard.addView(backendRow);
-        box.addView(waCard, UiKit.cardLp(this, 12));
+        box.addView(waCard, UiKit.cardLp(this, 0f));
 
-        // 待办模板（4.2：从「设置 → 提取与写入」移来，放在官方规则集下面）
-        box.addView(UiKit.groupLabel(this, P, "待办模板"));
+        // 写入格式（待办模板）
         LinearLayout tplCard = UiKit.card(this, P);
         tplValueView = UiKit.value(this, P, modeLabel(currentMode));
         LinearLayout tplRow = UiKit.row(this, P, R.drawable.ic_template, "写入格式",
@@ -332,21 +370,9 @@ public class LauncherActivity extends Activity {
         tplEditorBox.setVisibility(View.GONE);
         buildTplEditor();
         tplCard.addView(tplEditorBox);
-        box.addView(tplCard, UiKit.cardLp(this, 0f));
+        box.addView(tplCard, UiKit.cardLp(this, 10));
 
-        // 官方规则集版本（原在「规则」页顶部，这里只显示状态，检查更新已移到设置）
-        box.addView(UiKit.groupLabel(this, P, "官方规则集"));
-        ExtractorRules hr = PickupExtractor.getActiveRules();
-        String hrCounts = hr == null ? "" :
-                hr.keywordAnchors.size() + " 组锚点词 · " + hr.featureWords.size() + " 特征词 · "
-                        + hr.negativeKeywords.size() + " 负向词";
-        LinearLayout ruleCard = UiKit.card(this, P);
-        ruleCard.addView(UiKit.row(this, P, R.drawable.ic_link,
-                "官方规则集 v" + PickupExtractor.getActiveRulesVersion(), hrCounts,
-                UiKit.badgeAccent(this, P, "已是最新")));
-        box.addView(ruleCard, UiKit.cardLp(this, 12));
-
-        // 一键链路测试（4.2：放在页面最下方——整套流程走完后的最终验证）
+        // 一键链路测试（放在页面最下方——整套流程走完后的最终验证）
         LinearLayout ctCard = UiKit.card(this, P);
         chainTestBtn = toolRow(R.drawable.ic_flask, "一键链路测试",
                 "不消耗短信 · 分步验证「识别 → 写入」", v -> precheckThenOpenChainTest());
@@ -399,9 +425,16 @@ public class LauncherActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box);
 
-        // 4.2：通知取件提取开关移到本页最上面（从「设置 → 提取与写入」移来）。
-        // 理由：这个开关直接决定「下面这些 App 的通知要不要读」，
-        // 放在来源列表上方才是它该在的位置。
+        // v4.3：说明文案放到最上面，开关在其下（用户要求「先写文案，再写开关」）
+        TextView intro = UiKit.text(this,
+                "App 收到取件码通知时会被写入待办。\n"
+                        + "短信通道不受此限制——任何号码的取件短信都会识别，无需在此添加。",
+                12.5f, UiKit.INK3);
+        intro.setLineSpacing(dp(3), 1.15f);
+        intro.setBackground(UiKit.bg(P.cardSoft, this, 14));
+        intro.setPadding(dp(15), dp(13), dp(15), dp(13));
+        box.addView(intro, UiKit.cardLp(this, 12));
+
         LinearLayout notiCard = UiKit.card(this, P);
         notiSwitchOn = isNotiHookFlagOn();
         notiSw = new UiKit.Switch(this, P, notiSwitchOn);
@@ -417,18 +450,9 @@ public class LauncherActivity extends Activity {
         notiScopeHintView.setLineSpacing(dp(2), 1.0f);
         notiScopeHintView.setVisibility(View.GONE);
         notiCard.addView(notiScopeHintView);
-        box.addView(notiCard, UiKit.cardLp(this, 12));
+        box.addView(notiCard, UiKit.cardLp(this, 0f));
 
-        // 页面说明——把「这个页面在干什么」说清楚
-        TextView intro = UiKit.text(this,
-                "以下 App 收到含取件码的通知时，会被自动读取并写入待办。\n"
-                        + "短信通道不受此限制，任何号码的取件短信都会识别。",
-                12.5f, UiKit.INK3);
-        intro.setLineSpacing(dp(2), 1.1f);
-        intro.setPadding(dp(6), 0, dp(6), dp(4));
-        box.addView(intro);
-
-        box.addView(UiKit.groupLabel(this, P, "通知取件来源（" + AppIcons.PKGS.length + "）"));
+        box.addView(UiKit.groupLabel(this, P, "已支持的 App（" + AppIcons.PKGS.length + "）"));
         LinearLayout appCard = UiKit.card(this, P);
         for (int i = 0; i < AppIcons.PKGS.length; i++) {
             String pkg = AppIcons.PKGS[i];
@@ -476,9 +500,120 @@ public class LauncherActivity extends Activity {
         return sv;
     }
 
+    /**
+     * v4.3：从已安装应用里选择通知来源。
+     *
+     * 原先只能手打包名，用户得自己去别处查包名再回来粘贴——门槛很高，还容易拼错。
+     * 现在直接列出手机上已安装的、有桌面入口的应用（名称 + 包名），
+     * 点选后自动把包名填进编辑框，用户点保存即可。
+     *
+     * 说明：
+     * - 用 queryIntentActivities(LAUNCHER) 取「用户能看到的 App」，避免列出几百个系统组件
+     * - 已在内置白名单里的 App 不再重复列出
+     * - 列表按名称排序，支持搜索（App 多的时候靠滚动很难找）
+     */
+    private void showInstalledAppPicker(final EditText targetEdit) {
+        final java.util.List<String[]> apps = new java.util.ArrayList<>();
+        try {
+            android.content.Intent main = new android.content.Intent(Intent.ACTION_MAIN);
+            main.addCategory(Intent.CATEGORY_LAUNCHER);
+            java.util.List<android.content.pm.ResolveInfo> ris =
+                    getPackageManager().queryIntentActivities(main, 0);
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            java.util.Set<String> builtin = new java.util.HashSet<>(
+                    java.util.Arrays.asList(NotiHook.BUILTIN_PKGS));
+            for (android.content.pm.ResolveInfo ri : ris) {
+                String pkg = ri.activityInfo.packageName;
+                if (pkg == null || pkg.equals(getPackageName())) continue;
+                if (builtin.contains(pkg) || !seen.add(pkg)) continue;
+                CharSequence label = ri.loadLabel(getPackageManager());
+                String name = label == null ? pkg : label.toString().trim();
+                if (name.isEmpty()) name = pkg;
+                apps.add(new String[]{name, pkg});
+            }
+        } catch (Throwable t) {
+            Toast.makeText(this, "读取已安装应用失败：" + t, Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (apps.isEmpty()) {
+            Toast.makeText(this, "没有找到可添加的应用", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // 按名称排序，方便找
+        java.util.Collections.sort(apps, (a, b) -> a[0].compareToIgnoreCase(b[0]));
+
+        // 搜索框 + 可滚动的应用列表
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        final EditText search = new EditText(this);
+        search.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        search.setHint("搜索应用名或包名");
+        search.setSingleLine(true);
+        search.setBackground(UiKit.bg(P.cardSoft, this, 12, P.line, 1f));
+        search.setPadding(dp(12), dp(9), dp(12), dp(9));
+        wrap.addView(search);
+
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.addView(list);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(360));
+        slp.setMargins(0, dp(8), 0, 0);
+        wrap.addView(sv, slp);
+
+        final android.app.Dialog[] dlg = new android.app.Dialog[1];
+
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            list.removeAllViews();
+            String q = search.getText().toString().trim().toLowerCase();
+            int shown = 0;
+            for (String[] app : apps) {
+                if (!q.isEmpty()
+                        && !app[0].toLowerCase().contains(q)
+                        && !app[1].toLowerCase().contains(q)) continue;
+                if (shown > 0) list.addView(UiKit.divider(this, P));
+                LinearLayout row = UiKit.row(this, P, 0, app[0], app[1],
+                        UiKit.icon(this, R.drawable.ic_plus, 17, P.accentInk));
+                final String pkg = app[1];
+                row.setOnClickListener(v -> {
+                    // 追加到编辑框（保留用户已填的其它包名）
+                    String cur = targetEdit.getText().toString().trim();
+                    if (!cur.isEmpty() && !cur.endsWith("\n")) cur = cur + "\n";
+                    targetEdit.setText(cur + pkg);
+                    targetEdit.setSelection(targetEdit.getText().length());
+                    if (dlg[0] != null) dlg[0].dismiss();
+                    Toast.makeText(this, "已填入 " + pkg + "，点「保存」生效",
+                            Toast.LENGTH_SHORT).show();
+                });
+                list.addView(row);
+                shown++;
+            }
+            if (shown == 0) {
+                TextView empty = UiKit.text(this, "没有匹配的应用", 13f, UiKit.INK3);
+                empty.setPadding(dp(8), dp(14), dp(8), dp(14));
+                list.addView(empty);
+            }
+        };
+        render[0].run();
+
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void afterTextChanged(android.text.Editable s) { render[0].run(); }
+        });
+
+        dlg[0] = UiKit.dialog(this, P, R.drawable.ic_grid, "选择应用",
+                "选中后会填入包名，点「保存」生效", wrap,
+                UiKit.ghost("取消", null));
+        dlg[0].show();
+    }
+
     /** 自定义来源：只读预览 + 展开编辑（保存 / 只留内置 / 取消） */
-    private void buildExtraBoxContent() {
-        extraBox.removeAllViews();
+    private void buildExtraBoxContent() {        extraBox.removeAllViews();
         final TextView title = UiKit.text(this, "自定义来源 App", 15.5f, UiKit.INK);
         title.setPadding(0, dp(10), 0, dp(4));
         extraBox.addView(title);
@@ -502,10 +637,12 @@ public class LauncherActivity extends Activity {
         final LinearLayout btnRow = new LinearLayout(this);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
         btnRow.setVisibility(View.GONE);
+        final TextView pick = smallButton("从已安装选择", "ghostLine");
         final TextView save = smallButton("保存", "primary");
         final TextView clear = smallButton("只留内置", "mute");
         final TextView cancel = smallButton("取消", "mute");
-        btnRow.addView(save, weighted(1f, 0));
+        btnRow.addView(pick, weighted(1f, 0));
+        btnRow.addView(save, weighted(1f, 8));
         btnRow.addView(clear, weighted(1f, 8));
         btnRow.addView(cancel, weighted(1f, 8));
         extraBox.addView(btnRow, UiKit.cardLp(this, 8));
@@ -543,6 +680,8 @@ public class LauncherActivity extends Activity {
                         }),
                         UiKit.ghost("取消", null)).show();
             });
+            // v4.3：从已安装应用里挑，自动填包名，不用手打
+            pick.setOnClickListener(v -> showInstalledAppPicker(edit));
             cancel.setOnClickListener(v -> exit[0].run());
             save.setOnClickListener(v -> {
                 String raw = edit.getText().toString();
@@ -751,13 +890,9 @@ public class LauncherActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box);
 
-        box.addView(UiKit.groupLabel(this, P, "写入行为"));
-        LinearLayout setCard = UiKit.card(this, P);
-
-        // 4.1/4.2：写入目标 → 首页；待办模板 → 首页；通知取件提取 → 「来源」页。
-        // 这里只剩「冻结免疫直写」这类真正属于系统行为的开关。
-
-        // 冻结免疫直写（仅 ColorOS 环境显示）
+        // v4.3：「写入行为」分组在普通设备上是空的（冻结免疫直写仅 ColorOS 显示），
+        // 用户要求空的东西不要显示——所以这一组改成条件渲染：
+        // 只有当冻结免疫直写真的可见时，才建这个卡片。
         sdwRow = new LinearLayout(this);
         sdwRow.setOrientation(LinearLayout.VERTICAL);
         boolean sdwOn = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_SYS_DIRECT, false);
@@ -765,14 +900,17 @@ public class LauncherActivity extends Activity {
         sdwSw.setOnToggle(this::onSdwToggle);
         LinearLayout sdwItem = UiKit.row(this, P, R.drawable.ic_shield, "冻结免疫直写",
                 "仅 ColorOS：划掉后台仍可写入（需给系统进程授权 root）", sdwSw);
-        sdwRow.addView(dividerWithTopPadding());
         sdwRow.addView(sdwItem);
-        setCard.addView(sdwRow);
         updateSdwDisplay();
-        box.addView(setCard);
+        // updateSdwDisplay() 内部会按环境把 sdwRow 设为 GONE/VISIBLE，这里先挂上再判断
+        LinearLayout sdwCard = UiKit.card(this, P);
+        sdwCard.addView(sdwRow);
+        box.addView(sdwCard, UiKit.cardLp(this, 0f));
+        sdwCard.setVisibility(sdwRow.getVisibility());
 
-        // 个性化
-        box.addView(UiKit.groupLabel(this, P, "个性化"));
+        // v4.3：「个性化」与「常规」合并为一组「外观与更新」——两组都只有两三行，
+        // 分开显示反而显得零碎。
+        box.addView(UiKit.groupLabel(this, P, "外观与更新"));
         LinearLayout perCard = UiKit.card(this, P);
         LinearLayout appeRow = UiKit.row(this, P, R.drawable.ic_palette, "外观",
                 "模块界面配色（四套可选）", UiKit.value(this, P, P.name));
@@ -790,11 +928,9 @@ public class LauncherActivity extends Activity {
                 "底栏半透明（85%）；关闭则使用纯实底", blurSw));
         // 4.2：「语言」项已移除——目前只有中文，该行永远显示「跟随系统」且无实际功能。
         // 将来真要做多语言时再加，届时需要同步做字符串外置与文案适配。
-        box.addView(perCard, UiKit.cardLp(this, 0f));
 
-        // 常规
-        box.addView(UiKit.groupLabel(this, P, "常规"));
-        LinearLayout genCard = UiKit.card(this, P);
+        // 常规（并入同组）
+        perCard.addView(UiKit.divider(this, P));
         netSw = new UiKit.Switch(this, P, NetPolicy.autoNetAllowed(this));
         netSw.setOnToggle(on -> {
             NetPolicy.setAutoNetAllowed(this, on);
@@ -803,20 +939,20 @@ public class LauncherActivity extends Activity {
                     : "已进入纯离线模式 ✓\n自动联网已停止；核心功能不受影响，仍可手动检查更新",
                     Toast.LENGTH_LONG).show();
         });
-        genCard.addView(UiKit.row(this, P, R.drawable.ic_refresh, "自动检查更新",
+        perCard.addView(UiKit.row(this, P, R.drawable.ic_refresh, "自动检查更新",
                 "启动时检查软件与规则（3 天最多一次）· 关闭后完全离线", netSw));
-        genCard.addView(UiKit.divider(this, P));
-        genCard.addView(toolRow(R.drawable.ic_download, "检查更新", "软件 + 规则一次查完",
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(toolRow(R.drawable.ic_download, "检查更新", "软件 + 规则一次查完",
                 v -> checkUpdateNow()));
-        genCard.addView(UiKit.divider(this, P));
-        genCard.addView(toolRow(R.drawable.ic_box, "项目版本信息",
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(toolRow(R.drawable.ic_box, "项目版本信息",
                 appVersionLabel() + " (" + appVersionCode() + ") · 规则集 v"
                         + PickupExtractor.getActiveRulesVersion() + " · MIT License",
                 v -> showVersionDialog()));
-        genCard.addView(UiKit.divider(this, P));
-        genCard.addView(toolRow(R.drawable.ic_doc, "更新日志", "查看模块的更新日志",
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(toolRow(R.drawable.ic_doc, "更新日志", "查看模块的更新日志",
                 v -> openUrl(CHANGELOG_URL)));
-        box.addView(genCard, UiKit.cardLp(this, 0f));
+        box.addView(perCard, UiKit.cardLp(this, 0f));
 
         // 4.1：新增「排查」分组——原先散在首页和「规则 → 工具」里
         box.addView(UiKit.groupLabel(this, P, "排查"));
@@ -836,6 +972,9 @@ public class LauncherActivity extends Activity {
         // 帮助与关于
         box.addView(UiKit.groupLabel(this, P, "帮助与关于"));
         LinearLayout aboutCard = UiKit.card(this, P);
+        aboutCard.addView(toolRow(R.drawable.ic_book, "使用说明", "第一次用建议先看这个",
+                v -> showUsageDialog()));
+        aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_file, "用户协议", "MIT License · 隐私说明",
                 v -> showAgreementDialog()));
         aboutCard.addView(UiKit.divider(this, P));
@@ -856,19 +995,31 @@ public class LauncherActivity extends Activity {
                 "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
         box.addView(aboutCard, UiKit.cardLp(this, 0f));
 
-        box.addView(UiKit.groupLabel(this, P, "使用说明"));
-        TextView help = UiKit.text(this,
-                "1. LSPosed 激活模块；作用域必勾「Android 系统」（列表底部、不带推荐角标），"
-                        + "再加 电话、短信、com.android.providers.telephony；小米设备另勾「小米笔记」\n"
-                        + "2. 收到取件短信后自动写入待办（一码一条，新码置顶）\n"
-                        + "3. 通知可点击复制取件码；通知上「已取件」可一键勾选\n"
-                        + "4. 需要 root（Magisk/KernelSU）授权一次；sqlite3 缺失时首页会出现一键部署\n"
-                        + "5. 交流反馈：QQ 群 901543676（进群备注「取件码助手」）",
-                12f, UiKit.INK3);
-        help.setLineSpacing(dp(3), 1.0f);
-        help.setPadding(dp(6), 0, dp(6), 0);
-        box.addView(help);
+        // v4.3：「使用说明」原先裸露在页面最下方一大段文字，改为独立入口（见上）。
         return sv;
+    }
+
+    /** v4.3：使用说明弹窗（原先是页面底部一大段裸露文字） */
+    private void showUsageDialog() {
+        String text =
+                "1. 在 LSPosed 里启用本模块，作用域必勾「Android 系统」\n"
+                        + "   （列表底部、不带推荐角标的那一项），再加：\n"
+                        + "   电话、短信、com.android.providers.telephony\n"
+                        + "   小米设备另勾「小米笔记」\n\n"
+                        + "2. 收到取件短信后自动写入待办（一码一条，新码置顶）\n\n"
+                        + "3. 通知可点击复制取件码；通知上「已取件」可一键勾选\n\n"
+                        + "4. 需要 root（Magisk / KernelSU）授权一次；\n"
+                        + "   sqlite3 缺失时首页会出现「一键部署」按钮\n\n"
+                        + "5. 首次使用可点首页的「一键链路测试」验证整条链路\n\n"
+                        + "6. 交流反馈：QQ 群 901543676（进群备注「取件码助手」）";
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        TextView tv = UiKit.text(this, text, 13f, UiKit.INK2);
+        tv.setLineSpacing(dp(4), 1.15f);
+        tv.setPadding(dp(4), dp(4), dp(4), dp(4));
+        sv.addView(tv);
+        UiKit.dialog(this, P, R.drawable.ic_book, "使用说明", null, sv, 70,
+                UiKit.primary("知道了", null)).show();
     }
 
     private View dividerWithTopPadding() {
@@ -951,6 +1102,8 @@ public class LauncherActivity extends Activity {
             tplBtnRow.setVisibility(View.VISIBLE);
             tplEditBtn.setVisibility(View.GONE);
             tplPreview.setVisibility(View.GONE);
+            // v4.3：进入编辑态时才露出占位符说明
+            if (tplVarHelp != null) tplVarHelp.setVisibility(View.VISIBLE);
         });
 
         tplEdit = new EditText(this);
@@ -994,6 +1147,9 @@ public class LauncherActivity extends Activity {
             });
             tplVarHelp.addView(row);
         }
+        // v4.3：占位符说明默认隐藏，只有「自定义模式 + 点了编辑模板」时才显示。
+        // 用户要求：正常状态下不要把这些没意义的东西显示出来。
+        tplVarHelp.setVisibility(View.GONE);
         tplEditorBox.addView(tplVarHelp, UiKit.cardLp(this, 8));
 
         tplBtnRow = new LinearLayout(this);
@@ -1045,6 +1201,7 @@ public class LauncherActivity extends Activity {
         if (tplEdit != null) tplEdit.setVisibility(View.GONE);
         if (tplBtnRow != null) tplBtnRow.setVisibility(View.GONE);
         if (tplPreview != null) tplPreview.setVisibility(View.VISIBLE);
+        if (tplVarHelp != null) tplVarHelp.setVisibility(View.GONE);   // v4.3：收起时一并隐藏
         if (tplEditBtn != null) {
             tplEditBtn.setVisibility(currentMode == TodoWriter.MODE_CUSTOM ? View.VISIBLE : View.GONE);
         }
@@ -1329,7 +1486,7 @@ public class LauncherActivity extends Activity {
                 + "\n（下次收到取件短信即写入新目标；可点「规则 → 一键链路测试」立即验证）",
                 Toast.LENGTH_LONG).show();
         if (backendValue != null) backendValue.setText(backendLabel());
-        headerSub.setText(appVersionLabel() + " · LSPosed 模块 · 自动提取取件码写入 " + backendLabel());
+        headerSub.setText(headerSubtitle(currentTab));
         updateSdwDisplay();
         refreshHealth();
     }
@@ -1359,6 +1516,30 @@ public class LauncherActivity extends Activity {
         if (NotesBackend.BACKEND_XIAOMI.equals(b)) return "小米笔记待办";
         if (NotesBackend.BACKEND_COLOROS_NOTE.equals(b)) return "ColorOS 便签置顶笔记";
         return "ColorOS 日历待办";
+    }
+
+    /**
+     * v4.3：「取件码写入目标」右侧的值。
+     *
+     * 用户要求显示成「自动 · 小米笔记待办」——既说明当前是自动识别，
+     * 又明确自动选中的到底是哪个 App（否则用户不知道码最后写进哪里）。
+     */
+    private View buildBackendValueView() {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.HORIZONTAL);
+        wrap.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView auto = UiKit.text(this, "自动", 14f, P.accentInk);
+        wrap.addView(auto);
+
+        TextView dot = UiKit.text(this, "·", 14f, P.muteInk);
+        dot.setPadding(dp(5), 0, dp(5), 0);
+        wrap.addView(dot);
+
+        TextView target = UiKit.text(this, backendLabel(), 13f, UiKit.INK2);
+        target.setSingleLine(true);
+        wrap.addView(target);
+        return wrap;
     }
 
     // ================================================================
@@ -1616,6 +1797,61 @@ public class LauncherActivity extends Activity {
         checklistCard.setVisibility(allOk ? View.GONE : View.VISIBLE);
         deployBtn.setVisibility(needDeploy ? View.VISIBLE : View.GONE);
         troubleshootBtn.setVisibility(allOk ? View.GONE : View.VISIBLE);
+        if (guideBtn != null) guideBtn.setVisibility(allOk ? View.GONE : View.VISIBLE);
+    }
+
+    /**
+     * v4.3：「开始配置」引导——新用户按顺序走完六步。
+     *
+     * 和「体检清单」的区别：清单是「哪里出问题了」，本向导是「接下来该做什么」。
+     * 两者并存：清单给已用起来的用户看诊断结果，向导给第一次装的用户照着做。
+     */
+    private void showSetupGuide() {
+        final java.util.List<Diagnostics.Check> checks;
+        try {
+            checks = Diagnostics.healthCheck(this);
+        } catch (Throwable t) {
+            Toast.makeText(this, "读取体检结果失败：" + t, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("按下面顺序做，每步做完回到这里看是否变成「已通过」。\n")
+          .append("全部通过后，收到取件短信就会自动写入待办。\n\n");
+
+        String[] howTo = {
+                "在 LSPosed 里启用本模块，并勾选作用域「Android 系统」",
+                "给 Magisk / KernelSU 授权 root（本模块需要读写待办库）",
+                "LSPosed 作用域里勾选：电话、短信、com.android.providers.telephony",
+                "点首页「一键部署 sqlite3」（若已存在则跳过这步）",
+                "确认「取件码写入目标」是你想写入的 App",
+                "点首页「一键链路测试」，验证「识别 → 写入」整条链路",
+        };
+
+        int passed = 0;
+        for (int i = 0; i < checks.size(); i++) {
+            Diagnostics.Check c = checks.get(i);
+            if (c.ok) passed++;
+            sb.append(c.ok ? "✓ " : "○ ")
+              .append("第 ").append(i + 1).append(" 步：").append(c.title)
+              .append(c.ok ? "（已通过）" : "")
+              .append("\n");
+            if (!c.ok && i < howTo.length) {
+                sb.append("    → ").append(howTo[i]).append("\n");
+            }
+        }
+        sb.append("\n当前进度：").append(passed).append(" / ").append(checks.size()).append(" 通过");
+
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        TextView tv = UiKit.text(this, sb.toString(), 13f, UiKit.INK2);
+        tv.setLineSpacing(dp(4), 1.15f);
+        tv.setPadding(dp(4), dp(4), dp(4), dp(4));
+        sv.addView(tv);
+
+        UiKit.dialog(this, P, R.drawable.ic_rocket, "开始配置", null, sv, 72,
+                UiKit.primary("去排查向导", () -> runTroubleshoot()),
+                UiKit.ghost("关闭", null)).show();
     }
 
     // ================================================================

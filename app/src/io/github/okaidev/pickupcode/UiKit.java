@@ -424,7 +424,7 @@ public final class UiKit {
 
     private static final int[] TAB_ICONS = {
             R.drawable.ic_home, R.drawable.ic_grid, R.drawable.ic_sparkle, R.drawable.ic_gear };
-    private static final String[] TAB_LABELS = { "首页", "取件通知", "高级规则", "设置" };
+    private static final String[] TAB_LABELS = { "首页", "通知提取", "高级规则", "设置" };
 
     /**
      * 悬浮胶囊底栏：4 个 Tab，选中项为强调色圆角块 + 白色图标。
