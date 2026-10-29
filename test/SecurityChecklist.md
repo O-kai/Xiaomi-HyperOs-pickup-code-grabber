@@ -90,11 +90,16 @@ adb logcat -d -s PICKUPDEBUG:* | grep -E 'IPC denied|PROVIDER-CALL|MARK_DONE|not
 
 ## 7. 结果记录
 
+执行日期：2026-10-30 ｜ 设备：REDMI K90 Pro Max / HyperOS 4.0 / Android 17 ｜ 基线：3.6.0-internal(360)
+
 | 项 | 结果 | 备注 |
 |---|---|---|
-| onSms 未授权拒绝 |  |  |
-| markDone 未授权拒绝 |  |  |
-| 旧广播无 receiver |  |  |
-| Launcher done 不生效 |  |  |
-| 通知复制/已取件仍可用 |  |  |
+| onSms 未授权拒绝 | PASS | `Result: Bundle[{rc=-3, error=unauthorized}]`，uid=2000 com.android.shell |
+| markDone 未授权拒绝 | PASS | `Result: Bundle[{rc=-3, error=unauthorized}]` |
+| 旧广播无 receiver | PASS | `Broadcast completed: result=0` |
+| Launcher done 不生效 | PASS | 只打开 App，无 `MARK_DONE` 日志 |
+| 通知复制/已取件仍可用 | PASS | 点通知正文 → NotificationActionActivity → 打开小米笔记；受控 `done` → 测试待办 `is_finish=1` |
+| 真实 SmsProvider.insert | PASS | root 插入测试短信 `_id=15191` → `77-7-7777` → 待办 `id=322`；重复插入命中去重 |
+| 非导出 Activity 外部启动 | PASS | shell 启动 `NotificationActionActivity` 被 `SecurityException` 拒绝 |
+| 测试数据清理 | PASS | 测试待办 321/322 已删；测试短信 15191 已删；用户原有短信保留 |
 | 无新增待办/通知 |  |  |

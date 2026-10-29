@@ -4,7 +4,7 @@
 > 分支：`release/4.0`
 > 基线：v4.8 `fa244f3` → 内部版本 **3.6.0-internal / 360**
 > 提交：`c8dc9bf`（安全/版本/基线）、`397917e`（Stage 0 文档）
-> 状态：代码与构建完成；真机安全验收待设备连接
+> 状态：Stage 0 完成；真机安全验收通过（2026-10-30）
 
 ## 一、完成项
 
@@ -88,6 +88,36 @@ Release SHA-256：
 
 > 控制台中文显示为 GBK 乱码，是终端编码问题；测试计数与退出码正常。
 
+### 真机验收（2026-10-30）
+
+设备：REDMI K90 Pro Max / HyperOS 4.0 / Android 17（SDK 37）。
+安装：`adb install -r -d` 覆盖 4.0.0(400)，保留数据；当前安装 `3.6.0-internal(360)`。
+
+| 项 | 结果 |
+|---|---|
+| 冷启动 | 201ms，六项体检全绿 |
+| 未授权 `onSms`（shell uid 2000） | PASS：`rc=-3, error=unauthorized` |
+| 未授权 `markDone`（shell uid 2000） | PASS：`rc=-3, error=unauthorized` |
+| 旧 `ACTION_ON_SMS` 广播 | PASS：`Broadcast completed: result=0`，无 receiver |
+| Launcher `done` extra | PASS：只打开 App，无 `MARK_DONE` 日志 |
+| 非导出 `NotificationActionActivity` 外部启动 | PASS：shell 启动被 `SecurityException` 拒绝 |
+| 通知正文点击 | PASS：复制并打开小米笔记 |
+| 已取件路径 | PASS：受控 `done` 将测试待办 `id=321` 置为 `is_finish=1` |
+| 真实 `SmsProvider.insert` | PASS：root 插入测试短信 `_id=15191` → `77-7-7777` → 待办 `id=322` |
+| 双通道去重 | PASS：同一短信重复 Hook 命中 `dedup skip`，未重复写入 |
+| 测试数据清理 | PASS：待办 321/322、测试短信 15191 已删；用户原有短信保留 |
+
+证据：
+
+- `artifacts/stage0-home.png`（首页六项全绿）
+- `artifacts/chain-written.png`（链路测试全通过）
+- `artifacts/notification-expanded.png`（通知栏）
+- `artifacts/stage0-device-info.txt`
+- `artifacts/stage0-last-log.txt`
+
+> 说明：通知动作按钮在当前 HyperOS 通知栏未直接展开，已用受控 `NotificationActionActivity` 的 `done` 路径验证同一段代码；后续 Stage 3 会在本地库接入后重新做完整 PendingIntent 点击测试。
+> 隐私日志仍会打印短信正文片段（`SmsBridge` / `TodoWriter`），已登记到 Stage 4 收口，不在 Stage 0 改动范围。
+
 ## 四、Compose / Room 构建 spike
 
 独立目录：`D:\project\WorkBuddyData\取件码助手\spike\compose-room`（不混入生产源码）。
@@ -107,18 +137,17 @@ Release SHA-256：
 
 ## 五、未完成 / 风险
 
-1. **真机安全验收未做**：手机当前未连接。`test/SecurityChecklist.md` 的 6 项需在 K90 Pro Max 上跑。
-2. **版本号降级**：设备上现有 4.0.0(400)，基线是 3.6.0(360)。首次安装基线需 `adb install -r -d`（允许降级，保留数据）或卸载重装；最终 4.0.0(400) 不受影响。
+1. **真机安全验收已完成**：K90 Pro Max 上通过 `test/SecurityChecklist.md` 全部关键项；真实 `SmsProvider.insert` 链路、通知点击、受控已取件路径均验证。
+2. **版本号降级**：设备原为 4.0.0(400)，本次已用 `adb install -r -d` 安装 3.6.0(360) 并保留数据；后续重装基线仍需允许降级，最终 4.0.0(400) 不受影响。
 3. **中文路径**：AGP 8.2 对非 ASCII 路径有硬检查，已在 `gradle.properties` 加 `android.overridePathCheck=true`；CI 在 ASCII 路径不受影响。
-4. **Provider UID 白名单需真机确认**：不同 ROM 的短信/电话包名可能不同；若 Provider 返回 `rc=-3`，看 `IPC denied` 日志补充白名单。
-5. **通知动作 Activity 需真机验证**：透明主题、剪贴板、root 标记、打开目标 App 的时序。
+4. **Provider UID 白名单**：HyperOS 4.0 上真实 `SmsProvider.insert` 已放行；其他 ROM 若返回 `rc=-3`，看 `IPC denied` 日志补充包名。
+5. **通知动作**：正文点击与受控 `done` 已验证；HyperOS 通知栏动作按钮未直接展开，Stage 3 本地库接入后重做完整 PendingIntent 点击。
 6. **Compose 体积**：debug 20MB；正式版需开 R8 并保留 Hook 反射类，目标 release ≤ 15MB。
 7. **隐私日志**：`SmsBridge` / `TodoWriter` 仍会打印正文片段；Stage 4 收口，Stage 0 未改以免影响排查。
 8. **targetSdk 未升级**：4.0 先保持 34；兼容性 spike 单独立项。
 
 ## 六、下一步
 
-1. 连接 K90 Pro Max，按 `test/SecurityChecklist.md` 跑 6 项安全验收。
-2. 用 `adb install -r -d` 安装 3.6.0-internal，确认短信/通知/写入/通知栏动作不回归。
-3. Stage 0 通过后进入 Stage 1：`:core` / `:contract` 分层、规则单源、特征化测试。
-4. 所有改动仅在 `release/4.0` 本地；**未 push、未发 Release**。
+1. Stage 0 已通过；进入 Stage 1：`:core` / `:contract` 分层、规则单源、特征化测试。
+2. 保留 `rollback-installed-4.0.0.apk` 作为回滚包；当前设备已运行 3.6.0-internal。
+3. 所有改动仅在 `release/4.0` 本地；**未 push、未发 Release**。
