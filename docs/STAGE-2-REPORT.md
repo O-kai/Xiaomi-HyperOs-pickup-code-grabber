@@ -61,11 +61,20 @@
 证据：
 
 - `artifacts/stage2-home.png`
+- `artifacts/stage2-home-empty.png`
 - `artifacts/stage2-list.png`
 - `artifacts/stage2-list-done.png`
 - `artifacts/stage2-widget-pin.png`
 
-## 三、未完成 / 风险
+## 三、构建产物
+
+- 路径：`artifacts/pickup-code-grabber-3.8.0-internal-release.apk`
+- 体积：5.6 MB
+- SHA-256：`7e00a94fe6ad1ef396ab3df1075fa863bf8da7b721feb20f2f55afccef174603`
+- 签名：`CN=PickupCodeGrabber`（生产证书）
+- 当前设备安装：3.8.0-internal / 380
+
+## 四、未完成 / 风险
 
 1. **小组件视觉未固定验证**：HyperOS 未弹 `requestPinAppWidget` 对话框；需要手动长按桌面添加，确认 3 行布局/点击/刷新。
 2. **Room 进入 App APK**：release 从 3.4MB 增至 5.6MB；后续 Compose/R8 会继续增加，需要体积预算。
@@ -74,7 +83,7 @@
 5. **Stage 1 的 `:core`/`:contract` 分层尚未完成**：先交付了用户可见的本地闭环；分层仍是 4.0 发布前必做项。
 6. **列表页是 Java MVP**：Compose 双模式/深色/边到边在 Stage 3 完成。
 
-## 四、下一步
+## 五、下一步
 
 1. 真机手动添加小组件，验证 3 行布局、复制、已取件、刷新。
 2. 进入 Stage 3：Compose 双模式 UI；同时补 `:core`/`:contract` 分层与规则单源。
