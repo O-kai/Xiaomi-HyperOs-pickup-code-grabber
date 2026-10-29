@@ -2,7 +2,7 @@
 
 > 日期：2026-10-30
 > 分支：`release/4.0`
-> 版本：**3.8.0-internal / 380**
+> 版本：**3.8.0-internal / 380**；隐私补丁 **3.8.1-internal / 381**
 > 状态：本地库/首页/列表/小组件代码完成；小组件视觉固定待真机添加验证
 
 ## 一、完成项
@@ -72,7 +72,13 @@
 - 体积：5.6 MB
 - SHA-256：`7e00a94fe6ad1ef396ab3df1075fa863bf8da7b721feb20f2f55afccef174603`
 - 签名：`CN=PickupCodeGrabber`（生产证书）
-- 当前设备安装：3.8.0-internal / 380
+- 当前设备安装：3.8.1-internal / 381（隐私补丁；重启后待解锁复测）
+
+隐私补丁 3.8.1：
+
+- `SmsBridge` / `TodoWriter` 不再打印短信正文，只记录长度/码。
+- `artifacts/pickup-code-grabber-3.8.1-internal-release.apk`
+- SHA-256：`8eb9bb44a5768a8135e4bba1f5a526bbe5e4b3502c230fa21205f6848e27e65a`
 
 ## 四、未完成 / 风险
 
