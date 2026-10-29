@@ -250,39 +250,167 @@ public class LauncherActivity extends Activity {
      * 选错也能在「设置 → 界面模式」里改回来，不制造额外门槛。
      */
     private void showModeChooser() {
-        // 先铺一层品牌底，避免弹窗背后是一片系统灰
-        LinearLayout bg = new LinearLayout(this);
-        bg.setOrientation(LinearLayout.VERTICAL);
-        bg.setGravity(Gravity.CENTER);
-        bg.setBackgroundColor(P.bg);
-        TextView name = UiKit.text(this, "取件码助手", 22f, P.navInk);
-        name.setGravity(Gravity.CENTER);
-        name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        bg.addView(name);
-        TextView sub = UiKit.text(this, "先选一种使用方式，之后可在设置里随时切换", 13f, P.label);
-        sub.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.setMargins(0, dp(8), 0, 0);
-        bg.addView(sub, slp);
-        setContentView(bg);
+        if (getWindow() != null) {
+            getWindow().setStatusBarColor(P.bg);
+        }
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
 
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("选择使用方式")
-                .setMessage("简洁模式：打开就是待取件清单，点码复制、点「已取」完成。\n\n"
-                        + "进阶模式：完整的规则自定义、通知来源、写入格式与诊断能力。\n\n"
-                        + "两种模式数据共享，之后可以在设置里随时切换。")
-                .setCancelable(false)
-                .setPositiveButton("用简洁模式", (d, w) -> {
-                    UiMode.set(this, UiMode.SIMPLE);
-                    startActivity(new Intent(this, SimpleHomeActivity.class));
-                    finish();
-                })
-                .setNegativeButton("用进阶模式", (d, w) -> {
-                    UiMode.set(this, UiMode.ADVANCED);
-                    recreate();
-                })
-                .show();
+        ScrollView sv = new ScrollView(this);
+        sv.setFillViewport(true);
+        sv.setBackgroundColor(P.bg);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(Gravity.CENTER_VERTICAL);
+        root.setPadding(dp(24), dp(28), dp(24), dp(28));
+
+        // 品牌区
+        TextView brand = UiKit.text(this, "取件码助手", 26f, P.navInk);
+        brand.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        root.addView(brand);
+
+        TextView tagline = UiKit.text(this, "把取件码放好，取件时一眼看到", 13f, P.label);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.setMargins(0, dp(6), 0, 0);
+        root.addView(tagline, tlp);
+
+        // 说明区
+        TextView title = UiKit.text(this, "选择使用方式", 21f, P.navInk);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hlp.setMargins(0, dp(36), 0, 0);
+        root.addView(title, hlp);
+
+        TextView sub = UiKit.text(this, "两种模式数据共享，之后可在设置里随时切换", 12.5f, P.label);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.setMargins(0, dp(8), 0, 0);
+        root.addView(sub, slp);
+
+        // 左右两张模式卡（按钮分别在各自卡片底部，形成左一个右一个）
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setBaselineAligned(false);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.setMargins(0, dp(20), 0, 0);
+        root.addView(row, rlp);
+
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        cardLp.setMargins(0, 0, dp(6), 0);
+        row.addView(buildModeCard(true), cardLp);
+
+        LinearLayout.LayoutParams cardLp2 = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        cardLp2.setMargins(dp(6), 0, 0, 0);
+        row.addView(buildModeCard(false), cardLp2);
+
+        // 底部说明
+        TextView foot = UiKit.text(this, "可随时在「设置 → 界面模式」切换", 11.5f, P.muteInk);
+        foot.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        flp.setMargins(0, dp(22), 0, 0);
+        root.addView(foot, flp);
+
+        sv.addView(root, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        setContentView(sv);
+
+        // 入场动画：从下往上轻推 + 淡入
+        root.setAlpha(0f);
+        root.setTranslationY(dp(18));
+        root.animate().alpha(1f).translationY(0f).setDuration(240).start();
+    }
+
+    /**
+     * 模式选择卡：图标 + 标题 + 说明 + 底部按钮。
+     * 简洁模式用主色实心按钮（推荐），进阶模式用浅色底按钮，保持同一套 UiKit 视觉。
+     */
+    private View buildModeCard(boolean simple) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(16), dp(16), dp(16));
+
+        GradientDrawable cardBg = UiKit.bg(P.card, this, 20);
+        cardBg.setStroke(dp(1), simple ? P.accent : P.line);
+        card.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x14000000), cardBg, null));
+        card.setElevation(UiKit.dp(this, 1.5f));
+
+        // 图标：简洁=主色实心，进阶=浅色底
+        LinearLayout iconWrap = new LinearLayout(this);
+        iconWrap.setGravity(Gravity.CENTER);
+        iconWrap.setBackground(UiKit.bg(simple ? P.accent : P.accentSoft, this, 13));
+        ImageView icon = UiKit.icon(this,
+                simple ? R.drawable.ic_home : R.drawable.ic_grid, 22,
+                simple ? 0xFFFFFFFF : P.accentInk);
+        iconWrap.addView(icon);
+
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(iconWrap, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        if (simple) {
+            View gap = new View(this);
+            head.addView(gap, new LinearLayout.LayoutParams(0, 1, 1f));
+            TextView rec = UiKit.badge(this, "推荐", P.accentSoft, P.accentInk);
+            head.addView(rec);
+        }
+        card.addView(head, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView title = UiKit.text(this,
+                simple ? "打开即取件" : "保留全部能力", 15.5f, P.navInk);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.setMargins(0, dp(12), 0, 0);
+        card.addView(title, tlp);
+
+        TextView desc = UiKit.text(this,
+                simple ? "待取件清单，点码复制、点「已取」完成"
+                        : "规则、通知来源、写入格式与诊断",
+                11.5f, P.muteInk);
+        desc.setLineSpacing(dp(2), 1f);
+        desc.setMinLines(3);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.setMargins(0, dp(6), 0, 0);
+        card.addView(desc, dlp);
+
+        TextView btn = UiKit.text(this,
+                simple ? "用简洁模式" : "用进阶模式", 13.5f,
+                simple ? 0xFFFFFFFF : P.accentInk);
+        btn.setGravity(Gravity.CENTER);
+        btn.setTypeface(null, Typeface.BOLD);
+        btn.setPadding(0, dp(11), 0, dp(11));
+        GradientDrawable btnBg = UiKit.bg(simple ? P.accent : P.accentSoft, this, 13);
+        btn.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(simple ? 0x33FFFFFF : 0x22000000),
+                btnBg, null));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.setMargins(0, dp(16), 0, 0);
+        card.addView(btn, blp);
+
+        View.OnClickListener pick = v -> chooseMode(simple ? UiMode.SIMPLE : UiMode.ADVANCED);
+        card.setOnClickListener(pick);
+        btn.setOnClickListener(pick);
+        return card;
+    }
+
+    private void chooseMode(String mode) {
+        UiMode.set(this, mode);
+        if (UiMode.SIMPLE.equals(mode)) {
+            startActivity(new Intent(this, SimpleHomeActivity.class));
+            finish();
+        } else {
+            recreate();
+        }
     }
 
     @Override
