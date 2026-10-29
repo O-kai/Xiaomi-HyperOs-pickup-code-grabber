@@ -3,6 +3,7 @@
 > 日期：2026-10-30
 > 分支：`release/4.0`
 > 基线：v4.8 `fa244f3` → 内部版本 **3.6.0-internal / 360**
+> 提交：`c8dc9bf`（安全/版本/基线）、`397917e`（Stage 0 文档）
 > 状态：代码与构建完成；真机安全验收待设备连接
 
 ## 一、完成项
@@ -66,6 +67,11 @@ Release SHA-256：
 ```
 
 证书 SHA-256：`fba0e7cc3fae670fc846d99c77a36c130045d4eb8ab28a2a52066551e8b78d8b`
+
+已导出到工作区：
+
+- `D:\project\WorkBuddyData\取件码助手\artifacts\pickup-code-grabber-3.6.0-internal-release.apk`
+- 同目录 `.sha256` 校验文件
 
 ## 三、测试结果
 
