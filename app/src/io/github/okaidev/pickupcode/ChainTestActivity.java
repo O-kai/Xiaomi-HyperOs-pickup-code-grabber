@@ -370,6 +370,8 @@ public class ChainTestActivity extends Activity {
                 extras.putString("sender", sender != null ? sender : "chain-test");
                 extras.putString("body", sms);
                 extras.putLong("ts", System.currentTimeMillis());
+                // 4.0：链路测试记录标记为 test，避免进入本地待取件/小组件。
+                extras.putBoolean("test", true);
                 android.os.Bundle res = getContentResolver().call(
                         android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
                         "onSms", null, extras);

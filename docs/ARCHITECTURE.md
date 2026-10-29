@@ -20,6 +20,12 @@
 > - 通知动作改由非导出的 `NotificationActionActivity` 处理；`LauncherActivity` 不再接受 `copy`/`done` extra。
 > - `SmsBridge` 的广播兜底已删除；Provider 失败直接进入 `SystemDirectWriter` 兜底。
 > - 版本源已迁移到 `version.properties`，Manifest 不再硬编码版本。
+>
+> **4.0 Stage 2 变更提示（2026-10-30）**
+> - 新增 Room 本地取件库（`PickupRecord/Dao/Database/Repository`）；App 进程事实源。
+> - `TodoProvider` 先写本地库，再写穿系统待办；首页/列表/小组件读本地库。
+> - 标记已取件统一走 `PickupActions`：本地状态 + 小米笔记同步。
+> - 本地库默认不存短信正文；Hook 进程不引用 Room。
 > 本文下文关于“广播兜底 / SmsEventReceiver / exported Receiver”的内容是 3.1.0 历史架构，阅读时以本提示为准。
 
 ---

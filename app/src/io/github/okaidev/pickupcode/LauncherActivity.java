@@ -71,6 +71,9 @@ public class LauncherActivity extends Activity {
     private TextView headerTitle, headerSub;
 
     // ==================== 首页 ====================
+    private LinearLayout pickupCard;
+    private LinearLayout pickupRows;
+    private TextView pickupCount;
     private LinearLayout heroCard;
     private ImageView heroIcon;
     private TextView heroTitle, heroSub;
@@ -276,6 +279,9 @@ public class LauncherActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box);
 
+        // 4.0：待取件优先于体检/设置，首页第一张卡就是本地取件库。
+        buildPickupCard(box);
+
         // 状态卡
         heroCard = new LinearLayout(this);
         heroCard.setOrientation(LinearLayout.HORIZONTAL);
@@ -441,6 +447,109 @@ public class LauncherActivity extends Activity {
     // ================================================================
     //  应用
     // ================================================================
+
+    private void buildPickupCard(LinearLayout parent) {
+        pickupCard = UiKit.card(this, P);
+        pickupCard.setPadding(dp(16), dp(14), dp(16), dp(10));
+
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView title = UiKit.text(this, "待取件", 17f, UiKit.INK);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        head.addView(title, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        pickupCount = UiKit.text(this, "0 个", 12f, UiKit.INK3);
+        head.addView(pickupCount);
+
+        TextView all = UiKit.text(this, "查看全部 ›", 12f, P.accent);
+        all.setPadding(dp(12), dp(4), 0, dp(4));
+        all.setOnClickListener(v -> openPickupList());
+        head.addView(all);
+        pickupCard.addView(head);
+
+        pickupRows = new LinearLayout(this);
+        pickupRows.setOrientation(LinearLayout.VERTICAL);
+        pickupCard.addView(pickupRows);
+
+        parent.addView(pickupCard, UiKit.cardLp(this, 0));
+    }
+
+    private void refreshPickupCard() {
+        if (pickupRows == null) return;
+        PickupRepository.get(this).pendingAsync(3, list -> {
+            if (isFinishing() || isDestroyed() || pickupRows == null) return;
+            pickupRows.removeAllViews();
+            int count = list == null ? 0 : list.size();
+            pickupCount.setText(count >= 3 ? "3+ 个" : count + " 个");
+            if (count == 0) {
+                TextView empty = UiKit.text(this, "暂无待取件 · 收到短信后会自动出现",
+                        12.5f, UiKit.INK3);
+                empty.setPadding(0, dp(10), 0, dp(6));
+                pickupRows.addView(empty);
+                return;
+            }
+            for (PickupRecord record : list) {
+                pickupRows.addView(buildPickupRow(record));
+            }
+        });
+    }
+
+    private View buildPickupRow(PickupRecord record) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(10), 0, dp(4));
+
+        TextView code = UiKit.text(this, record.code, 19f, UiKit.INK);
+        code.setTypeface(Typeface.create("monospace", Typeface.BOLD));
+        row.addView(code);
+
+        TextView place = UiKit.text(this,
+                record.place == null || record.place.trim().isEmpty() ? "—" : record.place,
+                12f, UiKit.INK3);
+        place.setMaxLines(1);
+        place.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams placeLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        placeLp.setMargins(dp(10), 0, dp(8), 0);
+        row.addView(place, placeLp);
+
+        TextView done = UiKit.text(this, "已取", 12f, P.accent);
+        done.setPadding(dp(8), dp(4), 0, dp(4));
+        done.setOnClickListener(v -> PickupActions.markDone(this, record, (localChanged, backendRc) -> {
+            String msg;
+            if (localChanged <= 0) {
+                msg = "标记失败";
+            } else if (backendRc == 0) {
+                msg = "已标记已取件";
+            } else {
+                msg = "已在本机标记，系统待办同步失败";
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+            refreshPickupCard();
+        }));
+        row.addView(done);
+
+        row.setOnClickListener(v -> copyPickupCode(record.code));
+        return row;
+    }
+
+    private void copyPickupCode(String code) {
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText("pickupcode", code));
+            Toast.makeText(this, "已复制：" + code, Toast.LENGTH_SHORT).show();
+        } catch (Throwable t) {
+            Toast.makeText(this, "复制失败", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openPickupList() {
+        startActivity(new Intent(this, PickupListActivity.class));
+    }
 
     private View buildAppsTab() {
         ScrollView sv = scrollPage();
@@ -2031,6 +2140,7 @@ public class LauncherActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        refreshPickupCard();
         refreshHealth();
         notiSwitchOn = isNotiHookFlagOn();
         if (notiSw != null) notiSw.setChecked(notiSwitchOn, false);

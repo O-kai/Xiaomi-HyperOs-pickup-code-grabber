@@ -64,19 +64,21 @@ public class NotificationActionActivity extends Activity {
             finish();
             return;
         }
-        final String sql = NotesBackend.markDoneSql(this, code);
-        new Thread(() -> {
-            final int rc = TodoWriter.runSql(this, sql);
-            runOnUiThread(() -> {
-                Toast.makeText(this,
-                        rc == 0 ? "已标记已取件：" + code : "标记失败（rc=" + rc + "）",
-                        Toast.LENGTH_LONG).show();
-                if (rc == 0) {
-                    openTarget();
-                }
-                finish();
-            });
-        }, "pickup-mark-done").start();
+        PickupActions.markDoneByCode(this, code, (localChanged, backendRc) -> {
+            String msg;
+            if (localChanged <= 0 && backendRc != 0) {
+                msg = "标记失败";
+            } else if (backendRc == 0) {
+                msg = "已标记已取件：" + code;
+            } else {
+                msg = "已在本机标记，系统待办同步失败";
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+            if (backendRc == 0) {
+                openTarget();
+            }
+            finish();
+        });
     }
 
     private void openTarget() {

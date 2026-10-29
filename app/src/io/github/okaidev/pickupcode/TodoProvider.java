@@ -132,16 +132,41 @@ public class TodoProvider extends ContentProvider {
                 return r;
             }
 
+            // 4.0 Stage 2：先落本地取件库，再走系统待办写穿。
+            // 本地库只在 App 进程使用，Hook/SystemDirectWriter 不引用 Room。
+            boolean blacklisted = TodoWriter.isBlacklisted(ctx, body);
+            java.util.List<String> parsed = blacklisted
+                    ? java.util.Collections.emptyList()
+                    : PickupExtractor.extract(sender, body);
+            PickupRepository.IngestResult local = null;
+            if (!blacklisted && !parsed.isEmpty()) {
+                try {
+                    local = PickupRepository.get(ctx).ingest(
+                            sender, body, parsed,
+                            TodoWriter.resolveSource(sender, body),
+                            TodoWriter.extractPlace(sender, body),
+                            extras.getBoolean("test", false));
+                } catch (Throwable t) {
+                    Log.w(TAG, "LOCAL DB ingest failed: " + t);
+                }
+            }
+
             java.util.List<String> wrote = TodoWriter.handle(ctx, sender, body);
+            boolean localNew = local != null && local.hasNew();
             if (!wrote.isEmpty()) {
                 Log.i(TAG, "PROVIDER-CALL: 已写入待办 " + wrote);
                 Notifier.notifyCodes(ctx, wrote, null);
+            } else if (localNew) {
+                // 系统待办已存在（或写入失败），但本地库首次记录：仍然提醒，
+                // 因为本地取件库是 4.0 的事实源。
+                Log.i(TAG, "PROVIDER-CALL: 本地首次记录 " + parsed);
+                Notifier.notifyCodes(ctx, parsed, null);
             } else {
                 // v3.1.0：写入失败/全部命中去重时给出反馈。
                 String dedup = TodoWriter.getLastDedupHits();
                 if (dedup != null && !dedup.trim().isEmpty()) {
                     Log.i(TAG, "PROVIDER-CALL: 全部命中去重 " + dedup);
-                } else {
+                } else if (!blacklisted) {
                     String diag = TodoWriter.getLastWriteDiag();
                     Log.e(TAG, "PROVIDER-CALL: 提取到取件码但写入失败: " + diag);
                     Notifier.notifyWriteFailed(ctx,

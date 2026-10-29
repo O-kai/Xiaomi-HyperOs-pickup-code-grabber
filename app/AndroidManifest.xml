@@ -70,6 +70,32 @@
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- 4.0 本地取件列表 -->
+        <activity
+            android:name=".PickupListActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBar" />
+
+        <!-- 4.0 桌面小组件 -->
+        <receiver
+            android:name=".PickupWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/pickup_widget_info" />
+        </receiver>
+
+        <!-- 小组件动作入口：exported=false -->
+        <activity
+            android:name=".WidgetActionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- 打赏页（v2.5.0）：右上角菜单进入，不对外暴露 -->
         <activity
             android:name=".DonateActivity"

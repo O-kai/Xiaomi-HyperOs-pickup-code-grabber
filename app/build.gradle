@@ -71,6 +71,10 @@ android {
 dependencies {
     // 官方 Xposed API（仅编译期；运行时由 LSPosed 提供，不打包进 APK）
     compileOnly 'de.robv.android.xposed:api:82'
+
+    // 4.0：本地取件库只运行在 App 进程；Hook 进程不引用 Room。
+    implementation 'androidx.room:room-runtime:2.6.1'
+    annotationProcessor 'androidx.room:room-compiler:2.6.1'
 }
 
 // Guard against the old 3.1.0/4.0.0 split-brain manifest.
