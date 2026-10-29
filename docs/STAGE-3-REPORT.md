@@ -1,6 +1,6 @@
 # Stage 3 报告：双模式 UI 与前台体验收口
 
-> 版本：**3.9.0-internal / 390**
+> 版本：**3.9.1-internal / 391**（3.9.0 为双模式首版；3.9.1 重做首启页）
 > 分支：`release/4.0`
 > 设备：REDMI K90 Pro Max / HyperOS 4.0 / Android 17（SDK 37）
 > 状态：简洁/进阶双模式完成并通过真机；小组件待用户手动添加后验证渲染
@@ -61,6 +61,21 @@
 重启后复测：`SMS: sender=... | parts=1 | len=30`，不再输出正文；
 `TODO OK: code=...` 不再输出整条待办内容。去重、通知、本地库写入均正常。
 
+### 7. 首启模式选择页重做（3.9.1）
+
+原实现是系统 `AlertDialog`：标题 + 两段文字 + 两个文字按钮，和应用的卡片式视觉完全脱节，观感老旧。
+
+改为**全屏首启页**：
+
+- 品牌区（应用名 + 一句话说明）→ 标题「选择使用方式」→ 副标题。
+- 左右两张等宽模式卡，各自包含：圆角图标、标题、说明、底部按钮。
+- 简洁模式：主色实心按钮 + 「推荐」角标 + 主色描边；进阶模式：浅色底按钮 + 细描边。
+- 全部复用 `UiKit` 的配色、圆角、字体，并加 Ripple 按压反馈与入场淡入上移动画。
+- 整卡可点、按钮也可点；内容垂直居中，小屏可滚动。
+
+选择系统弹窗还有一个隐患：项目注释里记录过部分 ROM 上 dialog window 会吞触摸事件，
+全屏页直接绕开这个问题。
+
 ---
 
 ## 二、真机验收记录
@@ -77,6 +92,9 @@
 | 「已取」实时联动（2 → 1） | 通过 | `artifacts/stage2b-done2.png` |
 | 底栏不再透字 | 通过 | `artifacts/stage2b-navfix.png` |
 | 3.8.1 隐私日志 | 通过 | logcat `SMS: ... len=30` |
+| 首启页（3.9.1）：两卡等高、按钮同一水平线 | 通过 | 控件坐标均为 y=1727–1848 |
+| 首启页点「用进阶模式」 | 通过 | 进入四 Tab |
+| 首启页点「用简洁模式」 | 通过 | 进入 SimpleHomeActivity |
 
 回归（`tools/run_tests.sh`）：FullReg 20/20、PkgInput 8/8、CallerPolicy 11/11，其余用例无回归。
 
@@ -85,7 +103,7 @@
 ## 三、构建产物
 
 - `app/build/outputs/apk/release/app-release.apk`
-- versionName `3.9.0-internal` / versionCode `390`
+- versionName `3.9.1-internal` / versionCode `391`
 - 生产证书 `CN=PickupCodeGrabber`
 
 ---
