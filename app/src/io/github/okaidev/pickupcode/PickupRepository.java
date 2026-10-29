@@ -72,6 +72,45 @@ public final class PickupRepository {
         void onResult(T value);
     }
 
+    /**
+     * 本地库变更监听（4.0 Stage 2.1）。
+     *
+     * 为什么需要：Provider 在 Binder 线程写入时，Activity 已经在前台，
+     * 不会触发 onResume；首页待取件卡必须能被事件驱动刷新，否则用户
+     * 收到短信后看到的还是「0 个」。只在本进程内回调，不走广播。
+     */
+    public interface ChangeListener {
+        void onPickupChanged();
+    }
+
+    private static final java.util.concurrent.CopyOnWriteArrayList<ChangeListener> LISTENERS =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    public static void addChangeListener(ChangeListener listener) {
+        if (listener != null && !LISTENERS.contains(listener)) {
+            LISTENERS.add(listener);
+        }
+    }
+
+    public static void removeChangeListener(ChangeListener listener) {
+        if (listener != null) {
+            LISTENERS.remove(listener);
+        }
+    }
+
+    private void notifyChanged() {
+        if (LISTENERS.isEmpty()) return;
+        main.post(() -> {
+            for (ChangeListener listener : LISTENERS) {
+                try {
+                    listener.onPickupChanged();
+                } catch (Throwable t) {
+                    Log.w(TAG, "change listener failed: " + t);
+                }
+            }
+        });
+    }
+
     /** 同步写入，调用方必须是后台线程（Provider Binder / 测试线程）。 */
     public IngestResult ingest(String sender, String body,
                                List<String> codes, String source, String place,
@@ -129,6 +168,7 @@ public final class PickupRepository {
         if (inserted > 0) {
             Log.i(TAG, "LOCAL DB: inserted=" + inserted + " touched=" + touched);
             PickupWidgetProvider.refreshAsync(appContext);
+            notifyChanged();
         }
         return new IngestResult(inserted, touched);
     }
@@ -205,6 +245,7 @@ public final class PickupRepository {
             int changed = dao.markDone(id, System.currentTimeMillis());
             if (changed > 0) {
                 PickupWidgetProvider.refreshAsync(appContext);
+                notifyChanged();
             }
             return changed;
         } catch (Throwable t) {
@@ -225,6 +266,7 @@ public final class PickupRepository {
             try {
                 dao.delete(id);
                 PickupWidgetProvider.refreshAsync(appContext);
+                notifyChanged();
             } catch (Throwable t) {
                 Log.w(TAG, "delete failed: " + t);
             }

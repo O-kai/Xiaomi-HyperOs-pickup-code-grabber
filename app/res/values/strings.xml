@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">取件码助手</string>
+    <string name="widget_description">显示待取件码，可复制或标记已取件</string>
 </resources>

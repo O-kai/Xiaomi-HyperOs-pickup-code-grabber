@@ -1,17 +1,13 @@
 package io.github.okaidev.pickupcode;
 
 import android.app.Activity;
-import android.app.PendingIntent;
-import android.appwidget.AppWidgetManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -79,6 +75,21 @@ public class PickupListActivity extends Activity {
         emptyView.setPadding(0, dp(80), 0, 0);
     }
 
+    /** 4.0 Stage 2.1：本地库变更时列表也要实时刷新（小组件/通知动作可能改状态） */
+    private final PickupRepository.ChangeListener changeListener = this::refresh;
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        PickupRepository.addChangeListener(changeListener);
+    }
+
+    @Override
+    protected void onStop() {
+        PickupRepository.removeChangeListener(changeListener);
+        super.onStop();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -89,25 +100,9 @@ public class PickupListActivity extends Activity {
         PickupRepository.get(this).recentAsync(100, this::render);
     }
 
+    /** 4.0：小组件添加入口，具体流程见 {@link WidgetPin}。 */
     private void requestPinWidget() {
-        if (Build.VERSION.SDK_INT < 26) {
-            Toast.makeText(this, "系统版本过低，请长按桌面添加小组件", Toast.LENGTH_LONG).show();
-            return;
-        }
-        try {
-            AppWidgetManager manager = AppWidgetManager.getInstance(this);
-            ComponentName provider = new ComponentName(this, PickupWidgetProvider.class);
-            if (!manager.isRequestPinAppWidgetSupported()) {
-                Toast.makeText(this, "请长按桌面 → 小组件 → 取件码助手", Toast.LENGTH_LONG).show();
-                return;
-            }
-            Intent success = new Intent(this, PickupListActivity.class);
-            PendingIntent successPi = PendingIntent.getActivity(this, 9100, success,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            manager.requestPinAppWidget(provider, null, successPi);
-        } catch (Throwable t) {
-            Toast.makeText(this, "添加失败，请长按桌面手动添加", Toast.LENGTH_LONG).show();
-        }
+        WidgetPin.prompt(this);
     }
 
     private void render(List<PickupRecord> records) {

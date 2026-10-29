@@ -87,6 +87,20 @@ public class LauncherActivity extends Activity {
     /** 4.2：自定义模板的占位符说明卡（选「自定义」时显示） */
     private LinearLayout tplVarHelp;
 
+    /** 4.0 Stage 2.1：本地库变更监听（前台实时刷新待取件卡） */
+    private PickupRepository.ChangeListener pickupListener;
+
+    /** 4.0：界面是否已经建好。首启模式选择 / 跳转简洁模式时不建界面，生命周期回调要跳过视图操作。 */
+    private boolean uiReady = false;
+
+    /** 4.0 Stage 2.1：体检结果缓存，避免每次 onResume 都 su（Magisk 会反复弹授权） */
+    private static final long HEALTH_CACHE_TTL = 120_000L;
+    private volatile List<Diagnostics.Check> lastHealthChecks;
+    private volatile boolean lastHealthOk;
+    private volatile boolean lastHealthDeploy;
+    private volatile String lastHealthErr;
+    private volatile long lastHealthAt;
+
     // ==================== 应用 ====================
     private TextView backendValue, envValue, extraSummary;
     /** v4.6：「取件码写入目标」整行（用于切换后就地刷新） */
@@ -141,6 +155,20 @@ public class LauncherActivity extends Activity {
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1001);
         }
 
+        // 4.0 双模式：首次启动先让用户选「简洁 / 进阶」，之后按选择分流。
+        // 注意：上面的初始化（规则加载、更新检查、跨进程同步）必须照常执行，
+        // 否则只用简洁模式的用户永远不会触发规则热更与配置同步。
+        String uiMode = UiMode.get(this);
+        if (uiMode == null) {
+            showModeChooser();
+            return;
+        }
+        if (UiMode.SIMPLE.equals(uiMode)) {
+            startActivity(new Intent(this, SimpleHomeActivity.class));
+            finish();
+            return;
+        }
+
         // 页面骨架：头部（固定）+ 内容区（可滚动，随 Tab 切换）+ 底栏
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
@@ -178,10 +206,13 @@ public class LauncherActivity extends Activity {
         View scrim = new View(this);
         GradientDrawable scrimBg = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
                 new int[]{ P.bg, P.bg, P.bg & 0x00FFFFFF });
-        // 底栏【下方】留一条实底（约 34dp），底栏覆盖区只轻微淡化（55%）——
-        // 这样 85% 半透明的底栏才能真正透出下面滚过的内容，同时避免文字硬碰硬
-        scrimBg.setColors(new int[]{ P.bg, UiKit.alpha(P.bg, 0.55f), P.bg & 0x00FFFFFF },
-                new float[]{ 0f, 0.18f, 1f });
+        // 4.0 Stage 2.1：底栏覆盖区必须是【实底】。
+        // 原实现只给 55% 底色，85% 半透明的底栏叠上去后，下面的卡片文字仍能透出来，
+        // 真机截图里「一键链路测试」与底栏文字撞在一起。现在改为：
+        //   0 → 0.55 实底（完全盖住底栏下方与底栏本体）
+        //   0.55 → 1 柔和淡出（保留「内容从底栏下滚过」的悬浮感）
+        scrimBg.setColors(new int[]{ P.bg, P.bg, P.bg & 0x00FFFFFF },
+                new float[]{ 0f, 0.55f, 1f });
         scrim.setBackground(scrimBg);
         FrameLayout.LayoutParams scrimLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(188));
@@ -206,9 +237,52 @@ public class LauncherActivity extends Activity {
         tabViews[3] = buildSettingsTab();
 
         showTab(currentTab);
+        uiReady = true;
         refreshHealth();
         refreshUserRuleCard();
         renderNotiSwitchUi();
+    }
+
+    /**
+     * 首次启动的模式选择。
+     *
+     * 不做成单独引导页：一次弹窗、两句话讲清差别即可，
+     * 选错也能在「设置 → 界面模式」里改回来，不制造额外门槛。
+     */
+    private void showModeChooser() {
+        // 先铺一层品牌底，避免弹窗背后是一片系统灰
+        LinearLayout bg = new LinearLayout(this);
+        bg.setOrientation(LinearLayout.VERTICAL);
+        bg.setGravity(Gravity.CENTER);
+        bg.setBackgroundColor(P.bg);
+        TextView name = UiKit.text(this, "取件码助手", 22f, P.navInk);
+        name.setGravity(Gravity.CENTER);
+        name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        bg.addView(name);
+        TextView sub = UiKit.text(this, "先选一种使用方式，之后可在设置里随时切换", 13f, P.label);
+        sub.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.setMargins(0, dp(8), 0, 0);
+        bg.addView(sub, slp);
+        setContentView(bg);
+
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("选择使用方式")
+                .setMessage("简洁模式：打开就是待取件清单，点码复制、点「已取」完成。\n\n"
+                        + "进阶模式：完整的规则自定义、通知来源、写入格式与诊断能力。\n\n"
+                        + "两种模式数据共享，之后可以在设置里随时切换。")
+                .setCancelable(false)
+                .setPositiveButton("用简洁模式", (d, w) -> {
+                    UiMode.set(this, UiMode.SIMPLE);
+                    startActivity(new Intent(this, SimpleHomeActivity.class));
+                    finish();
+                })
+                .setNegativeButton("用进阶模式", (d, w) -> {
+                    UiMode.set(this, UiMode.ADVANCED);
+                    recreate();
+                })
+                .show();
     }
 
     @Override
@@ -265,7 +339,8 @@ public class LauncherActivity extends Activity {
         sv.setHorizontalScrollBarEnabled(false);
         sv.setFillViewport(true);
         sv.setClipToPadding(false);
-        sv.setPadding(dp(18), dp(4), dp(18), dp(124));
+        // 底部留出底栏高度 + 呼吸空间，保证最后一张卡能完整滚到遮罩上方
+        sv.setPadding(dp(18), dp(4), dp(18), dp(148));
         return sv;
     }
 
@@ -290,6 +365,12 @@ public class LauncherActivity extends Activity {
         heroCard.setPadding(dp(20), dp(17), dp(20), dp(17));
         heroCard.setElevation(dp(1));
         heroCard.setOnClickListener(v -> toggleChecklist());
+        // 4.0 Stage 2.1：长按状态卡强制重新体检（体检结果默认缓存 120 秒）
+        heroCard.setOnLongClickListener(v -> {
+            refreshHealth(true);
+            Toast.makeText(this, "正在重新体检…", Toast.LENGTH_SHORT).show();
+            return true;
+        });
         heroIcon = UiKit.icon(this, R.drawable.ic_check, 32, P.heroInk);
         heroCard.addView(heroIcon);
         LinearLayout heroCol = new LinearLayout(this);
@@ -1103,6 +1184,25 @@ public class LauncherActivity extends Activity {
         //   QQ群 → 自动检查更新 → 检查更新 → 外观 → 模糊效果
         box.addView(UiKit.groupLabel(this, P, "基础设置"));
         LinearLayout perCard = UiKit.card(this, P);
+
+        // 4.0：界面模式切换（简洁 / 进阶），放在基础设置第一位
+        TextView modeValue = UiKit.value(this, P, "进阶");
+        LinearLayout modeRow = UiKit.row(this, P, R.drawable.ic_grid, "界面模式",
+                "简洁只看待取件；进阶保留规则、来源与诊断", modeValue);
+        modeRow.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
+                .setTitle("切换到简洁模式")
+                .setMessage("简洁模式只保留待取件清单：点码复制、点「已取」完成。\n\n"
+                        + "规则、通知来源、写入格式、诊断等能力仍保留在进阶模式，"
+                        + "随时可以从简洁模式右上角切回来。")
+                .setPositiveButton("切换到简洁模式", (d, w) -> {
+                    UiMode.set(this, UiMode.SIMPLE);
+                    startActivity(new Intent(this, SimpleHomeActivity.class));
+                    finish();
+                })
+                .setNegativeButton("取消", null)
+                .show());
+        perCard.addView(modeRow);
+        perCard.addView(UiKit.divider(this, P));
 
         // ① 加入开发者 QQ 群（提到第一位）
         perCard.addView(toolRow(R.drawable.ic_phone, "加入开发者 QQ 群",
@@ -1932,6 +2032,22 @@ public class LauncherActivity extends Activity {
     // ================================================================
 
     private void refreshHealth() {
+        refreshHealth(false);
+    }
+
+    /**
+     * 4.0 Stage 2.1：体检结果缓存。
+     *
+     * onResume 每次都跑 healthCheck 会反复 su，Magisk 每次都会弹一次授权提示，
+     * 用户看到的就是「每次回到 App 都弹一次超级用户」。这里做 120 秒缓存：
+     * 期间回到前台直接复用上次结果；用户主动下拉/长按状态卡才强制重跑。
+     */
+    private void refreshHealth(boolean force) {
+        if (!force && lastHealthChecks != null
+                && System.currentTimeMillis() - lastHealthAt < HEALTH_CACHE_TTL) {
+            renderHealth(lastHealthChecks, lastHealthOk, lastHealthDeploy, lastHealthErr);
+            return;
+        }
         heroTitle.setText("正在体检…");
         heroSub.setText("root 检测约需 2-5 秒");
         heroIcon.setImageResource(R.drawable.ic_check);
@@ -1965,6 +2081,11 @@ public class LauncherActivity extends Activity {
             final List<Diagnostics.Check> cs = checks;
             final boolean show = needDeploy, ok = allOk;
             final String errMsg = err;
+            lastHealthChecks = cs;
+            lastHealthOk = ok;
+            lastHealthDeploy = show;
+            lastHealthErr = errMsg;
+            lastHealthAt = System.currentTimeMillis();
             runOnUiThread(() -> renderHealth(cs, ok, show, errMsg));
         }).start();
     }
@@ -2138,8 +2259,28 @@ public class LauncherActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        if (!uiReady) return;
+        if (pickupListener == null) {
+            pickupListener = this::refreshPickupCard;
+        }
+        PickupRepository.addChangeListener(pickupListener);
+    }
+
+    @Override
+    protected void onStop() {
+        if (uiReady) {
+            PickupRepository.removeChangeListener(pickupListener);
+        }
+        super.onStop();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
+        // 首启模式选择 / 简洁模式跳转时没有建界面，此时不能碰任何视图
+        if (!uiReady) return;
         refreshPickupCard();
         refreshHealth();
         notiSwitchOn = isNotiHookFlagOn();
