@@ -57,7 +57,7 @@ public class TodoWriter {
         // v3.0.0：发送方以显式参数一路传递到提取引擎（避免并发串号）
         // 黑名单预检（12306/银行/广告等）
         if (isBlacklisted(ctx, body)) {
-            Log.i(TAG, "blacklist skip: " + body.substring(0, Math.min(body.length(), 60)));
+            Log.i(TAG, "blacklist skip: len=" + body.length());
             return new ArrayList<>();
         }
         List<String> codes = PickupExtractor.extract(sender, body);
@@ -102,9 +102,9 @@ public class TodoWriter {
             boolean ok = writeTodo(ctx, content, buildTitle(code, content));
             if (ok) {
                 wrote.add(code);
-                Log.i(TAG, "TODO OK: " + content);
+                Log.i(TAG, "TODO OK: code=" + code);
             } else {
-                Log.e(TAG, "TODO FAIL: " + content);
+                Log.e(TAG, "TODO FAIL: code=" + code);
                 // v3.1.0 修复：写入失败必须把指纹撤掉。
                 // 否则一次 su 授权超时 / sqlite3 异常，就会让这个取件码被去重永久挡掉——
                 // 用户再也收不到这条提醒，且界面上看不出任何异常。

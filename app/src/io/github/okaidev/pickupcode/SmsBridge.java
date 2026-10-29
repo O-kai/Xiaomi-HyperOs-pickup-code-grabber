@@ -289,10 +289,9 @@ public class SmsBridge {
             }
         }
 
-        // 日志（PICKUPDEBUG 双通道）
-        String snippet = body.length() > 300 ? body.substring(0, 300) + "..." : body;
+        // 日志（PICKUPDEBUG 双通道）：只记录长度，不打印短信正文，避免诊断报告泄露地址/姓名。
         XposedEntry.log("SMS: sender=" + sender + " | parts=" + part.parts
-                + " | body=" + snippet);
+                + " | len=" + body.length());
 
         // 转发给模块自身进程：提取 → 去重 → 写待办 → 通知
         // 4.0 Stage 0：只保留 ContentResolver.call 主通道。
