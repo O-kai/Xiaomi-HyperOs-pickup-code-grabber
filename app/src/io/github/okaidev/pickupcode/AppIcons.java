@@ -40,6 +40,10 @@ public final class AppIcons {
         put("com.sf.cdsibm", "sf", "顺丰速运", R.drawable.app_fallback_sf);
         // v6.2：丰巢（取件码大户）。无官方位图与矢量素材，用自绘兜底图标
         put("com.fcbox.hiveconsumer", "fengchao", "丰巢", R.drawable.app_fallback_fengchao);
+        // v4.8：设备互联。非小米设备无此包，图标走系统图标（bind 内已支持），
+        // 这里给一个自绘兜底，保证列表排版一致。
+        put("com.xiaomi.mi_connect_service", "mi_connect", "设备互联",
+                R.drawable.app_fallback_mi_connect);
         // v4.0.1：菜鸟裹裹没有可公开抓取的位图，用用户提供的矢量图标（SVG → 矢量图）
         REAL.put("cainiao-guoguo", R.drawable.app_cainiao_guoguo);
     }
@@ -61,14 +65,41 @@ public final class AppIcons {
         if (bmp != null) {
             iv.clearColorFilter();
             iv.setImageBitmap(bmp);
-        } else {
-            Integer real = REAL.get(SLUG.get(pkg));
-            if (real != null) {
-                iv.setImageResource(real);
-                return;
-            }
-            Integer f = FALLBACK.get(pkg);
-            iv.setImageResource(f != null ? f : R.drawable.app_fallback_cainiao);
+            return;
+        }
+        Integer real = REAL.get(SLUG.get(pkg));
+        if (real != null) {
+            iv.setImageResource(real);
+            return;
+        }
+        Integer f = FALLBACK.get(pkg);
+        if (f != null) {
+            iv.setImageResource(f);
+            return;
+        }
+        // v4.8：非内置包名（用户手动添加的任意 App）→ 取系统里该应用的真实图标。
+        // 之前这里直接落到 app_fallback_cainiao，导致手动添加的每个 App
+        // 都显示成菜鸟图标。现在先试系统图标，真取不到才用通用兜底。
+        if (bindSystemIcon(iv, ctx, pkg)) return;
+        iv.setImageResource(R.drawable.app_fallback_cainiao);
+    }
+
+    /**
+     * v4.8：取系统里某个包的真实应用图标。
+     *
+     * @return true=已成功设置图标；false=该包未安装或取图标失败（调用方继续兜底）
+     */
+    public static boolean bindSystemIcon(ImageView iv, android.content.Context ctx, String pkg) {
+        if (pkg == null || pkg.isEmpty()) return false;
+        try {
+            android.graphics.drawable.Drawable d =
+                    ctx.getPackageManager().getApplicationIcon(pkg);
+            if (d == null) return false;
+            iv.clearColorFilter();
+            iv.setImageDrawable(d);
+            return true;
+        } catch (Throwable t) {
+            return false;
         }
     }
 

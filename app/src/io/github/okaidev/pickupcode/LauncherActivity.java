@@ -531,6 +531,17 @@ public class LauncherActivity extends Activity {
             acc.addView(del);
 
             LinearLayout row = UiKit.row(this, P, 0, label, pkg, acc);
+
+            // v4.8：手动添加项也要显示应用图标，与上面内置项保持一致的排版。
+            // 直接复用 AppIcons.bind —— 它会先查内置资源、再查系统图标，
+            // 最后兜底到通用图标，不需要在这里重写一套取图逻辑。
+            ImageView iv = new ImageView(this);
+            AppIcons.bind(iv, this, pkg);
+            LinearLayout.LayoutParams ivLp = new LinearLayout.LayoutParams(dp(38), dp(38));
+            ivLp.setMargins(0, 0, dp(13), 0);
+            iv.setLayoutParams(ivLp);
+            row.addView(iv, 0);
+
             // 整行可点 + 红叉单独可点，都走移除确认
             row.setOnClickListener(v -> confirmRemoveExtra(pkg));
             del.setOnClickListener(v -> confirmRemoveExtra(pkg));
@@ -748,6 +759,20 @@ public class LauncherActivity extends Activity {
                 LinearLayout row = UiKit.row(this, P, 0, app[0], app[1],
                         UiKit.icon(this, R.drawable.ic_plus, 17, P.accentInk));
                 final String pkg = app[1];
+
+                // v4.8：左侧补上应用图标，比纯文字列表好认得多
+                try {
+                    ImageView iv = new ImageView(this);
+                    iv.setImageDrawable(getPackageManager().getApplicationIcon(pkg));
+                    LinearLayout.LayoutParams ivLp =
+                            new LinearLayout.LayoutParams(dp(34), dp(34));
+                    ivLp.setMargins(0, 0, dp(12), 0);
+                    iv.setLayoutParams(ivLp);
+                    row.addView(iv, 0);
+                } catch (Throwable ignored) {
+                    // 取不到图标就保持纯文字，不影响选择
+                }
+
                 row.setOnClickListener(v -> {
                     // 追加到编辑框（保留用户已填的其它包名）
                     String cur = targetEdit.getText().toString().trim();
@@ -755,7 +780,7 @@ public class LauncherActivity extends Activity {
                     targetEdit.setText(cur + pkg);
                     targetEdit.setSelection(targetEdit.getText().length());
                     if (dlg[0] != null) dlg[0].dismiss();
-                    Toast.makeText(this, "已填入 " + pkg + "，点「保存」生效",
+                    Toast.makeText(this, "已填入 " + pkg + "，点「添加」生效",
                             Toast.LENGTH_SHORT).show();
                 });
                 list.addView(row);
@@ -776,7 +801,7 @@ public class LauncherActivity extends Activity {
         });
 
         dlg[0] = UiKit.dialog(this, P, R.drawable.ic_grid, "选择应用",
-                "选中后会填入包名，点「保存」生效", wrap,
+                "选中后会填入包名，点「添加」生效", wrap,
                 UiKit.ghost("取消", null));
         dlg[0].show();
     }
@@ -1091,14 +1116,20 @@ public class LauncherActivity extends Activity {
         return "完整";
     }
 
+    /**
+     * v4.8：写入格式这一行现在**不再可折叠**。
+     *
+     * v4.5 起编辑器默认展开（用户要求三种模式都要直接看到效果预览），
+     * 但 toggleTplEditor 的折叠逻辑还留着——于是点一下这一行反而把编辑器
+     * 收起来、页面突然变短（用户说的「它会缩小」），右侧值也跟着消失。
+     *
+     * 现在点击这一行只做一件事：确保编辑器展开（幂等），不收起。
+     */
     private void toggleTplEditor() {
-        boolean show = tplEditorBox.getVisibility() != View.VISIBLE;
-        tplEditorBox.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (show) tplValueView.setVisibility(View.GONE);
-        else {
-            tplValueView.setVisibility(View.VISIBLE);
-            collapseTplEditState();
+        if (tplEditorBox.getVisibility() != View.VISIBLE) {
+            tplEditorBox.setVisibility(View.VISIBLE);
         }
+        if (tplValueView != null) tplValueView.setVisibility(View.VISIBLE);
     }
 
     /** 模板编辑器（就地展开）：三模式分段 + 效果预览 + 自定义编辑 */
@@ -1283,7 +1314,23 @@ public class LauncherActivity extends Activity {
         collapseTplEditState();
         if (tplPreview != null) tplPreview.setVisibility(View.VISIBLE);
         renderTplPreview();
+        // v4.8：同步刷新右侧的值文字。
+        // 之前这里漏了——tplValueView 在创建后再没被更新过，
+        // 于是无论切到哪个模式，右边永远显示进入页面时的那个值，
+        // 必须退出重进才正确。这是「很低级的错误」的真正原因。
+        syncTplValueView();
         Toast.makeText(this, "待办模板已切换为「" + label + "」", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * v4.8：把「写入格式」右侧的值文字同步成当前模式。
+     *
+     * 注意可见性：编辑器展开时该文字是被隐藏的（由 toggleTplEditor 控制），
+     * 所以这里只改文字、不动可见性，避免把收起状态下的文字又露出来。
+     */
+    private void syncTplValueView() {
+        if (tplValueView == null) return;
+        tplValueView.setText(modeLabel(currentMode));
     }
 
     private void restyleModes() {

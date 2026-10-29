@@ -44,7 +44,12 @@ public class NotiHook {
             "com.taobao.taobao",        // 淘宝
             "com.xunmeng.pinduoduo",    // 拼多多
             "com.sf.cdsibm",            // 顺丰
-            "com.fcbox.hiveconsumer"    // 丰巢（v6.2 新增）
+            "com.fcbox.hiveconsumer",   // 丰巢（v6.2 新增）
+            // v4.8：设备互联。小米设备之间会互相中转通知——A 设备收到快递短信，
+            // B 设备通过「设备互联」收到同样内容的通知，这里也要读取，
+            // 这样 B 设备同样能把取件码写进待办。
+            // 非小米设备没有这个包，不影响运行（白名单只按包名匹配，未安装即永不命中）。
+            "com.xiaomi.mi_connect_service"  // 设备互联
     };
 
     /**
@@ -61,6 +66,7 @@ public class NotiHook {
         m.put("com.xunmeng.pinduoduo", "拼多多");
         m.put("com.sf.cdsibm", "顺丰速运");
         m.put("com.fcbox.hiveconsumer", "丰巢");
+        m.put("com.xiaomi.mi_connect_service", "设备互联");
         PKG_LABELS = java.util.Collections.unmodifiableMap(m);
     }
 

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  v4.8：设备互联（小米跨设备通知中转）自绘图标。
+  造型：两个设备之间用一条弧线连接，表达「A 设备 → B 设备」的中转语义。
+  纯自绘，不含第三方素材。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="38dp"
+    android:height="38dp"
+    android:viewportWidth="38"
+    android:viewportHeight="38">
+
+    <!-- 底圆 -->
+    <path
+        android:fillColor="#FF5B8FF9"
+        android:pathData="M19,19m-19,0a19,19 0,1 1,38 0a19,19 0,1 1,-38 0" />
+
+    <!-- 左侧设备（圆角矩形） -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9,14h8a2,2 0,0 1,2 2v8a2,2 0,0 1,-2 2h-8a2,2 0,0 1,-2 -2v-8a2,2 0,0 1,2 -2z" />
+
+    <!-- 左侧设备屏幕（挖空感） -->
+    <path
+        android:fillColor="#FF5B8FF9"
+        android:pathData="M10.5,17h5v5h-5z" />
+
+    <!-- 右侧设备 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M21,12h8a2,2 0,0 1,2 2v8a2,2 0,0 1,-2 2h-8a2,2 0,0 1,-2 -2v-8a2,2 0,0 1,2 -2z" />
+
+    <!-- 右侧设备屏幕 -->
+    <path
+        android:fillColor="#FF5B8FF9"
+        android:pathData="M22.5,15h5v5h-5z" />
+
+    <!-- 中间连接弧（表示中转） -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M16,23 Q19,27 22,23" />
+</vector>
