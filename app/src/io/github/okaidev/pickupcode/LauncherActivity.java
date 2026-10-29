@@ -2026,15 +2026,11 @@ public class LauncherActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        handleCopy(intent);
-        handleDone(intent);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        handleCopy(getIntent());
-        handleDone(getIntent());
         refreshHealth();
         notiSwitchOn = isNotiHookFlagOn();
         if (notiSw != null) notiSw.setChecked(notiSwitchOn, false);
@@ -2042,48 +2038,6 @@ public class LauncherActivity extends Activity {
         checkNotiHookScopeAsync(false);
         UpdateCenter.maybeCheck(this);
         refreshUserRuleCard();
-    }
-
-    private void handleCopy(Intent intent) {
-        if (intent == null) return;
-        String copy = intent.getStringExtra("copy");
-        if (copy == null || copy.isEmpty()) return;
-        try {
-            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(ClipData.newPlainText("pickupcode", copy));
-            Toast.makeText(this, "已复制取件码：" + copy, Toast.LENGTH_LONG).show();
-        } catch (Throwable t) {
-            Toast.makeText(this, "复制失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-        try {
-            Intent notes = getPackageManager().getLaunchIntentForPackage(NotesBackend.targetPkg(this));
-            if (notes != null) startActivity(notes);
-        } catch (Throwable ignored) { }
-        intent.removeExtra("copy");
-    }
-
-    private void handleDone(Intent intent) {
-        if (intent == null) return;
-        String code = intent.getStringExtra("done");
-        if (code == null || code.isEmpty()) return;
-        intent.removeExtra("done");
-        final String sql = NotesBackend.markDoneSql(this, code);
-        new Thread(() -> {
-            final int rc = TodoWriter.runSql(this, sql);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                Toast.makeText(this, rc == 0 ? "已标记已取件：" + code : "标记失败（rc=" + rc + "）",
-                        Toast.LENGTH_LONG).show();
-                if (rc == 0) {
-                    try {
-                        Intent notes = getPackageManager().getLaunchIntentForPackage(
-                                NotesBackend.targetPkg(this));
-                        if (notes != null) startActivity(notes);
-                    } catch (Throwable ignored) { }
-                    finish();
-                }
-            });
-        }).start();
     }
 
     /** v2.8.0：疑似漏抓错题本（菜单入口 → 现在挂在「规则 → 工具」） */

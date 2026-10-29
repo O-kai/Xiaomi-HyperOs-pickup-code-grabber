@@ -19,7 +19,7 @@ import java.util.Map;
  *  1) Provider 路径整条入库 → 立即处理；
  *  2) 广播路径多段拼接（同来源 8 秒窗口，最多 4 段）→ 到期/满段处理；
  *  3) 进程内指纹去重（防多 Hook 点重复）；
- *  4) 处理后向模块自身进程广播（提取→去重→写待办→通知都在模块 App 完成）。
+ *  4) 处理后通过 ContentResolver.call 交给模块自身进程（提取→去重→写待办→通知）。
  */
 public class SmsBridge {
 
@@ -295,45 +295,37 @@ public class SmsBridge {
                 + " | body=" + snippet);
 
         // 转发给模块自身进程：提取 → 去重 → 写待办 → 通知
-        // 主通道：ContentResolver.call（Provider 唤醒，不受 MIUI 冻结/进程冷启动限制）
-        // 兜底：sendBroadcast（App 进程已运行时可用）
+        // 4.0 Stage 0：只保留 ContentResolver.call 主通道。
+        // 旧实现的 exported 广播兜底已删除——任意 App 都能发 ACTION_ON_SMS 伪造短信。
+        // Provider 调用失败时直接进入本地 su 直写兜底（默认关闭，见 SystemDirectWriter）。
+        android.content.Context ctx = obtainContext();
+        if (ctx == null) {
+            XposedEntry.log("EVENT dispatch skipped: no app context");
+            return;
+        }
         try {
-            android.content.Context ctx = obtainContext();
-            if (ctx != null) {
-                android.os.Bundle extras = new android.os.Bundle();
-                extras.putString("sender", sender);
-                extras.putString("body", body);
-                extras.putLong("ts", System.currentTimeMillis());
-                android.os.Bundle result = ctx.getContentResolver().call(
-                        android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
-                        "onSms", null, extras);
-                XposedEntry.log("EVENT dispatched (provider), result=" + result);
-            } else {
-                XposedEntry.log("EVENT dispatch skipped: no app context");
+            android.os.Bundle extras = new android.os.Bundle();
+            extras.putString("sender", sender);
+            extras.putString("body", body);
+            extras.putLong("ts", System.currentTimeMillis());
+            android.os.Bundle result = ctx.getContentResolver().call(
+                    android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
+                    "onSms", null, extras);
+            int rc = result == null ? 0 : result.getInt("rc", 0);
+            XposedEntry.log("EVENT dispatched (provider), rc=" + rc + " result=" + result);
+            if (rc == -3) {
+                // 正常情况下不应出现：说明调用方 UID 白名单与当前 ROM 不匹配。
+                // 只记录，不降级到广播（广播入口已移除）。
+                XposedEntry.log("EVENT provider denied: check CallerPolicy for this ROM");
             }
+            return;
         } catch (Throwable t) {
             XposedEntry.log("EVENT provider dispatch err: " + t);
-            android.content.Context ctx2 = null;
-            try {
-                ctx2 = obtainContext();
-                if (ctx2 != null) {
-                    android.content.Intent i = new android.content.Intent("io.github.okaidev.pickupcode.action.ON_SMS");
-                    i.setPackage("io.github.okaidev.pickupcode");
-                    i.putExtra("sender", sender);
-                    i.putExtra("body", body);
-                    i.putExtra("ts", System.currentTimeMillis());
-                    ctx2.sendBroadcast(i);
-                    XposedEntry.log("EVENT dispatched (broadcast fallback)");
-                }
-            } catch (Throwable t2) {
-                XposedEntry.log("EVENT broadcast fallback err: " + t2);
-            }
-            // v2.7.0：模块 App 转发失败（被 ColorOS 冻结 / 进程不可唤醒）→ 本进程内 su 直写兜底
-            //（默认关闭；需在设置页开启并给系统进程授权 root，见 SystemDirectWriter）
-            if (ctx2 != null) {
-                SystemDirectWriter.fallback(ctx2, sender, body);
-            }
         }
+
+        // v2.7.0：模块 App 转发失败（被 ColorOS 冻结 / 进程不可唤醒）→ 本进程内 su 直写兜底
+        //（默认关闭；需在设置页开启并给系统进程授权 root，见 SystemDirectWriter）
+        SystemDirectWriter.fallback(ctx, sender, body);
     }
 
     /**

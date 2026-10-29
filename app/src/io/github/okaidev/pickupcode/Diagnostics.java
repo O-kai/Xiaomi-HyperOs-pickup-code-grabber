@@ -32,9 +32,10 @@ import java.util.regex.Pattern;
  *  4) export：保存到 Download/pickup_diag_*.txt 并拉起系统分享
  *
  * 隐私约束（v3.2.0 更正）：本模块自己打的 PICKUPDEBUG 日志里【确实含短信正文片段】
- *   （SmsEventReceiver 的 "EVENT: … body=…"、TodoWriter 的 "blacklist skip: …"），
+ *   （SmsBridge 的 "SMS: … body=…"、TodoWriter 的 "blacklist skip: …"），
  *   报告整段引用这些日志，所以必须假设「短信正文会出现在报告里」，靠 sanitize 做兜底脱敏。
  *   待办库/笔记库本身只做结构级探针（count / 表名），不读内容。
+ *   4.0 Stage 0 起：release 日志应逐步移除正文；诊断导出前增加预览。
  */
 public class Diagnostics {
 

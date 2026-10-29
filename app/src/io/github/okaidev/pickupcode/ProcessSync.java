@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
  *
  * 【要解决的组合债】
  * 本模块有三条写入通道跑在**不同的进程**里：
- *   1. 短信通道   —— 模块 App 进程（TodoProvider / SmsEventReceiver）
+ *   1. 短信通道   —— 模块 App 进程（TodoProvider）
  *   2. 通知通道   —— system_server（NotiHook）
  *   3. 冻结兜底   —— com.android.providers.telephony（SystemDirectWriter）
  * 系统进程读不到模块 App 的 SharedPreferences，所以它们此前只能用「编译内置默认值」跑，

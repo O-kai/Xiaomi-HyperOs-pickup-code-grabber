@@ -2,14 +2,19 @@
 # Self check: run regression tests against Gradle's compiled app classes
 # (avoids needing the Xposed API jar for javac - app classes already compiled by assembleDebug)
 # Usage: bash tools/run_tests.sh
-export PATH="$JDK/bin:$PATH"
 set -u
-ROOT="D:/project/Xiaomi-HyperOs-pickup-code-grabber"
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+# Git Bash would otherwise rewrite Windows classpath 'D:/...' into a bogus 'D;...' entry.
+export MSYS2_ARG_CONV_EXCL='*'
 JDK="${JAVA_HOME:-D:/develop/Java/jdk-17.0.20.1+1}"
 SDK="D:/develop/android-sdk/platforms/android-34/android.jar"
-SRC="$ROOT/app/src/io/github/okaidev/pickupcode"
-APPCLS="$ROOT/app/build/intermediates/javac/debug/classes"
-OUT="$ROOT/test/out"
+SRC="app/src/io/github/okaidev/pickupcode"
+APPCLS="app/build/intermediates/javac/debug/classes"
+OUT="test/out"
+
+export PATH="$JDK/bin:$PATH"
 
 if [ ! -d "$APPCLS/io" ]; then
   echo "app classes missing, run: gradlew.bat assembleDebug first"
@@ -20,7 +25,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT/testclasses"
 
 # Whitelist: only tests that exercise pure logic (no Xposed hooks / Activities)
-TFILES="$ROOT/test/FullReg.java $ROOT/test/ChannelParity.java $ROOT/test/PkgInputTest.java $ROOT/test/TierExclusionTest.java"
+TFILES="test/FullReg.java test/ChannelParity.java test/PkgInputTest.java test/TierExclusionTest.java test/CallerPolicyTest.java"
 
 echo "javac compiling tests..."
 "$JDK/bin/javac.exe" -encoding UTF-8 -nowarn \
@@ -37,13 +42,15 @@ CP="$OUT/testclasses;$APPCLS;$SDK"
 echo ""
 for T in FullReg ChannelParity PkgInputTest; do
   echo "===== $T ====="
-  "$JDK/bin/java.exe" -cp "$CP" "$T" 2>&1 | tail -6
+  "$JDK/bin/java.exe" -cp "$CP" "$T" 2>&1 | tail -8
   echo ""
 done
 
-# TierExclusionTest is in package io.github.okaidev.pickupcode
-echo "===== TierExclusionTest ====="
-"$JDK/bin/java.exe" -cp "$CP" io.github.okaidev.pickupcode.TierExclusionTest 2>&1 | tail -6
-echo ""
+# These tests live in package io.github.okaidev.pickupcode
+for T in TierExclusionTest CallerPolicyTest; do
+  echo "===== $T ====="
+  "$JDK/bin/java.exe" -cp "$CP" "io.github.okaidev.pickupcode.$T" 2>&1 | tail -8
+  echo ""
+done
 
 echo "===== ALL DONE ====="

@@ -37,7 +37,7 @@ public class Notifier {
             String text = titleExtra == null || titleExtra.isEmpty()
                     ? "点击复制并查看待办" : titleExtra + " · 点击复制";
 
-            Intent open = new Intent(ctx, LauncherActivity.class);
+            Intent open = new Intent(ctx, NotificationActionActivity.class);
             open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             open.putExtra("copy", codesJoined);
             PendingIntent pi = PendingIntent.getActivity(ctx, 0, open,
@@ -56,7 +56,7 @@ public class Notifier {
             // 动作按钮：已取件（Activity 通道，可唤醒冻结进程）/ 查看待办（逐码添加）
             int req = 100;
             for (String c : codes) {
-                Intent done = new Intent(ctx, LauncherActivity.class);
+                Intent done = new Intent(ctx, NotificationActionActivity.class);
                 done.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 done.putExtra("done", c);
                 PendingIntent pd = PendingIntent.getActivity(ctx, req++, done,

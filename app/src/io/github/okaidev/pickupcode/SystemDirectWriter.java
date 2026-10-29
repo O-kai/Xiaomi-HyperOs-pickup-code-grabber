@@ -148,7 +148,7 @@ public class SystemDirectWriter {
             }
             // v6.1：门禁统一。
             // 此前这里用 lookLikePickupSms（要求「特征词 + 全文存在形状合法 token」），
-            // 而主通道（TodoProvider / SmsEventReceiver）用 hasFeatureWords（只要特征词）。
+            // 而主通道（TodoProvider）用 hasFeatureWords（只要特征词）。
             // 后者更宽松，于是出现「主通道能过、兜底过不了」的可靠性缺口：
             // 实测「包裹待签收【取件码-6-4-3009】…」——码前紧邻分隔横线，
             // patternAnyToken 的前向断言把它排除，lookLikePickupSms 返回 false，

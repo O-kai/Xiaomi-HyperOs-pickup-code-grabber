@@ -1,10 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="io.github.okaidev.pickupcode"
-    android:versionCode="310"
-    android:versionName="3.1.0">
-
-    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- v2.5.1：唯一联网行为 = 检查更新（3 天一次，GitHub Releases API），无其他网络访问 -->
@@ -49,20 +44,12 @@
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
 
-        <!-- 跨进程事实入口：Hook 进程通过 ContentResolver.call 唤醒模块 App -->
+        <!-- 跨进程事实入口：Hook 进程通过 ContentResolver.call 唤醒模块 App；
+             调用方由 CallerPolicy 按 UID/包名校验，见 TodoProvider.java -->
         <provider
             android:name=".TodoProvider"
             android:authorities="io.github.okaidev.pickupcode.provider"
             android:exported="true" />
-
-        <!-- 短信事件接收器（Hook 进程广播 → 模块自身进程处理，兜底通道） -->
-        <receiver
-            android:name=".SmsEventReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="io.github.okaidev.pickupcode.action.ON_SMS" />
-            </intent-filter>
-        </receiver>
 
         <!-- v3.0.0：全部页面使用无系统标题栏主题，避免与页面自绘头部重复 -->
         <activity
@@ -74,6 +61,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 通知动作受控入口：exported=false，只允许本 App 的 PendingIntent 启动 -->
+        <activity
+            android:name=".NotificationActionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- 打赏页（v2.5.0）：右上角菜单进入，不对外暴露 -->
         <activity
