@@ -13,6 +13,15 @@
 >
 > **不确定的地方我一律写「待确认」，不猜。**
 
+> **4.0 Stage 0 变更提示（2026-10-30，优先于下文旧描述）**
+> - `SmsEventReceiver` 已删除；`ACTION_ON_SMS` 广播入口不再存在。
+> - 短信/通知统一走 `TodoProvider` 的 `onSms`；`NotiRelay` 已从广播改为 `ContentResolver.call`。
+> - `TodoProvider` 增加 `CallerPolicy`：`onSms` 只接受 system/phone/mms/telephony/自身 UID；`markDone` 只接受自身 UID。
+> - 通知动作改由非导出的 `NotificationActionActivity` 处理；`LauncherActivity` 不再接受 `copy`/`done` extra。
+> - `SmsBridge` 的广播兜底已删除；Provider 失败直接进入 `SystemDirectWriter` 兜底。
+> - 版本源已迁移到 `version.properties`，Manifest 不再硬编码版本。
+> 本文下文关于“广播兜底 / SmsEventReceiver / exported Receiver”的内容是 3.1.0 历史架构，阅读时以本提示为准。
+
 ---
 
 ## 目录

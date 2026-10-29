@@ -14,6 +14,8 @@
 | `ProbeTierD.java` | **TierD 评分复刻**：逐项打印特征词/动作词/码形各得几分、离阈值差多少 |
 | `ProbeLook.java` | **门禁诊断**：`lookLikePickupSms` / `hasFeatureWords` / `patternAnyToken` 为何通过或失败 |
 | `TierExclusionTest.java` | **语义排除回归（v3.1.0 新增，21 项）**：锁住「TierA/TierB 不得绕过 `isExcludedToken`」。一半用例验证该拦的拦住（格口号/金额/尾号/订单号/掩码手机号），一半验证真码不被误伤——**这组是红线，加新规则时最容易踩坏的地方** |
+| `CallerPolicyTest.java` | **IPC 调用方白名单（4.0 Stage 0 新增，11 项）**：验证系统/电话/短信/telephony 包名放行，第三方/伪造包名/null 拒绝 |
+| `SecurityChecklist.md` | **真机 IPC 安全验收清单**：未授权 `onSms`/`markDone`、旧广播、Launcher `done` extra、通知动作回归 |
 | `UserRulesTest.java` | **用户自定义规则安全测试**：危险正则拦截 / 强制自测 / 50ms 熔断 / 四层发送方匹配 / 优先级 / 导入导出往返 |
 | `check_rules_consistency.py` | **规则三副本一致性校验**（改规则后必跑，见下） |
 | `sms-cases.txt` | 官方规则用例集（`ID｜期望码｜短信原文`，期望为 `-` 表示反例） |
@@ -75,6 +77,18 @@ java RulesRegression
 
 **结果**：结果写入 `reg-result.txt`，末行会输出
 `TOTAL CODES: N PASS=N FAIL=0` 与 `TOTAL PLACE: N PASS=N FAIL=0`。
+
+### 调用方白名单测试
+
+```bash
+cd test
+mkdir -p out-security
+javac -encoding UTF-8 -cp "$ANDROID_JAR" -d out-security \
+  ../app/src/io/github/okaidev/pickupcode/CallerPolicy.java CallerPolicyTest.java
+java -cp out-security io.github.okaidev.pickupcode.CallerPolicyTest
+```
+
+**预期**：末行 `TOTAL: PASS=11 FAIL=0`。
 
 ### 用户规则安全测试
 
