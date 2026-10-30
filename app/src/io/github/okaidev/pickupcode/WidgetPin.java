@@ -29,6 +29,9 @@ public final class WidgetPin {
                 .setTitle("添加到桌面")
                 .setMessage(steps)
                 .setPositiveButton("立即尝试", (d, w) -> tryPin(ctx))
+                .setNeutralButton("样式设置", (d, w) -> ctx.startActivity(
+                        new android.content.Intent(ctx, WidgetSettingsActivity.class)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)))
                 .setNegativeButton("知道了", null)
                 .show();
     }

@@ -82,6 +82,12 @@
             android:exported="false"
             android:theme="@style/AppTheme.NoActionBar" />
 
+        <!-- 4.0 小组件外观设置（字号 / 地点 / 条数） -->
+        <activity
+            android:name=".WidgetSettingsActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBar" />
+
         <!-- 4.0 桌面小组件 -->
         <receiver
             android:name=".PickupWidgetProvider"

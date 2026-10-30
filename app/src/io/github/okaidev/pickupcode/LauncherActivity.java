@@ -1332,6 +1332,15 @@ public class LauncherActivity extends Activity {
         perCard.addView(modeRow);
         perCard.addView(UiKit.divider(this, P));
 
+        // 4.0：桌面小组件外观设置
+        TextView widgetValue = UiKit.value(this, P, "字号 · 条数");
+        LinearLayout widgetRow = UiKit.row(this, P, R.drawable.ic_home, "桌面小组件",
+                "字号、是否显示地点、最多条数", widgetValue);
+        widgetRow.setOnClickListener(v ->
+                startActivity(new Intent(this, WidgetSettingsActivity.class)));
+        perCard.addView(widgetRow);
+        perCard.addView(UiKit.divider(this, P));
+
         // ① 加入开发者 QQ 群（提到第一位）
         perCard.addView(toolRow(R.drawable.ic_phone, "加入开发者 QQ 群",
                 "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));

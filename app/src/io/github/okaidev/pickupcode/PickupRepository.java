@@ -227,6 +227,25 @@ public final class PickupRepository {
         });
     }
 
+    /** 小组件用：一次拿到「前 N 条 + 待取总数」，避免两次异步查询对不齐。 */
+    public static final class PendingSnapshot {
+        public final List<PickupRecord> items;
+        public final int total;
+
+        PendingSnapshot(List<PickupRecord> items, int total) {
+            this.items = items;
+            this.total = total;
+        }
+    }
+
+    public void pendingSnapshotAsync(int limit, Callback<PendingSnapshot> callback) {
+        io.execute(() -> {
+            final List<PickupRecord> items = pendingSync(limit);
+            final int total = countPendingSync();
+            main.post(() -> callback.onResult(new PendingSnapshot(items, total)));
+        });
+    }
+
     public void recentAsync(int limit, Callback<List<PickupRecord>> callback) {
         io.execute(() -> {
             List<PickupRecord> result;
