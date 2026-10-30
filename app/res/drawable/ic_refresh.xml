@@ -1,22 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  检查更新：环形箭头
+  v4.0.3 手绘重绘：填充 + evenOdd 镂空，与其余图标同一套规格。
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:pathData="M19.6 5.4v4.4h-4.4"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
-    <path
-        android:pathData="M19.1 9.8A7.5 7.5 0 1 0 19.6 12"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M17.65,6.35A7.95,7.95 0 0 0 12,4a8,8 0 1 0 7.73,10h-2.08A6,6 0 1 1 12,6c1.66,0 3.14,0.69 4.22,1.78L13,11h7V4z" />
 </vector>

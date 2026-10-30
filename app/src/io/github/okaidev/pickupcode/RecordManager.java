@@ -96,6 +96,14 @@ public class RecordManager {
                 "从文件导入 JSON 或 CSV（已有同码记录会跳过）",
                 v -> startImport());
         wrap.addView(UiKit.divider(act, p));
+        // v4.0.3：从设置页搬过来。
+        // 此前「导入历史取件记录」只挂在设置页里，而管理面板才是记录相关功能的
+        // 唯一入口——同一个功能的两个入口会让用户不知道该去哪找。
+        // 现在统一归口到这里，设置页不再重复出现。
+        addRow(wrap, R.drawable.ic_book, "导入历史取件记录",
+                "从小米笔记把老的取件待办读回本地库",
+                v -> importHistoryNow());
+        wrap.addView(UiKit.divider(act, p));
         // v4.0.2：「立即清理过期记录」→「立即清理所有已取件记录」。
         // 用户理由：过期清理本来就该自动发生（保留期到了就删），
         // 手动按钮再带「过期」这个条件就是多余的一层。
@@ -286,6 +294,36 @@ public class RecordManager {
         } catch (Throwable t) {
             Toast.makeText(act, "导入失败：" + t.getMessage(), Toast.LENGTH_LONG).show();
         }
+    }
+
+    // ================================================================
+    //  导入历史（从小米笔记）
+    // ================================================================
+
+    /**
+     * 从小米笔记把老的取件待办读回本地库。
+     *
+     * <p>v4.0.3：从设置页搬进管理面板。此前它只挂在设置页里，
+     * 而记录相关功能的唯一入口应该是「取件记录 → 管理」——
+     * 同一件事两个入口，用户会不知道该去哪找。
+     */
+    public void importHistoryNow() {
+        Toast.makeText(act, "正在从小米笔记导入历史…（约 5-15 秒）", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            NotesImporter.Result r = NotesImporter.importHistory(act, 300);
+            act.runOnUiThread(() -> {
+                if (act.isFinishing() || act.isDestroyed()) return;
+                if (r.message != null && !r.message.isEmpty()) {
+                    Toast.makeText(act, r.message, Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(act,
+                            "扫描 " + r.scanned + " 条待办，导入 " + r.imported
+                                    + " 条取件记录\n（跳过 " + r.skipped + " 条非取件待办）",
+                            Toast.LENGTH_LONG).show();
+                }
+                notifyChanged();
+            });
+        }).start();
     }
 
     // ================================================================

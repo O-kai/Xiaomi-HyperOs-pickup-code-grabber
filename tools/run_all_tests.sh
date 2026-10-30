@@ -104,6 +104,12 @@ echo "===== RulesRegression（内置规则副本） ====="
 # 注意：GeneratedRules 必须放成「包目录」结构（io/github/okaidev/pickupcode/），
 # 否则 javac 找不到类（之前把 .class 拷到源目录根，编译直接失败）。
 mkdir -p "$OUT/src/io/github/okaidev/pickupcode" "$OUT/cls"
+# v4.0.3：不再手工维护依赖链清单。
+# 原来这里列了一长串文件，test/RulesRegression.java 里还有第二份一模一样的清单——
+# 「同一份内容散在两处」意味着新增一个类只要忘了改其中一处，编译就失败
+# （这轮加 RootShell 就又踩了一次）。
+# 现在改用 javac 的 -sourcepath：javac 会沿源码路径自动找出并隐式编译真正的依赖，
+# 依赖链永远与源码同步，不再可能漏。
 for f in ExtractorRules PickupExtractor UserRules TodoWriter MissedSmsStore \
          NotesBackend Repair Diagnostics NotesFormat PkgInput NetPolicy AppVersion; do
   cp "$SRC/$f.java" "$OUT/src/io/github/okaidev/pickupcode/" 2>/dev/null
@@ -117,6 +123,7 @@ else
   cp "$GEN" "$OUT/src/io/github/okaidev/pickupcode/GeneratedRules.java"
 
   "$JDK/bin/javac.exe" -encoding UTF-8 -nowarn \
+    -sourcepath "app/src" \
     -classpath "$SDK" -d "$OUT/cls" \
     "$OUT/src/io/github/okaidev/pickupcode/"*.java 2> "$OUT/javac-reg.log"
   if [ $? -ne 0 ]; then

@@ -5,13 +5,16 @@ plugins {
 // =============================================================================
 //  版本号唯一事实源：<repo>/version.properties
 // ----------------------------------------------------------------------------
-//  4.0.2 起只维护一个点分版本号（如 4.0.2），versionCode 由它推导：
-//      major * 10000 + minor * 100 + patch
-//  例：4.0.0 → 40000，4.1.0 → 40100，4.1.1 → 40101
+//  两个字段各管一件事，不做推导、不做换算：
+//      VERSION_NAME  = 4.0.2   给人看的点分版本号，界面显示 V + 它
+//      VERSION_CODE  = 402     Android 内部整数，单调递增，只用于升级判定
+//                               与规则集 minAppVersionCode 兼容性闸门
 //
-//  为什么推导而不单独维护：原先 VERSION_NAME 与 VERSION_CODE 是两个独立数字，
-//  改一处忘另一处就会出现「界面显示 4.0.0、规则兼容性却按 293 判」这类问题。
-//  现在只有一个数需要人改，其余全部派生，不可能对不上。
+//  为什么保持两个独立数字而不是由一个推导另一个：
+//  推导方案（major*10000+minor*100+patch）改动的是整个版本体系的骨架，
+//  连带要动规则闸门、历史标签、文档基线；而 App 里真正需要「点分版本号」
+//  的只是展示层，历史版本也早已不再带 -internal 之类后缀。
+//  维持简单更不容易出错——一个字段只表达一件事，改一处不会牵连另一处。
 // =============================================================================
 def versionFile = rootProject.file('version.properties')
 if (!versionFile.exists()) {
@@ -19,24 +22,11 @@ if (!versionFile.exists()) {
 }
 def versionProps = new Properties()
 versionFile.withInputStream { versionProps.load(it) }
-def pickupVersionName = versionProps.getProperty('VERSION_NAME')?.trim()
-if (!pickupVersionName) {
-    throw new GradleException("version.properties must define VERSION_NAME")
+def pickupVersionCode = versionProps.getProperty('VERSION_CODE')?.toInteger()
+def pickupVersionName = versionProps.getProperty('VERSION_NAME')
+if (pickupVersionCode == null || pickupVersionName == null || pickupVersionName.trim().isEmpty()) {
+    throw new GradleException("version.properties must define VERSION_CODE and VERSION_NAME")
 }
-
-// 严格校验格式：必须是 X.Y.Z 三段纯数字。
-// 不接受 -internal / -rc2 之类后缀——那是历史包袱，会让版本比较与展示
-// 都多一层容错逻辑。用户已明确要求全盘统一到 V4.0.2 这种形式。
-def versionMatch = (pickupVersionName =~ /^(\d+)\.(\d+)\.(\d+)$/)
-if (!versionMatch.matches()) {
-    throw new GradleException(
-            "VERSION_NAME must be in X.Y.Z form (e.g. 4.0.2), got '${pickupVersionName}'. " +
-            "Do not use -internal / -rc2 suffixes.")
-}
-def vMajor = versionMatch.group(1) as int
-def vMinor = versionMatch.group(2) as int
-def vPatch = versionMatch.group(3) as int
-def pickupVersionCode = vMajor * 10000 + vMinor * 100 + vPatch
 
 
 // ============================================================================
@@ -222,12 +212,11 @@ tasks.register('checkVersionConsistency') {
         if (manifest.contains('android:versionCode') || manifest.contains('android:versionName')) {
             throw new GradleException('AndroidManifest.xml must not hardcode versionCode/versionName; use version.properties')
         }
-        // 已发布的 3.1.0 是 versionCode 310；新方案下 4.0.0 = 40000，
-        // 换算门槛为 3.1.0 → 30100。用同一套数字，避免两套标尺并存。
-        if (pickupVersionCode < 30100) {
+        // 已发布的 3.1.0 是 versionCode 310；本版 4.0.2 = 402。
+        // versionCode 必须单调递增——Android 靠它判定升级，规则集闸门也靠它。
+        if (pickupVersionCode < 310) {
             throw new GradleException(
-                    "versionCode ${pickupVersionCode} (from ${pickupVersionName}) is lower than " +
-                    "the published 3.1.0 (30100 under the current scheme)")
+                    "versionCode ${pickupVersionCode} is lower than the published 3.1.0 (310)")
         }
         println "PickupCodeGrabber version: V${pickupVersionName} (versionCode ${pickupVersionCode})"
     }

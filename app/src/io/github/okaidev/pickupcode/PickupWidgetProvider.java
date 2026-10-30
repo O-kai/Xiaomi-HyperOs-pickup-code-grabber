@@ -222,6 +222,17 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         return shifted;
     }
 
+    /**
+     * 诊断用：构造一份「带全部 action」的 RemoteViews。
+     *
+     * <p>供 {@link WidgetDiagActivity} 在本进程内 {@code RemoteViews.apply()}——
+     * 桌面添加小组件报「载入窗口小部件时出现问题」时，用它能当场看到
+     * 到底是哪个 action 不被系统接受。
+     */
+    static RemoteViews buildForDiag(Context ctx, PickupRepository.PendingSnapshot snap) {
+        return build(ctx, -1, snap, Collections.emptyList());
+    }
+
     private static RemoteViews build(Context context, int widgetId,
                                      PickupRepository.PendingSnapshot snap,
                                      List<Integer> shiftedRows) {

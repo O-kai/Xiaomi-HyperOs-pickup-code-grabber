@@ -1,3 +1,48 @@
+
+## 补充二：`<View>` 不能出现在小组件布局里（2026-10-31 真机定位）
+
+**现象**：桌面添加小组件时提示「载入窗口小部件时出现问题」，
+**系统日志里什么错都没有**——桌面 inflate 失败，异常不会回传给 App。
+
+**定位办法**：在 App 进程内用 `RemoteViews.apply()` 复现同一次 inflate。
+一次就打出真相：
+
+```
+android.view.InflateException: Error inflating class android.view.View
+Caused by: android.view.InflateException: Class not allowed to be inflated android.view.View
+    at android.view.LayoutInflater.failNotAllowed(LayoutInflater.java:800)
+```
+
+**原因**：Android 的 RemoteViews 只允许 inflate 一份**白名单**里的具体 View 类
+（`RemoteViews.ALLOWED_LAYOUT_CLASSES`）：
+`FrameLayout` / `LinearLayout` / `RelativeLayout` / `GridLayout` / `ViewFlipper` /
+`ScrollView` / `AbsListView` / `ListView` / `Spinner` / `TextView` / `ImageView` /
+`ImageButton` / `ProgressBar` / `Button` / `CheckBox` / `RadioButton` /
+`RadioGroup` / `EditText`。
+
+**`android.view.View` 不在里面**（它是所有 View 的基类，语义上是抽象的），
+**`android.widget.Space` 也不在里面**（纯占位控件）。
+
+**踩坑经过**：4.0.2 为了让「查看全部」贴在组件底部，加了一个弹性占位：
+
+```xml
+<View android:layout_width="match_parent"
+      android:layout_height="0dp" android:layout_weight="1" />
+```
+
+桌面 inflate 到这里直接失败 → 整个组件加不上。
+**改成 `<TextView>`（空白、0dp 高、weight=1）即可**——TextView 在白名单里。
+
+**教训**：
+1. 小组件布局里**只能用白名单里的具体 View 类**。
+   拿不准就用 `TextView` 顶替，它几乎能顶任何占位需求。
+2. 桌面侧 inflate 失败**不会留任何日志**给 App。
+   以后再遇到「加不上小组件」，先跑 App 内的**小组件自检**页
+   （设置 → 桌面小组件 → 小组件自检），
+   它会复现同一次 inflate 并把结论翻译成人话。
+
+**顺带**：4.0.2 布局改结构后，桌面上已有的组件仍不会自动重建
+（原因见上一节），所以修复后用户仍需移除重加一次。
 # 桌面小组件在 HyperOS 上的落地结论（2026-10-30 真机定位）
 
 ## 一、结论先说

@@ -104,7 +104,19 @@ public class LauncherActivity extends Activity {
      * <p>它同时是「内容底部要留多少空白」的基准：内容底部留白必须 ≥ 遮罩高度，
      * 否则最后一张卡片滚到底时仍然在遮罩下面（被底栏压住、也点不到）。
      */
-    private static final int NAV_SCRIM_DP = 188;
+    /**
+     * 底部渐隐遮罩的高度（dp）。
+     *
+     * <p>它同时是「内容区底部要预留多少」的唯一标尺——
+     * 预留小于遮罩高度，最后一张卡就会被底栏吞掉（4.0 踩过这个坑）。
+     *
+     * <p>v4.0.3：188 → 132。用户反馈「首页滑到底下面有一块空白区域」。
+     * 原因不是内容留白，而是遮罩的下半段是纯色：188dp 里 55% 是实底，
+     * 滚到底时那 100dp 看起来就是一块生硬的空白。
+     * 现在把总高收短、实底比例降到 42%（132 × 0.42 ≈ 55dp，足够盖住底栏本体），
+     * 上方留出更长的渐隐带——内容是「淡进」底栏的，而不是撞上一堵色墙。
+     */
+    private static final int NAV_SCRIM_DP = 132;
     /** 简洁模式右上角的「进阶模式 ›」入口。 */
     private TextView modeSwitch;
 
@@ -180,6 +192,11 @@ public class LauncherActivity extends Activity {
         PickupExtractor.init(this);
         UpdateCenter.maybeCheck(this);
         ProcessSync.pushThrottled(this);
+        // v4.0.3：记录管理（保留期 / 导入导出 / 清理 / 导入历史）改到
+        // 「取件记录 → 管理」这一个入口，设置页不再重复列出。
+        // 数据变化后要刷新首页的待取件卡片——RecordManager 之前没人回调，
+        // notifyChanged() 是空转的，导入历史后首页数字不会更新。
+        recordManager.setOnChanged(this::refreshPickupCard);
         if (android.os.Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -248,10 +265,12 @@ public class LauncherActivity extends Activity {
         // 4.0 Stage 2.1：底栏覆盖区必须是【实底】。
         // 原实现只给 55% 底色，85% 半透明的底栏叠上去后，下面的卡片文字仍能透出来，
         // 真机截图里「一键链路测试」与底栏文字撞在一起。现在改为：
-        //   0 → 0.55 实底（完全盖住底栏下方与底栏本体）
-        //   0.55 → 1 柔和淡出（保留「内容从底栏下滚过」的悬浮感）
+        //   0 → 0.42 实底（盖住底栏本体，约 55dp）
+        //   0.42 → 1 柔和淡出（保留「内容从底栏下滚过」的悬浮感）
+        // v4.0.3：实底比例 0.55 → 0.42。遮罩总高已从 188 收到 132，
+        // 再按原来的 0.55 算实底仍有 72dp，滚到底还是能看到一块生硬的空白。
         scrimBg.setColors(new int[]{ P.bg, P.bg, P.bg & 0x00FFFFFF },
-                new float[]{ 0f, 0.55f, 1f });
+                new float[]{ 0f, 0.42f, 1f });
         navScrim.setBackground(scrimBg);
         FrameLayout.LayoutParams scrimLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(NAV_SCRIM_DP));
@@ -683,7 +702,7 @@ public class LauncherActivity extends Activity {
         // v4.5：「已是最新」徽标改为可点击，点一下手动拉取最新规则。
         // 频率限制 8 秒一次（见 checkRulesManually），避免连点造成无谓请求。
         ruleBadgeView = UiKit.badgeAccent(this, P, "已是最新");
-        LinearLayout ruleRow = UiKit.row(this, P, R.drawable.ic_link,
+        LinearLayout ruleRow = UiKit.row(this, P, R.drawable.ic_rules,
                 "官方规则集 v" + PickupExtractor.getActiveRulesVersion(),
                 "点击检查最新规则", ruleBadgeView);
         ruleRow.setOnClickListener(v -> checkRulesManually());
@@ -1558,29 +1577,6 @@ public class LauncherActivity extends Activity {
         perCard.addView(updateRow);
 
         box.addView(perCard, UiKit.cardLp(this, 0f));
-
-        // ==================== 本地记录 ====================
-        // 4.0 收口新增：本地库是 4.0 的事实源，记录的保留期、导出导入、
-        // 清理归到一组；「取件记录」页里的「管理」按钮打开的是同一套实现。
-        box.addView(UiKit.groupLabel(this, P, "本地记录"));
-        LinearLayout recCard = UiKit.card(this, P);
-        // v4.0.1：保留期这行要能在改完后就地刷新副标题
-        // （用户反馈「切换保留期时，外面的『当前 XX 天』不会直接修改」）。
-        // 用数组包一层：lambda 里要引用它自己所在的行，
-        // 直接用局部变量会编译不过（变量尚未初始化）。
-        final LinearLayout[] retentionRow = new LinearLayout[1];
-        retentionRow[0] = toolRow(R.drawable.ic_notebook, "记录保留期",
-                retentionLabel(),
-                v -> recordManager.showRetentionPicker(retentionRow[0]));
-        recCard.addView(retentionRow[0]);
-        recCard.addView(UiKit.divider(this, P));
-        recCard.addView(toolRow(R.drawable.ic_download, "导出与导入",
-                "导出 JSON / CSV，或从文件导入",
-                v -> recordManager.showManageDialog()));
-        recCard.addView(UiKit.divider(this, P));
-        recCard.addView(toolRow(R.drawable.ic_upload, "导入历史取件记录",
-                "从小米笔记把老的取件待办读回本地库", v -> importHistoryNow()));
-        box.addView(recCard, UiKit.cardLp(this, 0f));
 
         // ==================== 排查与反馈 ====================
         // v4.0 收口：原先这一堆散在「基础设置」里——排查向导、sqlite3 自检、
@@ -2931,25 +2927,6 @@ public class LauncherActivity extends Activity {
                 runOnUiThread(() -> Toast.makeText(this,
                         "报告生成失败：" + t.getMessage(), Toast.LENGTH_LONG).show());
             }
-        }).start();
-    }
-
-    /** 从小米笔记导入历史取件记录（3.1.0 → 4.0 的历史补齐） */
-    private void importHistoryNow() {
-        Toast.makeText(this, "正在从小米笔记导入历史…（约 5-15 秒）", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            NotesImporter.Result r = NotesImporter.importHistory(this, 300);
-            runOnUiThread(() -> {
-                if (r.message != null && !r.message.isEmpty()) {
-                    Toast.makeText(this, r.message, Toast.LENGTH_LONG).show();
-                } else {
-                    Toast.makeText(this,
-                            "扫描 " + r.scanned + " 条待办，导入 " + r.imported
-                                    + " 条取件记录\n（跳过 " + r.skipped + " 条非取件待办）",
-                            Toast.LENGTH_LONG).show();
-                    refreshPickupCard();
-                }
-            });
         }).start();
     }
 

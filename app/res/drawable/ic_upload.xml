@@ -1,30 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  导入：上箭头
+  v4.0.3 手绘重绘：填充 + evenOdd 镂空，与其余图标同一套规格。
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:pathData="M12 19.4V9.2"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
-    <path
-        android:pathData="m7.9 13.1 4.1-4.1 4.1 4.1"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
-    <path
-        android:pathData="M4.6 4.6h14.8"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,21v-9.2l-3.6,3.6 -2.1,-2.1 7.1,-7.1 7.1,7.1 -2.1,2.1L12,11.8V21zM4,17.4v2.6h16v-2.6h2v4.6H2v-4.6z" />
 </vector>

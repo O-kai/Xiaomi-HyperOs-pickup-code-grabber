@@ -340,6 +340,42 @@ public final class UiKit {
         return iv;
     }
 
+    /**
+     * 功能行左侧的「图标砖」：主题色圆角底块 + 主题深色图标。
+     *
+     * <p>v4.0.3 引入。此前功能行的图标是 23dp 的单色线框图标（黑白简笔画），
+     * 整屏看上去很单调——用户原话「目前这个图标有点太简约了，是黑白样式或者
+     * 简单的简笔画状态」。
+     *
+     * <p>现在每个图标坐在一块主题色的浅色圆角底上：
+     * <ul>
+     *   <li>底色用 {@code accentSoft}——每套配色里都是「带自己色相的浅底」，
+     *       换成雾霾蓝/青瓷绿/藕荷玫瑰，图标砖整体跟着换色，
+     *       这就是「图标跟着外观配色走」的落地方式；</li>
+     *   <li>图形用 {@code accentInk}（主题深色），压在浅底上对比度足够，
+     *       深色模式下底色变深、图形变亮，同样成立；</li>
+     *   <li>底块统一 34dp、圆角 10dp、图形统一 18dp——所有行严格对齐，
+     *       形成一套统一的派系规格。</li>
+     * </ul>
+     *
+     * @return 底块容器（外层用 LinearLayout.LayoutParams 挂到行里）
+     */
+    public static View iconTile(Context ctx, int res, Palette p) {
+        android.widget.FrameLayout tile = new android.widget.FrameLayout(ctx);
+        // 底色：主题色的一点点透明度叠在 accentSoft 上，形成左上深、右下浅的斜向渐变。
+        // 单用 accentSoft（如雾霾蓝的 #E2EAF4）几乎与白卡片融在一起，看不出「有配色」；
+        // 叠上 22% 的主题色之后，色相明确，图标砖一眼就能和主题对应上。
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{ alpha(p.accent, 0.34f), p.accentSoft });
+        bg.setCornerRadius(dp(ctx, 10));
+        tile.setBackground(bg);
+        tile.setLayoutParams(new LinearLayout.LayoutParams(dp(ctx, 34), dp(ctx, 34)));
+        ImageView iv = icon(ctx, res, 18, p.accentInk);
+        tile.addView(iv, new android.widget.FrameLayout.LayoutParams(
+                dp(ctx, 18), dp(ctx, 18), Gravity.CENTER));
+        return tile;
+    }
+
     public static View spacer(Context ctx, float dp) {
         View v = new View(ctx);
         v.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx, dp)));
@@ -433,14 +469,16 @@ public final class UiKit {
         LinearLayout r = new LinearLayout(ctx);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setPadding(0, dp(ctx, 13), 0, dp(ctx, 13));
+        // v4.0.3：图标从 23dp 单色线框换成 34dp 的主题色图标砖，
+        // 行高由图标撑起来了，padding 相应收一点，整屏的呼吸感不变。
+        r.setPadding(0, dp(ctx, 11), 0, dp(ctx, 11));
 
         if (iconRes != 0) {
-            ImageView iv = icon(ctx, iconRes, 23, p.navInk);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(ctx, 23), dp(ctx, 23));
-            lp.setMargins(0, 0, dp(ctx, 13), 0);
-            iv.setLayoutParams(lp);
-            r.addView(iv);
+            View tile = iconTile(ctx, iconRes, p);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(ctx, 34), dp(ctx, 34));
+            lp.setMargins(0, 0, dp(ctx, 12), 0);
+            tile.setLayoutParams(lp);
+            r.addView(tile);
         }
 
         LinearLayout col = new LinearLayout(ctx);

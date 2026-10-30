@@ -513,11 +513,19 @@
     <!--
       弹性占位：把「查看全部」推到组件底部。
       列表本身按内容高度（wrap_content），这里吃掉剩余空间。
+
+      v4.0.3 修正：这里原先写的是 <View>，结果桌面添加小组件直接报
+      「载入窗口小部件时出现问题」。原因是 Android 的 RemoteViews 只允许
+      inflate 一份白名单里的具体 View 类（LinearLayout / TextView / ImageView …），
+      裸的 android.view.View 不在白名单里，会抛
+      Class not allowed to be inflated android.view.View。
+      Space 同样不在白名单，只能用 TextView 顶替。
     -->
-    <View
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:text="" />
 
     <TextView
         android:id="@+id/widget_more"

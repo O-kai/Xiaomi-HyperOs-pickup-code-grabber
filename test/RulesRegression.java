@@ -22,10 +22,16 @@ import java.util.List;
  */
 public class RulesRegression {
     /**
-     * 参与编译的源文件（新增依赖时记得同步这里）。
+     * 参与编译的【入口】源文件。
      *
-     * <p>v4.0.1：补上 AppVersion.java —— Diagnostics 现在用它取版本号
-     * （原先 Diagnostics 自己读 PackageManager，各写各的）。
+     * <p>v4.0.3：这里曾经是一份必须手工同步的完整依赖链清单，
+     * 而 tools/run_all_tests.sh 里还有第二份一模一样的——
+     * 「同一份内容散在两处」意味着新增一个类只要忘了改其中一处就编译失败
+     * （这轮新增 RootShell 就又踩了一次）。
+     *
+     * <p>现在改为：javac 带 {@code -sourcepath} 指向源码目录，
+     * 真正的依赖由 javac 自己沿源码路径找出并隐式编译。
+     * 下面的清单只作为【入口】（需要被显式编译、且会被反射加载的类）。
      */
     static final String[] NEED = {
             "ExtractorRules.java", "PickupExtractor.java", "UserRules.java",
@@ -191,13 +197,27 @@ public class RulesRegression {
                 : System.getenv().getOrDefault("ANDROID_JAR",
                 "D:\\project\\_build-tools\\sdk\\platforms\\android-34\\android.jar");
 
-        StringBuilder cmd = new StringBuilder("javac -encoding UTF-8 -nowarn -cp ")
-                .append(androidJar).append(" -d ").append(tmp);
-        for (String f : NEED) cmd.append(" ").append(tmp.resolve(f));
+        // v4.0.3：加 -sourcepath，依赖链由 javac 自动推导，不再依赖手工清单。
+        //
+        // 注意必须用 String[] 形式的 exec：Runtime.exec(String) 是按空白切词的，
+        // 【不处理引号】——写成 -sourcepath "a;b" 时，引号会被当成路径的一部分，
+        // javac 找不到源码目录，于是「自动推导」静默失效、编译照样失败。
+        // （这正是这次改造第一版没生效的原因。）
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add("javac");
+        cmd.add("-encoding"); cmd.add("UTF-8");
+        cmd.add("-nowarn");
+        // sourcepath 必须是【包根目录】：javac 在它下面按
+        // io/github/okaidev/pickupcode/ 的结构找源码，指向包目录会找不到。
+        Path pkgRoot = srcDir.getParent().getParent().getParent().getParent();
+        cmd.add("-sourcepath"); cmd.add(pkgRoot + ";" + tmp);
+        cmd.add("-cp"); cmd.add(androidJar);
+        cmd.add("-d"); cmd.add(tmp.toString());
+        for (String f : NEED) cmd.add(tmp.resolve(f).toString());
         // v4.0：内置默认规则来自构建生成的 GeneratedRules.java，必须一起编译
-        cmd.append(" ").append(tmp.resolve("GeneratedRules.java"));
+        cmd.add(tmp.resolve("GeneratedRules.java").toString());
 
-        Process c = Runtime.getRuntime().exec(cmd.toString());
+        Process c = Runtime.getRuntime().exec(cmd.toArray(new String[0]));
         if (c.waitFor() != 0) {
             System.out.println("COMPILE FAIL:");
             byte[] err = c.getErrorStream().readAllBytes();

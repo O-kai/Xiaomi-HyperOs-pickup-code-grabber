@@ -1,42 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  界面模式：四宫格
+  v4.0.3 手绘重绘：填充 + evenOdd 镂空，与其余图标同一套规格。
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:pathData="M4.25,6.00 a1.75,1.75 0 1,0 3.50,0 a1.75,1.75 0 1,0 -3.50,0 z"
-        android:fillColor="#FF000000"
-        />
-    <path
-        android:pathData="M10.25,6.00 a1.75,1.75 0 1,0 3.50,0 a1.75,1.75 0 1,0 -3.50,0 z"
-        android:fillColor="#FF000000"
-        />
-    <path
-        android:pathData="M16.25,6.00 a1.75,1.75 0 1,0 3.50,0 a1.75,1.75 0 1,0 -3.50,0 z"
-        android:fillColor="#FF000000"
-        />
-    <path
-        android:pathData="M4.25,12.00 a1.75,1.75 0 1,0 3.50,0 a1.75,1.75 0 1,0 -3.50,0 z"
-        android:fillColor="#FF000000"
-        />
-    <path
-        android:pathData="M10.25,12.00 a1.75,1.75 0 1,0 3.50,0 a1.75,1.75 0 1,0 -3.50,0 z"
-        android:fillColor="#FF000000"
-        />
-    <path
-        android:pathData="M16.25,12.00 a1.75,1.75 0 1,0 3.50,0 a1.75,1.75 0 1,0 -3.50,0 z"
-        android:fillColor="#FF000000"
-        />
-    <path
-        android:pathData="M4.25,18.00 a1.75,1.75 0 1,0 3.50,0 a1.75,1.75 0 1,0 -3.50,0 z"
-        android:fillColor="#FF000000"
-        />
-    <path
-        android:pathData="M10.25,18.00 a1.75,1.75 0 1,0 3.50,0 a1.75,1.75 0 1,0 -3.50,0 z"
-        android:fillColor="#FF000000"
-        />
-    <path
-        android:pathData="M16.25,18.00 a1.75,1.75 0 1,0 3.50,0 a1.75,1.75 0 1,0 -3.50,0 z"
-        android:fillColor="#FF000000"
-        />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3.4,3.4h7.4v7.4H3.4z M13.2,3.4h7.4v7.4h-7.4z M3.4,13.2h7.4v7.4H3.4z M13.2,13.2h7.4v7.4h-7.4z" />
 </vector>

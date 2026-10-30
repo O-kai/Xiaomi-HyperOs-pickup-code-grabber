@@ -7,7 +7,7 @@
         android:pathData="M9.8 14.2 14.2 9.8"
         android:fillColor="#00000000"
         android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
+        android:strokeWidth="2.3"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         />
@@ -15,7 +15,7 @@
         android:pathData="m11.4 7.4 1.5-1.5a3.3 3.3 0 0 1 4.7 4.7l-1.5 1.5"
         android:fillColor="#00000000"
         android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
+        android:strokeWidth="2.3"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         />
@@ -23,7 +23,7 @@
         android:pathData="m12.6 16.6-1.5 1.5a3.3 3.3 0 0 1-4.7-4.7l1.5-1.5"
         android:fillColor="#00000000"
         android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
+        android:strokeWidth="2.3"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         />

@@ -1,22 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  盾牌 + 勾
+  v4.0.3 手绘重绘：填充 + evenOdd 镂空，与其余图标同一套规格。
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:pathData="M12 3.4 5.6 5.9v5.3c0 4.1 2.7 7.7 6.4 9.4 3.7-1.7 6.4-5.3 6.4-9.4V5.9z"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
-    <path
-        android:pathData="m9.4 12 2 2 3.4-3.7"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,2 4,5v6.1c0,4.9 3.4,9.4 8,10.9 4.6,-1.5 8,-6 8,-10.9V5L12,2z M7.8,11.9 10.2,14.3 16.3,8.2 17.7,9.6 10.2,17.1 6.4,13.3z" />
 </vector>

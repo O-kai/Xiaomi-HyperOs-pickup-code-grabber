@@ -1,26 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  警告：三角
+  v4.0.3 手绘重绘：填充 + evenOdd 镂空，与其余图标同一套规格。
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:pathData="M3.40,12.00 a8.60,8.60 0 1,0 17.20,0 a8.60,8.60 0 1,0 -17.20,0 z"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
-    <path
-        android:pathData="M12 7.8v4.9"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
-    <path
-        android:pathData="M11.05,16.10 a0.95,0.95 0 1,0 1.90,0 a0.95,0.95 0 1,0 -1.90,0 z"
-        android:fillColor="#FF000000"
-        />
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,2.6 22.4,20.6H1.6L12,2.6z M11,9.4h2v5.4h-2z M11,16h2v2.2h-2z" />
 </vector>

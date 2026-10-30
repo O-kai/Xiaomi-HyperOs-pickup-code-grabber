@@ -1,22 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面小组件：房子
+  v4.0.3 手绘重绘：填充 + evenOdd 镂空，与其余图标同一套规格。
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:pathData="M4 10.6 12 4l8 6.6"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
-    <path
-        android:pathData="M6 9.7V19a1.2 1.2 0 0 0 1.2 1.2h3.2v-4.6h3.2v4.6h3.2A1.2 1.2 0 0 0 18 19V9.7"
-        android:fillColor="#00000000"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,2.4 21.4,10.3V20a1.4,1.4 0 0 1 -1.4,1.4H4a1.4,1.4 0 0 1 -1.4,-1.4V10.3L12,2.4z M10.3,21.4v-6.2h3.4v6.2z" />
 </vector>

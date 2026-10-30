@@ -6,8 +6,13 @@ import android.content.pm.PackageInfo;
 /**
  * 版本号的唯一出口。
  *
- * <p>v4.0.2 起，全项目只有一处知道「版本号长什么样」——就是这里，
- * 加上构建期 {@code version.properties} 里那一个点分数字。
+ * <p>全项目只有这一处知道「版本号长什么样」。版本本身有两个数字，
+ * 各管一件事、互不推导（见 {@code version.properties}）：
+ * <ul>
+ *   <li><b>点分版本号</b>（如 {@code 4.0.2}）——给人看的，界面上一律显示 {@code V4.0.2}。</li>
+ *   <li><b>versionCode</b>（如 {@code 402}）——Android 内部的整数，单调递增，
+ *       只用于升级判定与规则集的 {@code minAppVersionCode} 兼容性闸门，<b>不参与展示</b>。</li>
+ * </ul>
  *
  * <p><b>版本格式（用户定义，后续一律照此）</b>：
  * <pre>
@@ -18,16 +23,10 @@ import android.content.pm.PackageInfo;
  *   第三段 = 修复版本：修 bug 时 +1，例 4.1.0 → 4.1.1
  * </pre>
  *
- * <p><b>为什么不再有两套数字</b>：原先界面显示构建号（V400）、
- * 更新检查比版本名（4.0.0）、规则兼容性又比另一个构建号（293），
- * 三个地方三套标尺。现在只维护一个点分版本号，
- * versionCode 由构建脚本按 {@code major*10000 + minor*100 + patch} 推导，
- * 规则集的 minAppVersionCode 用同一套数字——不存在「改一处忘另一处」。
- *
- * <p><b>关于后缀</b>：本类不再做 {@code -internal / -rc2} 的容错。
- * 那不是需求，是历史包袱：早期版本名带后缀，导致版本比较抛异常被吞掉、
- * 「自动检查更新」永远认为已是最新。现在构建期就强制
- * {@code X.Y.Z} 纯数字格式，带后缀直接构建失败。
+ * <p><b>关于历史后缀</b>：早期版本名带过 {@code -internal} / {@code -rc2}。
+ * 现在不再产生这种后缀，但解析与比较仍保留一层容错——
+ * 那些历史 APK 已经装在用户手机上，解析时崩掉或比较结果恒为 0
+ * （「自动检查更新」永远认为已是最新）是不能接受的。
  */
 public final class AppVersion {
 
@@ -41,8 +40,7 @@ public final class AppVersion {
      * 点分版本号，如 {@code 4.0.2}。
      *
      * <p>取自 PackageManager 的 versionName——那正是构建时 version.properties 里的
-     * VERSION_NAME，是全项目唯一事实源（构建脚本已禁止 manifest 写死版本号，
-     * 也已禁止带任何后缀）。
+     * VERSION_NAME，是全项目唯一事实源（构建脚本已禁止 manifest 写死版本号）。
      */
     public static String dotted(Context ctx) {
         if (ctx == null) return FALLBACK;
@@ -50,17 +48,16 @@ public final class AppVersion {
             PackageInfo pi = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0);
             String v = pi.versionName;
             if (v == null || v.trim().isEmpty()) return FALLBACK;
-            return v.trim();
+            return stripSuffix(v.trim());
         } catch (Throwable t) {
             return FALLBACK;
         }
     }
 
     /**
-     * versionCode，如 {@code 40002}。
+     * versionCode，如 {@code 402}。
      *
      * <p>只用于 Android 内部的升级判定与规则集的兼容性闸门，<b>不用于展示</b>。
-     * 它由构建脚本从点分版本号推导，所以两者永远一致。
      */
     public static int code(Context ctx) {
         if (ctx == null) return 0;
@@ -97,8 +94,8 @@ public final class AppVersion {
             String[] sb = split(b);
             int n = Math.max(sa.length, sb.length);
             for (int i = 0; i < n; i++) {
-                int va = i < sa.length ? toInt(sa[i]) : 0;
-                int vb = i < sb.length ? toInt(sb[i]) : 0;
+                int va = i < sa.length ? leadingNumber(sa[i]) : 0;
+                int vb = i < sb.length ? leadingNumber(sb[i]) : 0;
                 if (va != vb) return va - vb;
             }
         } catch (Throwable ignored) { }
@@ -110,16 +107,50 @@ public final class AppVersion {
         return compare(a, b) > 0;
     }
 
-    /** 按点分段拆分；非数字段按 0 处理（不抛异常） */
+    /**
+     * 去掉版本号里的历史后缀（{@code -internal} / {@code -rc2}）。
+     *
+     * <p>只取点分数字部分：{@code "4.0.0-rc2" → "4.0.0"}。
+     */
+    public static String stripSuffix(String v) {
+        if (v == null) return FALLBACK;
+        String s = v.trim();
+        if (s.isEmpty()) return FALLBACK;
+        // 尾部多余的点先清掉
+        while (s.endsWith(".")) s = s.substring(0, s.length() - 1);
+        int cut = s.length();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            boolean keep = (c >= '0' && c <= '9') || c == '.';
+            if (!keep) { cut = i; break; }
+        }
+        String head = s.substring(0, cut);
+        while (head.endsWith(".")) head = head.substring(0, head.length() - 1);
+        return head.isEmpty() ? FALLBACK : head;
+    }
+
+    /** 按点分段拆分；null 视为空 */
     private static String[] split(String v) {
         if (v == null) return new String[0];
         return v.trim().split("\\.");
     }
 
-    private static int toInt(String s) {
+    /**
+     * 取一段里的开头连续数字。
+     *
+     * <p>容忍后缀：{@code "4-internal" → 4}、{@code "rc2" → 0}。
+     * 早期版本比较用的是 {@code Integer.parseInt}，遇到 {@code "4-internal"}
+     * 直接抛异常被吞掉、永远返回 0，结果是「自动检查更新」始终认为已是最新。
+     */
+    private static int leadingNumber(String part) {
+        if (part == null) return 0;
+        String seg = part.trim();
+        int end = 0;
+        while (end < seg.length() && Character.isDigit(seg.charAt(end))) end++;
+        if (end == 0) return 0;
         try {
-            return Integer.parseInt(s);
-        } catch (Throwable t) {
+            return Integer.parseInt(seg.substring(0, end));
+        } catch (Throwable ignored) {
             return 0;
         }
     }

@@ -291,6 +291,23 @@ public class Diagnostics {
 
     /** 2) root：任一 su 路径可拿到 uid=0 */
     private static Check checkRoot() {
+        // v4.0.3：优先走【常驻 root 通道】。
+        //
+        // 完整体检是用户主动点的（点首页状态卡），此刻正是建立 shell 的好时机：
+        // 用户正看着屏幕，Magisk 的授权框能立刻被点掉。
+        // 建成后，后续每一次写待办都复用它——
+        // Magisk 就不会每写一条就弹一次「取件码助手已被授予超级用户权限」。
+        try {
+            RootShell.Result r = RootShell.execResult("id", 20_000);
+            if (r != null && r.ok() && r.output != null && r.output.contains("uid=0")) {
+                String who = r.output.contains("uid=0(root)") ? "root" : r.output.trim();
+                return new Check("root 授权（常驻通道）", true, "uid=0 ✓ " + who
+                        + " · 后续写入不再重复请求授权");
+            }
+        } catch (Throwable ignored) { }
+
+        // 通道建不起来（没装 Magisk / 未授权）→ 回退到逐路径探测，
+        // 给出与原来一样的可操作提示。
         String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"};
         for (String suBin : suBins) {
             String[] r = suExec(suBin, "id", 20);

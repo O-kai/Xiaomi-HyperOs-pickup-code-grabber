@@ -223,6 +223,18 @@ public class TodoWriter {
             try (FileOutputStream fos = new FileOutputStream(sqlFile)) {
                 fos.write(sql.getBytes("UTF-8"));
             }
+            // v4.0.3：优先走【常驻 root 通道】。
+            //
+            // Magisk 的 su 每调一次就弹一次「取件码助手已被授予超级用户权限」。
+            // 本模块每写一条待办就要调一次 su，于是用户看到的就是「时不时弹一次」
+            // （取件短信本身不常有，所以显得随机）。
+            //
+            // 常驻通道把 su 的调用次数从「每条待办一次」降到「每进程一次」：
+            // 第一次建 shell 时弹一次（用户打开 App 时就在建，有心理预期），
+            // 之后全程静默。
+            String viaShell = runViaRootShell(ctx, sqlFile);
+            if (viaShell != null) return viaShell;
+
             // HyperOS 的 Magisk su 位于 /product/bin/su（应用 PATH 不含该目录）→ 多路径尝试
             String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"};
             String trace = "";
@@ -381,6 +393,36 @@ public class TodoWriter {
     private static synchronized boolean writeTodo(Context ctx, String content, String title) {
         String sql = ".timeout 5000\n" + NotesBackend.insertSql(ctx, content, title);
         return runSql(ctx, sql) == 0;
+    }
+
+    /**
+     * 走常驻 root 通道执行 SQL（v4.0.3）。
+     *
+     * @return 输出文本；通道不可用时返回 null，调用方退回一次性 su
+     */
+    private static String runViaRootShell(Context ctx, File sqlFile) {
+        try {
+            // 常驻 shell 本身就是 root，不需要再跑一遍 id 探针。
+            // 错误信息并入 stdout：sqlite3 的报错本来也走 stdout，混在一起便于诊断。
+            String script = buildSuCmd(ctx, sqlFile) + " 2>&1";
+            RootShell.Result r = RootShell.execResult(script, SU_TIMEOUT_MS);
+            if (r == null) {
+                Log.w(TAG, "root shell unavailable, fallback to one-shot su");
+                return null;
+            }
+            Log.i(TAG, "root shell exec: exit=" + r.code
+                    + " out=" + r.output.trim());
+            if (r.ok()) {
+                lastWriteDiag = "OK（常驻 root 通道）";
+                return r.output;
+            }
+            lastWriteDiag = "常驻通道执行失败 exit=" + r.code
+                    + " err=" + tail(r.output, 160);
+            return null;    // 失败也回退：一次性 su 可能走别的路径成功
+        } catch (Throwable t) {
+            Log.w(TAG, "root shell exec error: " + t);
+            return null;
+        }
     }
 
     private static String buildSuCmd(Context ctx, File sqlFile) {

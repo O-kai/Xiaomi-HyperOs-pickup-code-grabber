@@ -76,6 +76,23 @@ public class WidgetSettingsActivity extends Activity {
         rlp2.setMargins(0, dp(10), 0, 0);
         box.addView(readd, rlp2);
 
+        // v4.0.3：小组件自检。
+        //
+        // 桌面加小组件失败时，系统日志里【什么都不会有】——失败发生在桌面进程
+        // inflate RemoteViews 的阶段，异常不会回传给 App。自检页在 App 进程内
+        // 复现同一次 inflate，当场就能看出是哪一处不兼容。
+        TextView diag = UiKit.text(this, "小组件自检", 13.5f, P.accentInk);
+        diag.setGravity(Gravity.CENTER);
+        diag.setTypeface(null, Typeface.BOLD);
+        diag.setPadding(0, dp(12), 0, dp(12));
+        diag.setBackground(UiKit.bg(P.chipBg, this, 12));
+        diag.setOnClickListener(v -> startActivity(
+                new android.content.Intent(this, WidgetDiagActivity.class)));
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.setMargins(0, dp(8), 0, 0);
+        box.addView(diag, dlp);
+
         TextView note = UiKit.text(this,
                 "显示条数由组件高度决定，把组件拉大就能看到更多；"
                         + "点取件码复制，点右侧 ✓ 标记已取。\n\n"
@@ -241,6 +258,9 @@ public class WidgetSettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
         previewRows.addView(row, rlp);
 
+        boolean hideCode = WidgetPrefs.hideCode(this);
+        boolean showPlace = WidgetPrefs.showPlace(this);
+
         TextView code = UiKit.text(this, picked ? "09-8-7654" : "12-3-4567", 17f,
                 picked ? 0x99FFFFFF : 0xFFFFFFFF);
         code.setTypeface(Typeface.create("monospace", Typeface.BOLD));
@@ -249,6 +269,7 @@ public class WidgetSettingsActivity extends Activity {
             code.setPaintFlags(code.getPaintFlags()
                     | android.graphics.Paint.STRIKE_THRU_TEXT_FLAG);
         }
+        if (hideCode) code.setText("");
         row.addView(code);
 
         TextView place = UiKit.text(this,
@@ -268,6 +289,13 @@ public class WidgetSettingsActivity extends Activity {
             check.setVisibility(View.INVISIBLE);
         }
         row.addView(check, new LinearLayout.LayoutParams(dp(34), dp(34)));
+
+        // 「显示取件地点」关掉时：地点列【保留占位】只清空文字——
+        // 与真实小组件一致（PickupWidgetProvider.build 里也是 setViewVisibility(VISIBLE)
+        // + setTextViewText("")）。若这里改成 GONE，右侧的 ✓ 会贴到取件码旁边。
+        if (!showPlace || hideCode) {
+            place.setText("");
+        }
     }
 
     private void rebuildSegments() {
@@ -330,17 +358,13 @@ public class WidgetSettingsActivity extends Activity {
         if (previewRows == null) return;
         float scale = WidgetPrefs.fontScale(this);
         boolean showAll = WidgetPrefs.showAll(this);
-        boolean hideCode = WidgetPrefs.hideCode(this);
 
         previewTitle.setText(showAll ? "取件记录" : "待取件");
         previewCount.setText(showAll ? "2 待取 · 1 已取" : "2 个");
 
         previewRows.removeAllViews();
-        // 隐私模式：预览里也要把码和地点藏掉，否则预览与实际桌面不一致
-        if (hideCode) {
-            // 隐私模式下只显示件数，不画行
-            return;
-        }
+        // 行照旧画出来：隐私模式（隐藏取件码）下真实组件里行还在、
+        // 只是码与地点为空。预览不画行的话，用户看到的与桌面不一样。
         addPreviewRow(false);
         addPreviewRow(false);
         if (showAll) {
