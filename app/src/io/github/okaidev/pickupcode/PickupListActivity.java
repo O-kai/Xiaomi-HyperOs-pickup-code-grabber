@@ -32,10 +32,12 @@ public class PickupListActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // v4.0：先定主题再 setContentView，否则会先按浅色建界面
+        UiKit.applyTheme(this);
         super.onCreate(savedInstanceState);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.rgb(242, 243, 245));
+        root.setBackgroundColor(UiKit.palette(this).bg);
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);

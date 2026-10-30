@@ -27,6 +27,8 @@ public class WidgetSettingsActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // v4.0：先定主题再 setContentView，否则会先按浅色建界面
+        UiKit.applyTheme(this);
         super.onCreate(savedInstanceState);
         P = UiKit.palette(this);
         getWindow().setStatusBarColor(P.bg);

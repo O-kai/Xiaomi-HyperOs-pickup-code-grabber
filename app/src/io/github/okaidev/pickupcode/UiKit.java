@@ -64,6 +64,56 @@ public final class UiKit {
             this.label = c(label); this.muteBg = c(muteBg); this.muteInk = c(muteInk);
             this.navInk = c(navInk); this.chipBg = c(chipBg); this.line = c(line);
         }
+
+        /** 深色变体的构造：直接给 ARGB 值（由 HSL 推导而来） */
+        Palette(String id, String name, int bg, int card, int cardSoft, int track,
+                int hero, int heroWarn, int heroInk, int heroSubInk,
+                int heroWarnInk, int heroWarnSubInk,
+                int accent, int accentDeep, int accentInk, int accentSoft, int accentTint,
+                int label, int muteBg, int muteInk, int navInk, int chipBg, int line) {
+            this.id = id; this.name = name;
+            this.bg = bg; this.card = card; this.cardSoft = cardSoft; this.track = track;
+            this.hero = hero; this.heroWarn = heroWarn;
+            this.heroInk = heroInk; this.heroSubInk = heroSubInk;
+            this.heroWarnInk = heroWarnInk; this.heroWarnSubInk = heroWarnSubInk;
+            this.accent = accent; this.accentDeep = accentDeep; this.accentInk = accentInk;
+            this.accentSoft = accentSoft; this.accentTint = accentTint;
+            this.label = label; this.muteBg = muteBg; this.muteInk = muteInk;
+            this.navInk = navInk; this.chipBg = chipBg; this.line = line;
+        }
+
+        /**
+         * 深色变体：按同一套强调色的色相推导一整套夜间配色。
+         *
+         * <p>不做「反色」而是按角色重新给亮度：
+         * 页面底最暗、卡片略亮、分割线再亮一点；文字统一提亮；
+         * 强调色提高明度，保证在深底上仍然醒目、白色文字压在上面也读得清。
+         */
+        Palette toDark() {
+            float h = rgbToHsl(accent)[0];
+            return new Palette(id, name,
+                    hsl2(h, 0.08f, 0.060f),   // bg
+                    hsl2(h, 0.08f, 0.115f),  // card
+                    hsl2(h, 0.09f, 0.145f),  // cardSoft
+                    hsl2(h, 0.10f, 0.185f),  // track
+                    hsl2(h, 0.30f, 0.185f),  // hero
+                    hsl2(16f, 0.34f, 0.165f), // heroWarn
+                    hsl2(h, 0.28f, 0.93f),   // heroInk
+                    hsl2(h, 0.16f, 0.70f),   // heroSubInk
+                    hsl2(16f, 0.50f, 0.82f), // heroWarnInk
+                    hsl2(16f, 0.34f, 0.66f), // heroWarnSubInk
+                    hsl2(h, 0.44f, 0.63f),   // accent
+                    hsl2(h, 0.48f, 0.75f),   // accentDeep
+                    hsl2(h, 0.55f, 0.82f),   // accentInk
+                    hsl2(h, 0.34f, 0.185f),  // accentSoft
+                    hsl2(h, 0.30f, 0.135f),  // accentTint
+                    hsl2(h, 0.10f, 0.62f),   // label
+                    hsl2(h, 0.10f, 0.165f),  // muteBg
+                    hsl2(h, 0.09f, 0.55f),   // muteInk
+                    hsl2(h, 0.06f, 0.93f),   // navInk
+                    hsl2(h, 0.13f, 0.205f),  // chipBg
+                    hsl2(h, 0.10f, 0.235f)); // line
+        }
     }
 
     private static int c(String hex) { return Color.parseColor(hex); }
@@ -99,10 +149,14 @@ public final class UiKit {
     public static final Palette[] ALL = { MIST, SAND, TEAL, ROSE };
 
     // 语义色（四套配色通用，与原型一致）
-    public static final int INK = 0xFF191919, INK2 = 0xFF3D3A36, INK3 = 0xFF8E8E8E;
-    public static final int OK = 0xFF3E8E5E, OK_SOFT = 0xFFEAF3EC;
-    public static final int WARN = 0xFFC97F2E, WARN_SOFT = 0xFFFBEEDC;
-    public static final int DANGER = 0xFFC2543C, DANGER_SOFT = 0xFFFBE7E1;
+    //
+    // v4.0：改为可变字段并由 applyTheme() 按主题改写。
+    // 之前是 static final 常量，编译器会把值直接内联到调用处，
+    // 深色模式就没法在运行期换色了。
+    public static int INK = 0xFF191919, INK2 = 0xFF3D3A36, INK3 = 0xFF8E8E8E;
+    public static int OK = 0xFF3E8E5E, OK_SOFT = 0xFFEAF3EC;
+    public static int WARN = 0xFFC97F2E, WARN_SOFT = 0xFFFBEEDC;
+    public static int DANGER = 0xFFC2543C, DANGER_SOFT = 0xFFFBE7E1;
 
     private static final String PREFS = "dedup";
     private static final String KEY_PALETTE = "ui_palette";
@@ -110,8 +164,138 @@ public final class UiKit {
 
     public static Palette palette(Context ctx) {
         String id = prefs(ctx).getString(KEY_PALETTE, MIST.id);
-        for (Palette p : ALL) if (p.id.equals(id)) return p;
-        return MIST;
+        Palette base = MIST;
+        for (Palette p : ALL) if (p.id.equals(id)) { base = p; break; }
+        return isDark(ctx) ? darkOf(base) : base;
+    }
+
+    /** 深色变体缓存（每套配色算一次即可） */
+    private static final java.util.Map<String, Palette> DARK_CACHE = new java.util.HashMap<>();
+
+    public static synchronized Palette darkOf(Palette p) {
+        Palette d = DARK_CACHE.get(p.id);
+        if (d == null) {
+            d = p.toDark();
+            DARK_CACHE.put(p.id, d);
+        }
+        return d;
+    }
+
+    // ================================================================
+    //  主题（浅色 / 深色）
+    // ================================================================
+
+    /** 主题模式：跟随系统 / 强制浅色 / 强制深色 */
+    public static final int THEME_AUTO = 0;
+    public static final int THEME_LIGHT = 1;
+    public static final int THEME_DARK = 2;
+
+    private static final String KEY_THEME = "ui_theme";
+
+    public static int themeMode(Context ctx) {
+        return prefs(ctx).getInt(KEY_THEME, THEME_AUTO);
+    }
+
+    public static void setThemeMode(Context ctx, int mode) {
+        prefs(ctx).edit().putInt(KEY_THEME, mode).apply();
+    }
+
+    public static String themeModeLabel(Context ctx) {
+        switch (themeMode(ctx)) {
+            case THEME_LIGHT: return "浅色";
+            case THEME_DARK: return "深色";
+            default: return "跟随系统";
+        }
+    }
+
+    /** 当前是否深色：用户显式选择优先；跟随系统时读系统夜间模式 */
+    public static boolean isDark(Context ctx) {
+        int mode = themeMode(ctx);
+        if (mode == THEME_LIGHT) return false;
+        if (mode == THEME_DARK) return true;
+        int ui = ctx.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        return ui == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /**
+     * 应用主题。
+     *
+     * <p>必须在 super.onCreate() 之前调用：setTheme 决定窗口底色，
+     * 语义色决定所有文字颜色，晚一步就会先闪一下浅色底。
+     */
+    public static void applyTheme(Activity a) {
+        boolean dark = isDark(a);
+        a.setTheme(dark ? R.style.AppTheme_NoActionBar_Dark : R.style.AppTheme_NoActionBar);
+        if (dark) {
+            INK = 0xFFEDEDED; INK2 = 0xFFC6C6CE; INK3 = 0xFF8B8B95;
+            OK = 0xFF5FBF87; OK_SOFT = 0xFF1C2D24;
+            WARN = 0xFFE2A851; WARN_SOFT = 0xFF332819;
+            DANGER = 0xFFE87B63; DANGER_SOFT = 0xFF33201C;
+        } else {
+            INK = 0xFF191919; INK2 = 0xFF3D3A36; INK3 = 0xFF8E8E8E;
+            OK = 0xFF3E8E5E; OK_SOFT = 0xFFEAF3EC;
+            WARN = 0xFFC97F2E; WARN_SOFT = 0xFFFBEEDC;
+            DANGER = 0xFFC2543C; DANGER_SOFT = 0xFFFBE7E1;
+        }
+        applySystemBars(a);
+    }
+
+    /** 状态栏：底色跟随主题，图标明暗跟随主题 */
+    public static void applySystemBars(Activity a) {
+        try {
+            Window w = a.getWindow();
+            if (w == null) return;
+            w.setStatusBarColor(palette(a).bg);
+            View d = w.getDecorView();
+            int flags = d.getSystemUiVisibility() & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (!isDark(a)) flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            d.setSystemUiVisibility(flags);
+        } catch (Throwable ignored) { }
+    }
+
+    // ================================================================
+    //  颜色工具（HSL 推导）
+    // ================================================================
+
+    /** HSL -> ARGB */
+    static int hsl2(float h, float s, float l) {
+        h = ((h % 360f) + 360f) % 360f;
+        s = Math.max(0f, Math.min(1f, s));
+        l = Math.max(0f, Math.min(1f, l));
+        float c = (1 - Math.abs(2 * l - 1)) * s;
+        float x = c * (1 - Math.abs((h / 60f) % 2f - 1f));
+        float m = l - c / 2f;
+        float r, g, b;
+        if (h < 60f)       { r = c; g = x; b = 0; }
+        else if (h < 120f) { r = x; g = c; b = 0; }
+        else if (h < 180f) { r = 0; g = c; b = x; }
+        else if (h < 240f) { r = 0; g = x; b = c; }
+        else if (h < 300f) { r = x; g = 0; b = c; }
+        else              { r = c; g = 0; b = x; }
+        return Color.rgb(Math.round((r + m) * 255f),
+                Math.round((g + m) * 255f),
+                Math.round((b + m) * 255f));
+    }
+
+    /** ARGB -> {h, s, l} */
+    static float[] rgbToHsl(int color) {
+        float r = Color.red(color) / 255f;
+        float g = Color.green(color) / 255f;
+        float b = Color.blue(color) / 255f;
+        float max = Math.max(r, Math.max(g, b));
+        float min = Math.min(r, Math.min(g, b));
+        float h, s, l = (max + min) / 2f;
+        float d = max - min;
+        if (d == 0f) {
+            h = 0f; s = 0f;
+        } else {
+            s = l > 0.5f ? d / (2f - max - min) : d / (max + min);
+            if (max == r)      h = ((g - b) / d + (g < b ? 6f : 0f)) * 60f;
+            else if (max == g) h = ((b - r) / d + 2f) * 60f;
+            else               h = ((r - g) / d + 4f) * 60f;
+        }
+        return new float[]{h, s, l};
     }
 
     public static void setPalette(Context ctx, Palette p) {
@@ -390,11 +574,12 @@ public final class UiKit {
         protected void onDraw(Canvas cv) {
             float w = getWidth(), h = getHeight();
             track.set(0, 0, w, h);
-            paint.setColor(checked ? palette.accent : 0xFFE5DDD3);
+            boolean dark = UiKit.isDark(getContext());
+            paint.setColor(checked ? palette.accent : (dark ? palette.track : 0xFFE5DDD3));
             cv.drawRoundRect(track, h / 2, h / 2, paint);
             float r = h / 2 - UiKit.dp(getContext(), 2);
             float cx = UiKit.dp(getContext(), 2) + r + anim * (w - 2 * UiKit.dp(getContext(), 2) - 2 * r);
-            paint.setColor(0xFFFFFFFF);
+            paint.setColor(dark ? 0xFFF2F3F5 : 0xFFFFFFFF);
             paint.setShadowLayer(UiKit.dp(getContext(), 1.5f), 0, UiKit.dp(getContext(), 0.6f), 0x33000000);
             cv.drawCircle(cx, h / 2, r, paint);
             paint.clearShadowLayer();
@@ -438,8 +623,10 @@ public final class UiKit {
         bar.setPadding(UiKit.dp(ctx, 12), 0, UiKit.dp(ctx, 12), 0);
         // v4.0.6：默认 85% 不透明度（真机反馈 42% 太透、95% 太实，取中间值）：
         // 底下内容能被隐约看到，但不会像 42% 那样让卡片文字与底栏文字撞在一起
-        int fill = blur ? alpha(0xFFFFFFFF, 0.85f) : 0xFFFFFFFF;
-        bar.setBackground(bg(fill, ctx, 36, alpha(0xFFFFFFFF, blur ? 0.6f : 0.95f), 1f));
+        // 底色用 p.card：浅色模式下 p.card 就是纯白，与原设计完全一致；
+        // 深色模式下则是深色卡面，不会再出现「浅底 + 深色文字」的错配。
+        int fill = blur ? alpha(p.card, 0.85f) : p.card;
+        bar.setBackground(bg(fill, ctx, 36, alpha(p.card, blur ? 0.6f : 0.95f), 1f));
         bar.setElevation(UiKit.dp(ctx, 8));
 
         for (int i = 0; i < TAB_ICONS.length; i++) {

@@ -9,4 +9,13 @@
     <style name="AppTheme.NoActionBar" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@android:color/white</item>
     </style>
+
+    <!--
+      v4.0：深色主题。
+      窗口底色用接近页面底色的深灰，避免冷启动时先闪一下白底再切深色。
+      页面内部的所有颜色由 UiKit 按主题推导，这里只负责系统窗口层。
+    -->
+    <style name="AppTheme.NoActionBar.Dark" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_bg_dark</item>
+    </style>
 </resources>

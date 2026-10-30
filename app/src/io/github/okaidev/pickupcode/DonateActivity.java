@@ -35,6 +35,8 @@ public class DonateActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // v4.0：先定主题再 setContentView，否则会先按浅色建界面
+        UiKit.applyTheme(this);
         super.onCreate(savedInstanceState);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);

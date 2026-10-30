@@ -148,6 +148,8 @@ public class LauncherActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // v4.0：先定主题再 setContentView，否则会先按浅色建界面
+        UiKit.applyTheme(this);
         super.onCreate(savedInstanceState);
         P = UiKit.palette(this);
         currentMode = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("todo_mode", TodoWriter.MODE_FULL);
@@ -271,10 +273,7 @@ public class LauncherActivity extends Activity {
      * 选错也能在「设置 → 界面模式」里改回来，不制造额外门槛。
      */
     private void showModeChooser() {
-        if (getWindow() != null) {
-            getWindow().setStatusBarColor(P.bg);
-        }
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        UiKit.applySystemBars(this);
 
         ScrollView sv = new ScrollView(this);
         sv.setFillViewport(true);
@@ -1424,6 +1423,14 @@ public class LauncherActivity extends Activity {
         appeRow.setOnClickListener(v -> showPalettePicker());
         perCard.addView(appeRow);
 
+        // ④·2 主题（浅色 / 深色）
+        perCard.addView(UiKit.divider(this, P));
+        LinearLayout themeRow = UiKit.row(this, P, R.drawable.ic_blur, "主题",
+                "界面配色：跟随系统 / 浅色 / 深色",
+                UiKit.value(this, P, UiKit.themeModeLabel(this)));
+        themeRow.setOnClickListener(v -> showThemePicker());
+        perCard.addView(themeRow);
+
         // ⑤ 模糊效果
         perCard.addView(UiKit.divider(this, P));
         blurSw = new UiKit.Switch(this, P, UiKit.navBlur(this));
@@ -1784,6 +1791,18 @@ public class LauncherActivity extends Activity {
         if (tpl == null || tpl.isEmpty()) return "（空模板）";
         return tpl.replace("{code}", code).replace("{source}", source)
                 .replace("{place}", place).replace("{time}", time);
+    }
+
+    /** 主题选择：跟随系统 / 浅色 / 深色。切换后立即重建界面。 */
+    private void showThemePicker() {
+        CharSequence[] items = new CharSequence[]{
+                "跟随系统", "浅色", "深色"
+        };
+        int checked = UiKit.themeMode(this);
+        UiKit.chooser(this, P, R.drawable.ic_blur, "主题 · 选择外观", items, checked, w -> {
+            UiKit.setThemeMode(this, w);
+            rebuildUi();
+        });
     }
 
     private void showPalettePicker() {
