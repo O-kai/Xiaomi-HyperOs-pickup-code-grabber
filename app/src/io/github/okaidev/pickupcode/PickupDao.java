@@ -48,6 +48,10 @@ public interface PickupDao {
     @Query("SELECT * FROM pickup_records WHERE id = :id LIMIT 1")
     PickupRecord byId(long id);
 
+    /** 按码查任意状态的记录（导入历史时用来避免与已有记录重复） */
+    @Query("SELECT * FROM pickup_records WHERE code = :code ORDER BY id DESC LIMIT 1")
+    PickupRecord findAnyByCode(String code);
+
     @Query("UPDATE pickup_records SET status = 'PICKED_UP', picked_at = :ts, "
             + "last_seen_at = :ts WHERE id = :id")
     int markDone(long id, long ts);

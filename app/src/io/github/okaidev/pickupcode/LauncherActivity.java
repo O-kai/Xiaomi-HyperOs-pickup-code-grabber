@@ -1468,6 +1468,9 @@ public class LauncherActivity extends Activity {
         reminderRow.setOnClickListener(v -> pickReminderTime());
         perCard.addView(reminderRow);
         perCard.addView(UiKit.divider(this, P));
+        perCard.addView(toolRow(R.drawable.ic_download, "导入历史取件记录",
+                "从小米笔记把老的取件待办读回本地库", v -> importHistoryNow()));
+        perCard.addView(UiKit.divider(this, P));
         perCard.addView(toolRow(R.drawable.ic_search, "排查问题向导",
                 "未注入 → root → 作用域 → 通知 → sqlite3 → 笔记库", v -> runTroubleshoot()));
         perCard.addView(UiKit.divider(this, P));
@@ -2619,6 +2622,25 @@ public class LauncherActivity extends Activity {
                 runOnUiThread(() -> Toast.makeText(this,
                         "报告生成失败：" + t.getMessage(), Toast.LENGTH_LONG).show());
             }
+        }).start();
+    }
+
+    /** 从小米笔记导入历史取件记录（3.1.0 → 4.0 的历史补齐） */
+    private void importHistoryNow() {
+        Toast.makeText(this, "正在从小米笔记导入历史…（约 5-15 秒）", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            NotesImporter.Result r = NotesImporter.importHistory(this, 300);
+            runOnUiThread(() -> {
+                if (r.message != null && !r.message.isEmpty()) {
+                    Toast.makeText(this, r.message, Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(this,
+                            "扫描 " + r.scanned + " 条待办，导入 " + r.imported
+                                    + " 条取件记录\n（跳过 " + r.skipped + " 条非取件待办）",
+                            Toast.LENGTH_LONG).show();
+                    refreshPickupCard();
+                }
+            });
         }).start();
     }
 

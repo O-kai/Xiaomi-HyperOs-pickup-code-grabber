@@ -220,6 +220,50 @@ public final class PickupRepository {
         }
     }
 
+    /**
+     * 导入一条外部已有的取件记录（例如从小米笔记导入的历史待办）。
+     *
+     * <p>eventHash 由调用方给出（形如 "notes:&lt;id&gt;"），同一个来源 ID 只会导入一次，
+     * 重复点「导入」不会产生重复记录。
+     *
+     * @param finished true 表示这条在来源里已经是「已完成」，导入后记为历史
+     * @return true 表示确实新插入了一条
+     */
+    public boolean insertImported(String source, String code, String place,
+                                  long receivedAt, boolean finished, String eventHash) {
+        try {
+            if (code == null || code.trim().isEmpty()) return false;
+            if (eventHash == null || eventHash.isEmpty()) return false;
+            if (dao.findByEventHash(eventHash) != null) return false;
+            // 同一个取件码本地已经有了（模块自己写进去的那批），不再重复导入
+            if (dao.findAnyByCode(code.trim()) != null) return false;
+
+            long now = System.currentTimeMillis();
+            PickupRecord r = new PickupRecord();
+            r.code = code.trim();
+            r.source = emptyToUnknown(source);
+            r.place = emptyToUnknown(place);
+            r.receivedAt = receivedAt > 0 ? receivedAt : now;
+            r.createdAt = now;
+            r.lastSeenAt = now;
+            r.status = finished ? PickupRecord.STATUS_PICKED_UP : PickupRecord.STATUS_PENDING;
+            r.pickedAt = finished ? r.receivedAt : 0L;
+            r.eventHash = eventHash;
+            r.syncState = "NONE";
+            r.isTest = 0;
+            r.backend = NotesBackend.detect(appContext);
+            long id = dao.insert(r);
+            if (id > 0) {
+                PickupWidgetProvider.refreshAsync(appContext);
+                notifyChanged();
+                return true;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "insertImported failed: " + t);
+        }
+        return false;
+    }
+
     public void pendingAsync(int limit, Callback<List<PickupRecord>> callback) {
         io.execute(() -> {
             final List<PickupRecord> result = pendingSync(limit);
