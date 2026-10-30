@@ -94,16 +94,33 @@ say "崩溃：$crashes   ANR：$anrs"
 say "RSS：基线 ${first_rss} KB → 末轮 ${rss} KB"
 
 # 本地库完整性
+#
+# 注意两点：
+#  1) 库名是 pickup_records.db（Room 按实体名建的），不是 pickup.db；
+#  2) SQL 必须走文件重定向——su 会把命令里的双引号换成单引号，
+#     内联 SQL 会被拆坏（这是本项目踩过的坑，见 STAGE-0-REPORT）。
 say ""
 say "===== 本地库完整性 ====="
-for db in pickup.db pickup-code.db; do
-  p=$("$ADB" shell su -c "ls /data/data/$PKG/databases/$db 2>/dev/null" | tr -d '\r')
-  if [ -n "$p" ]; then
-    r=$("$ADB" shell su -c "/data/local/tmp/pickup_sqlite/sqlite3 /data/data/$PKG/databases/$db 'PRAGMA integrity_check;'" 2>/dev/null | tr -d '\r' | tail -1)
-    say "$db: $r"
-    say "  条数：$("$ADB" shell su -c "/data/local/tmp/pickup_sqlite/sqlite3 /data/data/$PKG/databases/$db 'SELECT COUNT(*) FROM pickup_records;'" 2>/dev/null | tr -d '\r' | tail -1)"
+DB="/data/data/$PKG/databases/pickup_records.db"
+if "$ADB" shell su -c "ls $DB" >/dev/null 2>&1; then
+  SQLF="/data/local/tmp/_soak_check.sql"
+  printf 'PRAGMA integrity_check;\nSELECT status, COUNT(*) FROM pickup_records GROUP BY status;\nSELECT COUNT(*) FROM pickup_records;\n' > "$OUT_DIR/_soak_check.sql"
+  # adb.exe 是 Windows 程序，不认 Git Bash 的 /d/... 路径，要转成 D:/...
+  if command -v cygpath >/dev/null 2>&1; then
+    LOCAL_SQL="$(cygpath -m "$OUT_DIR/_soak_check.sql")"
+  else
+    LOCAL_SQL="$OUT_DIR/_soak_check.sql"
   fi
-done
+  "$ADB" push "$LOCAL_SQL" "$SQLF" >/dev/null 2>&1
+  rm -f "$OUT_DIR/_soak_check.sql"
+  res=$("$ADB" shell su -c "/data/local/tmp/pickup_sqlite/sqlite3 $DB < $SQLF" 2>/dev/null | tr -d '\r')
+  say "integrity_check：$(echo "$res" | head -1)"
+  echo "$res" | tail -n +2 | while read -r line; do
+    [ -n "$line" ] && say "  $line"
+  done
+else
+  say "（未找到 $DB，跳过）"
+fi
 
 say ""
 say "===== logcat 里的错误（去重） ====="
