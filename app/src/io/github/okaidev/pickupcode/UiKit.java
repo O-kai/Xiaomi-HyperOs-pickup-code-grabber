@@ -48,6 +48,15 @@ public final class UiKit {
                 hero, heroWarn, heroInk, heroSubInk, heroWarnInk, heroWarnSubInk,
                 accent, accentDeep, accentInk, accentSoft, accentTint,
                 label, line, muteBg, muteInk, navInk, chipBg;
+        /**
+         * 压在强调色底上的文字/图标颜色。
+         *
+         * <p>为什么需要它：强调色在深色模式下会被提亮（要在深底上醒目），
+         * 这时白字压在亮强调色上的对比度会掉到 1.9–2.9，远低于可读下限。
+         * 反过来浅色模式下的米金强调色，白字对比度也只有 3.58。
+         * 所以「压在强调色上的字是什么色」不能写死，由底色反推。
+         */
+        public final int onAccent;
 
         Palette(String id, String name, String bg, String cardSoft, String track,
                 String hero, String heroWarn, String heroInk, String heroSubInk,
@@ -63,6 +72,7 @@ public final class UiKit {
             this.accentSoft = c(accentSoft); this.accentTint = c(accentTint);
             this.label = c(label); this.muteBg = c(muteBg); this.muteInk = c(muteInk);
             this.navInk = c(navInk); this.chipBg = c(chipBg); this.line = c(line);
+            this.onAccent = inkOn(this.accent);
         }
 
         /** 深色变体的构造：直接给 ARGB 值（由 HSL 推导而来） */
@@ -80,6 +90,7 @@ public final class UiKit {
             this.accentSoft = accentSoft; this.accentTint = accentTint;
             this.label = label; this.muteBg = muteBg; this.muteInk = muteInk;
             this.navInk = navInk; this.chipBg = chipBg; this.line = line;
+            this.onAccent = inkOn(this.accent);
         }
 
         /**
@@ -87,63 +98,64 @@ public final class UiKit {
          *
          * <p>不做「反色」而是按角色重新给亮度：
          * 页面底最暗、卡片略亮、分割线再亮一点；文字统一提亮；
-         * 强调色提高明度，保证在深底上仍然醒目、白色文字压在上面也读得清。
+         * 强调色提高明度，保证在深底上仍然醒目。
+         *
+         * <p>注意：强调色提亮之后，白字压上去的对比度会掉到 2–3，
+         * 所以「压在强调色上的字」由 {@link #onAccent} 按底色自动反推，
+         * 这里不再假设它一定是白色。
          */
         Palette toDark() {
-            float h = rgbToHsl(accent)[0];
+            PaletteMath.Dark d = PaletteMath.darkOf(accent);
             return new Palette(id, name,
-                    hsl2(h, 0.08f, 0.060f),   // bg
-                    hsl2(h, 0.08f, 0.115f),  // card
-                    hsl2(h, 0.09f, 0.145f),  // cardSoft
-                    hsl2(h, 0.10f, 0.185f),  // track
-                    hsl2(h, 0.30f, 0.185f),  // hero
-                    hsl2(16f, 0.34f, 0.165f), // heroWarn
-                    hsl2(h, 0.28f, 0.93f),   // heroInk
-                    hsl2(h, 0.16f, 0.70f),   // heroSubInk
-                    hsl2(16f, 0.50f, 0.82f), // heroWarnInk
-                    hsl2(16f, 0.34f, 0.66f), // heroWarnSubInk
-                    hsl2(h, 0.44f, 0.63f),   // accent
-                    hsl2(h, 0.48f, 0.75f),   // accentDeep
-                    hsl2(h, 0.55f, 0.82f),   // accentInk
-                    hsl2(h, 0.34f, 0.185f),  // accentSoft
-                    hsl2(h, 0.30f, 0.135f),  // accentTint
-                    hsl2(h, 0.10f, 0.62f),   // label
-                    hsl2(h, 0.10f, 0.165f),  // muteBg
-                    hsl2(h, 0.09f, 0.55f),   // muteInk
-                    hsl2(h, 0.06f, 0.93f),   // navInk
-                    hsl2(h, 0.13f, 0.205f),  // chipBg
-                    hsl2(h, 0.10f, 0.235f)); // line
+                    d.bg, d.card, d.cardSoft, d.track,
+                    d.hero, d.heroWarn, d.heroInk, d.heroSubInk,
+                    d.heroWarnInk, d.heroWarnSubInk,
+                    d.accent, d.accentDeep, d.accentInk, d.accentSoft, d.accentTint,
+                    d.label, d.muteBg, d.muteInk, d.navInk, d.chipBg, d.line);
         }
     }
 
     private static int c(String hex) { return Color.parseColor(hex); }
 
+    /**
+     * 压在任意底色上的「字色」：白或深墨，取对比度更高的一方。
+     *
+     * <p>这是 4.0 补上的可访问性兜底：强调色会随主题变亮变暗，
+     * 写死白字就会在某些配色下掉到 2:1 上下——按钮看着有颜色，字却看不清。
+     * 这里按 WCAG 相对亮度算，取能达到的最高对比度。
+     */
+    public static final int DARK_INK = PaletteMath.DARK_INK;
+
+    public static int inkOn(int bgColor) {
+        return PaletteMath.inkOn(bgColor);
+    }
+
     /** A · 米金 */
     public static final Palette SAND = new Palette("sand", "米金",
             "#FBEDE1", "#FCF7F1", "#F2E7DB",
             "#F9DDB8", "#F5C6AB", "#33240E", "#6E5B41", "#6B2E1A", "#8A5741",
-            "#A8813C", "#8A6A2F", "#7A5A22", "#F6E8CE", "#FBEFDD",
+            PaletteMath.ACCENT_SAND, "#8A6A2F", "#7A5A22", "#F6E8CE", "#FBEFDD",
             "#8B7358", "#F1ECE5", "#928B82", "#3A2E1F", "#F7EFE4", "#F1EBE3");
 
     /** B · 雾霾蓝（默认，与原型当前设计一致） */
     public static final Palette MIST = new Palette("mist", "雾霾蓝",
             "#F2F3F5", "#F6F9FC", "#E6ECF3",
             "#D6E4F2", "#F2D6D2", "#1F3450", "#4A5F7A", "#6B2E1A", "#7A4A48",
-            "#4A6FA5", "#3D5C8A", "#2F4E7A", "#E2EAF4", "#F2F6FB",
+            PaletteMath.ACCENT_MIST, "#3D5C8A", "#2F4E7A", "#E2EAF4", "#F2F6FB",
             "#6B7C92", "#EAEEF3", "#868F9B", "#26303E", "#EAF0F7", "#E8EDF4");
 
     /** C · 青瓷绿 */
     public static final Palette TEAL = new Palette("teal", "青瓷绿",
             "#E9F2EE", "#F5FAF8", "#E2EDE9",
             "#CFE8DE", "#F3DDD0", "#133F35", "#3E6B5E", "#6B2E1A", "#7A5A48",
-            "#2F7F6F", "#256356", "#1F5648", "#DDF0E9", "#F1F8F5",
+            PaletteMath.ACCENT_TEAL, "#256356", "#1F5648", "#DDF0E9", "#F1F8F5",
             "#5F7E75", "#E7EFEB", "#83938D", "#21372F", "#EAF4F0", "#E5EFEA");
 
     /** D · 藕荷玫瑰 */
     public static final Palette ROSE = new Palette("rose", "藕荷玫瑰",
             "#F7EDF1", "#FCF7F9", "#F0E4E9",
             "#F2D8E0", "#F6CBBE", "#4A2130", "#6E4A58", "#6B2E1A", "#8A4A58",
-            "#A65D78", "#8A4A63", "#7A4159", "#F3DFE7", "#FAF0F4",
+            PaletteMath.ACCENT_ROSE, "#8A4A63", "#7A4159", "#F3DFE7", "#FAF0F4",
             "#8A6E7A", "#F0E7EB", "#97878E", "#372530", "#F8EDF1", "#F1E6EA");
 
     public static final Palette[] ALL = { MIST, SAND, TEAL, ROSE };
@@ -258,44 +270,14 @@ public final class UiKit {
     //  颜色工具（HSL 推导）
     // ================================================================
 
-    /** HSL -> ARGB */
+    /** HSL -> ARGB（实现在 PureColor，便于离线单测） */
     static int hsl2(float h, float s, float l) {
-        h = ((h % 360f) + 360f) % 360f;
-        s = Math.max(0f, Math.min(1f, s));
-        l = Math.max(0f, Math.min(1f, l));
-        float c = (1 - Math.abs(2 * l - 1)) * s;
-        float x = c * (1 - Math.abs((h / 60f) % 2f - 1f));
-        float m = l - c / 2f;
-        float r, g, b;
-        if (h < 60f)       { r = c; g = x; b = 0; }
-        else if (h < 120f) { r = x; g = c; b = 0; }
-        else if (h < 180f) { r = 0; g = c; b = x; }
-        else if (h < 240f) { r = 0; g = x; b = c; }
-        else if (h < 300f) { r = x; g = 0; b = c; }
-        else              { r = c; g = 0; b = x; }
-        return Color.rgb(Math.round((r + m) * 255f),
-                Math.round((g + m) * 255f),
-                Math.round((b + m) * 255f));
+        return PureColor.hslToArgb(h, s, l);
     }
 
-    /** ARGB -> {h, s, l} */
+    /** ARGB -> {h, s, l}（实现在 PureColor，便于离线单测） */
     static float[] rgbToHsl(int color) {
-        float r = Color.red(color) / 255f;
-        float g = Color.green(color) / 255f;
-        float b = Color.blue(color) / 255f;
-        float max = Math.max(r, Math.max(g, b));
-        float min = Math.min(r, Math.min(g, b));
-        float h, s, l = (max + min) / 2f;
-        float d = max - min;
-        if (d == 0f) {
-            h = 0f; s = 0f;
-        } else {
-            s = l > 0.5f ? d / (2f - max - min) : d / (max + min);
-            if (max == r)      h = ((g - b) / d + (g < b ? 6f : 0f)) * 60f;
-            else if (max == g) h = ((b - r) / d + 2f) * 60f;
-            else               h = ((r - g) / d + 4f) * 60f;
-        }
-        return new float[]{h, s, l};
+        return PureColor.argbToHsl(color);
     }
 
     public static void setPalette(Context ctx, Palette p) {
@@ -505,8 +487,14 @@ public final class UiKit {
         b.setTypeface(null, Typeface.BOLD);
         float h = 48;
         switch (kind) {
-            case "ok": b.setBackground(bg(OK, ctx, 15)); break;
-            case "warn": b.setBackground(bg(WARN, ctx, 15)); break;
+            case "ok":
+                b.setTextColor(inkOn(OK));
+                b.setBackground(bg(OK, ctx, 15));
+                break;
+            case "warn":
+                b.setTextColor(inkOn(WARN));
+                b.setBackground(bg(WARN, ctx, 15));
+                break;
             case "ghost":
                 b.setTextColor(p.accentInk);
                 b.setBackground(bg(p.card, ctx, 15));
@@ -515,7 +503,9 @@ public final class UiKit {
                 b.setTextColor(p.accentInk);
                 b.setBackground(bg(0x00000000, ctx, 15, p.accent, 1.4f));
                 break;
-            default: b.setBackground(bg(p.accent, ctx, 15));
+            default:
+                b.setTextColor(p.onAccent);
+                b.setBackground(bg(p.accent, ctx, 15));
         }
         b.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx, h)));
@@ -643,7 +633,7 @@ public final class UiKit {
             if (on) {
                 chip.setBackground(bg(p.accent, ctx, 12));
             }
-            ImageView ic = icon(ctx, TAB_ICONS[i], on ? 21 : 23, on ? 0xFFFFFFFF : p.navInk);
+            ImageView ic = icon(ctx, TAB_ICONS[i], on ? 21 : 23, on ? p.onAccent : p.navInk);
             chip.addView(ic);
             LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
                     UiKit.dp(ctx, 34), UiKit.dp(ctx, 34));
@@ -673,8 +663,8 @@ public final class UiKit {
     /** 带矢量图标的按钮（图标与文字同色，自动着色） */
     public static TextView buttonIcon(Context ctx, Palette p, int iconRes, String label, String kind) {
         TextView b = button(ctx, p, label, kind);
-        int tint = "ok".equals(kind) || "warn".equals(kind) || kind == null || "primary".equals(kind)
-                ? 0xFFFFFFFF : p.accentInk;
+        // 图标跟随按钮实际文字色——不同底色下可读性不同，不能统一写死白色。
+        int tint = b.getCurrentTextColor();
         Drawable d = ctx.getDrawable(iconRes);
         if (d != null) {
             d = d.mutate();
@@ -801,7 +791,7 @@ public final class UiKit {
             rlp.setMargins(0, dp(a, 18), 0, dp(a, 2));
             row.setLayoutParams(rlp);
             for (Action act : actions) {
-                TextView btn = text(a, act.label, 14f, act.primary ? 0xFFFFFFFF : p.accentInk);
+                TextView btn = text(a, act.label, 14f, act.primary ? p.onAccent : p.accentInk);
                 btn.setGravity(Gravity.CENTER);
                 btn.setTypeface(null, Typeface.BOLD);
                 btn.setPadding(dp(a, 10), dp(a, 11), dp(a, 10), dp(a, 11));

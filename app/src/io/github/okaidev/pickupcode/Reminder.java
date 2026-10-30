@@ -11,7 +11,6 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.util.Log;
 
-import java.util.Calendar;
 import java.util.Locale;
 
 /**
@@ -79,15 +78,12 @@ public final class Reminder {
 
     /** 下一次触发的时间戳（今天该点已过则顺延到明天） */
     public static long nextTriggerAt(Context ctx) {
-        Calendar c = Calendar.getInstance();
-        c.set(Calendar.HOUR_OF_DAY, hour(ctx));
-        c.set(Calendar.MINUTE, minute(ctx));
-        c.set(Calendar.SECOND, 0);
-        c.set(Calendar.MILLISECOND, 0);
-        if (c.getTimeInMillis() <= System.currentTimeMillis()) {
-            c.add(Calendar.DAY_OF_YEAR, 1);
-        }
-        return c.getTimeInMillis();
+        return nextTriggerAt(hour(ctx), minute(ctx), System.currentTimeMillis());
+    }
+
+    /** 下一次触发的时间戳（纯计算，便于离线单测） */
+    public static long nextTriggerAt(int hour, int minute, long nowMillis) {
+        return ReminderSchedule.nextTriggerAt(hour, minute, nowMillis);
     }
 
     public static void schedule(Context ctx) {

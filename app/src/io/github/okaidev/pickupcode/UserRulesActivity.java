@@ -179,7 +179,7 @@ public class UserRulesActivity extends Activity {
     /** 带矢量图标的操作按钮（三等分一行）：实心 / 描边两种样式，图标与文字同色 */
     private TextView actBtn(String label, int iconRes, int bgColor, boolean solid, Runnable run) {
         TextView b = new TextView(this);
-        int textColor = solid ? 0xFFFFFFFF : P.accentInk;
+        int textColor = solid ? UiKit.inkOn(bgColor) : P.accentInk;
         b.setText(label);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         b.setTextColor(textColor);
@@ -746,8 +746,14 @@ public class UserRulesActivity extends Activity {
         TextView t = new TextView(this);
         t.setText(label);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        t.setTextColor(Color.WHITE);
-        t.setBackgroundColor(Color.parseColor(bg));
+        int bgColor;
+        try {
+            bgColor = Color.parseColor(bg);
+        } catch (Throwable t2) {
+            bgColor = P.accent;
+        }
+        t.setTextColor(UiKit.inkOn(bgColor));
+        t.setBackgroundColor(bgColor);
         t.setPadding(dp(8), dp(6), dp(8), dp(6));
         t.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,

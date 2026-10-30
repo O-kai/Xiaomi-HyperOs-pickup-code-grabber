@@ -9,7 +9,6 @@ import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -121,13 +120,9 @@ public final class NotesImporter {
                     String place = PickupExtractor.extractPlace(body);
                     String source = sourceOf(body);
                     // 模块自己写的待办：优先用它带的信息（更准）
-                    Matcher own = P_OWN_FORMAT.matcher(body);
-                    if (own.find()) {
-                        String s2 = own.group(1) == null ? "" : own.group(1).trim();
-                        String p2 = own.group(2) == null ? "" : own.group(2).trim();
-                        if (!s2.isEmpty() && !"—".equals(s2)) source = s2;
-                        if (!p2.isEmpty() && !"—".equals(p2)) place = p2;
-                    }
+                    String[] own = ownFormatFields(body);
+                    if (own[0] != null && !own[0].isEmpty()) source = own[0];
+                    if (own[1] != null && !own[1].isEmpty()) place = own[1];
                     long when = finished && finishedAt > 0 ? finishedAt : created;
                     String hash = "notes:" + id;
                     boolean ok = false;
@@ -150,11 +145,14 @@ public final class NotesImporter {
         return res;
     }
 
-    /** 取【】里的驿站名；没有就返回空 */
-    private static String sourceOf(String body) {
-        Matcher m = P_BRACKET.matcher(body);
-        if (m.find()) return m.group(1);
-        return "";
+    /** 解析「模块自己写的待办」格式（实现见 {@link NotesFormat}） */
+    static String[] ownFormatFields(String body) {
+        return NotesFormat.ownFormatFields(body);
+    }
+
+    /** 取【】里的驿站名（实现见 {@link NotesFormat}） */
+    static String sourceOf(String body) {
+        return NotesFormat.sourceOf(body);
     }
 
     private static long parseLong(String s) {

@@ -369,7 +369,7 @@ public class LauncherActivity extends Activity {
         iconWrap.setBackground(UiKit.bg(simple ? P.accent : P.accentSoft, this, 13));
         ImageView icon = UiKit.icon(this,
                 simple ? R.drawable.ic_home : R.drawable.ic_grid, 22,
-                simple ? 0xFFFFFFFF : P.accentInk);
+                simple ? P.onAccent : P.accentInk);
         iconWrap.addView(icon);
 
         LinearLayout head = new LinearLayout(this);
@@ -406,13 +406,16 @@ public class LauncherActivity extends Activity {
 
         TextView btn = UiKit.text(this,
                 simple ? "用简洁模式" : "用进阶模式", 13.5f,
-                simple ? 0xFFFFFFFF : P.accentInk);
+                simple ? P.onAccent : P.accentInk);
         btn.setGravity(Gravity.CENTER);
         btn.setTypeface(null, Typeface.BOLD);
         btn.setPadding(0, dp(11), 0, dp(11));
         GradientDrawable btnBg = UiKit.bg(simple ? P.accent : P.accentSoft, this, 13);
+        int ripple = simple
+                ? UiKit.alpha(P.onAccent, 0.22f)
+                : 0x22000000;
         btn.setBackground(new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf(simple ? 0x33FFFFFF : 0x22000000),
+                android.content.res.ColorStateList.valueOf(ripple),
                 btnBg, null));
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1771,7 +1774,7 @@ public class LauncherActivity extends Activity {
         for (int i = 0; i < modeBtns.size(); i++) {
             boolean sel = modeIds[i] == currentMode;
             TextView b = modeBtns.get(i);
-            b.setTextColor(sel ? 0xFFFFFFFF : UiKit.INK2);
+            b.setTextColor(sel ? P.onAccent : UiKit.INK2);
             b.setTypeface(null, sel ? Typeface.BOLD : Typeface.NORMAL);
             b.setBackground(sel ? UiKit.bg(P.accent, this, 11) : UiKit.bg(0x00000000, this, 11));
         }
@@ -2370,7 +2373,7 @@ public class LauncherActivity extends Activity {
                 row.setGravity(Gravity.CENTER_VERTICAL);
                 row.setPadding(0, dp(11), 0, dp(11));
                 ImageView dot = UiKit.icon(this, c.ok ? R.drawable.ic_check : R.drawable.ic_x, 21,
-                        0xFFFFFFFF);
+                        UiKit.inkOn(c.ok ? UiKit.OK : UiKit.DANGER));
                 dot.setBackground(UiKit.bg(c.ok ? UiKit.OK : UiKit.DANGER, this, 999));
                 dot.setPadding(dp(4), dp(4), dp(4), dp(4));
                 LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(21), dp(21));
@@ -2994,8 +2997,10 @@ public class LauncherActivity extends Activity {
         b.setTypeface(null, Typeface.BOLD);
         b.setPadding(dp(8), dp(10), dp(8), dp(10));
         if ("primary".equals(kind)) {
+            b.setTextColor(P.onAccent);
             b.setBackground(UiKit.bg(P.accent, this, 13));
         } else if ("warn".equals(kind)) {
+            b.setTextColor(UiKit.inkOn(UiKit.WARN));
             b.setBackground(UiKit.bg(UiKit.WARN, this, 13));
         } else if ("ghostLine".equals(kind)) {
             b.setTextColor(P.accentInk);

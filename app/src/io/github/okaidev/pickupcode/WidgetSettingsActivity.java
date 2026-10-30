@@ -239,7 +239,7 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     private void addSeg(LinearLayout parent, String label, boolean selected, Runnable onClick) {
-        TextView tv = UiKit.text(this, label, 13.5f, selected ? 0xFFFFFFFF : P.accentInk);
+        TextView tv = UiKit.text(this, label, 13.5f, selected ? P.onAccent : P.accentInk);
         tv.setGravity(Gravity.CENTER);
         tv.setTypeface(null, selected ? Typeface.BOLD : Typeface.NORMAL);
         tv.setPadding(0, dp(10), 0, dp(10));

@@ -478,8 +478,14 @@ public class ChainTestActivity extends Activity {
         TextView t = new TextView(this);
         t.setText(label);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        t.setTextColor(Color.WHITE);
-        t.setBackground(roundRect(bg));
+        int bgColor;
+        try {
+            bgColor = android.graphics.Color.parseColor(bg);
+        } catch (Throwable ignored) {
+            bgColor = 0xFF4A6FA5;
+        }
+        t.setTextColor(UiKit.inkOn(bgColor));
+        t.setBackground(roundRect(bgColor));
         t.setPadding(dp(10), dp(14), dp(10), dp(14));
         t.setGravity(Gravity.CENTER);
         t.setOnClickListener(l);
@@ -523,7 +529,7 @@ public class ChainTestActivity extends Activity {
         TextView b = new TextView(this);
         b.setText(label);
         b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
-        b.setTextColor(Color.WHITE);
+        b.setTextColor(UiKit.inkOn(bg));
         b.setBackground(roundRect(bg));
         b.setPadding(dp(14), dp(12), dp(14), dp(12));
         b.setGravity(android.view.Gravity.CENTER);
