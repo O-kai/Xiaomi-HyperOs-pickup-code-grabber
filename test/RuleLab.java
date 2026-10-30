@@ -102,29 +102,17 @@ public class RuleLab {
         }
     }
 
-    @SuppressWarnings("unchecked")
+    /**
+     * 加载规则集。
+     *
+     * <p>v4.0 收口：这里原先手写了一份「把 rules.json 填进 ExtractorRules」的手抄本，
+     * 与 App 里的 {@link ExtractorRules#fromJson} 各写各的——新增字段时
+     * 很容易只改一边（v8 的 excludeTailPhrases 就是这么漏的）。
+     * 现在直接复用 App 的加载器，实验台跑的就是 App 真正会跑的那份规则。
+     */
     static ExtractorRules rulesFromJson(String path) throws Exception {
-        Map<String, Object> m = (Map<String, Object>) new Json(
-                new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8)).parse();
-        ExtractorRules r = new ExtractorRules();
-        r.version = ((Number) m.get("version")).intValue();
-        r.minAppVersionCode = ((Number) m.get("minAppVersionCode")).intValue();
-        r.description = (String) m.get("description");
-        r.featureWords.addAll(strList(m.get("featureWords")));
-        r.extraFeatureWords.addAll(strList(m.get("extraFeatureWords")));
-        r.actionWords.addAll(strList(m.get("actionWords")));
-        r.keywordAnchors.addAll(strList(m.get("keywordAnchors")));
-        r.byWords.addAll(strList(m.get("byWords")));
-        r.byLookaheadWords.addAll(strList(m.get("byLookaheadWords")));
-        r.dashPatternStr = (String) m.get("dashPattern");
-        r.alnumPatternStr = (String) m.get("alnumPattern");
-        r.placePrefixes.addAll(strList(m.get("placePrefixes")));
-        r.placeSuffixes.addAll(strList(m.get("placeSuffixes")));
-        r.negativeKeywords.addAll(strList(m.get("negativeKeywords")));
-        r.excludeTailWords.addAll(strList(m.get("excludeTailWords")));
-        r.excludeHeadWords.addAll(strList(m.get("excludeHeadWords")));
-        r.compile();
-        return r;
+        String raw = new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
+        return ExtractorRules.fromJson(raw);
     }
 
     @SuppressWarnings("unchecked")

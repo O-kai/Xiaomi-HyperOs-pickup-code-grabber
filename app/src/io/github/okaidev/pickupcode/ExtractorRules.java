@@ -46,6 +46,15 @@ public class ExtractorRules {
     public List<String> negativeKeywords = new ArrayList<>();
     /** 排除后缀（数字后紧跟这些字 → 不是取件码）：号/栋/楼/元/折/天/小时/格… */
     public List<String> excludeTailWords = new ArrayList<>();
+    /**
+     * 可分隔的尾词短语：码与它之间允许有空格/逗号等分隔符。
+     *
+     * <p>v4.0 v8 规则集新增。原先 excludeTailWords 要求紧邻（码后必须直接跟该词），
+     * 于是「取件码 33-2-1188 暂未生成」这种带空格的写法漏过闸门——
+     * 而这条短信里的码其实还没生效，抓进去只会给用户添一条假待办。
+     * 这类语义词单独成表，避免把既有的「紧邻尾词」语义改宽。
+     */
+    public List<String> excludeTailPhrases = new ArrayList<>();
     /** 排除前缀（这些词后紧跟的数字 → 不是取件码）：超/满/单号/订单/运单… */
     public List<String> excludeHeadWords = new ArrayList<>();
     /** 「凭/出示+码」之后允许出现的引导字（决定 B 层是否命中，如「至同兴…取件」） */
@@ -100,6 +109,7 @@ public class ExtractorRules {
         r.placeSuffixes = asList(GeneratedRules.PLACE_SUFFIXES);
         r.negativeKeywords = asList(GeneratedRules.NEGATIVE_KEYWORDS);
         r.excludeTailWords = asList(GeneratedRules.EXCLUDE_TAIL_WORDS);
+        r.excludeTailPhrases = asList(GeneratedRules.EXCLUDE_TAIL_PHRASES);
         r.excludeHeadWords = asList(GeneratedRules.EXCLUDE_HEAD_WORDS);
         r.extraFeatureWords = asList(GeneratedRules.EXTRA_FEATURE_WORDS);
         r.compile();
@@ -153,6 +163,8 @@ public class ExtractorRules {
         // ===== v4 新增字段：缺失时回落到内置默认（保证老 rules.json 也能安全加载）=====
         List<String> tail = jsonArrayToList(obj.optJSONArray("excludeTailWords"));
         r.excludeTailWords = tail.isEmpty() ? fallback.excludeTailWords : tail;
+        List<String> tailPhrases = jsonArrayToList(obj.optJSONArray("excludeTailPhrases"));
+        r.excludeTailPhrases = tailPhrases.isEmpty() ? fallback.excludeTailPhrases : tailPhrases;
         List<String> head = jsonArrayToList(obj.optJSONArray("excludeHeadWords"));
         r.excludeHeadWords = head.isEmpty() ? fallback.excludeHeadWords : head;
         List<String> byLook = jsonArrayToList(obj.optJSONArray("byLookaheadWords"));
@@ -182,6 +194,7 @@ public class ExtractorRules {
             obj.put("placeSuffixes", listToJsonArray(placeSuffixes));
             obj.put("negativeKeywords", listToJsonArray(negativeKeywords));
             obj.put("excludeTailWords", listToJsonArray(excludeTailWords));
+            obj.put("excludeTailPhrases", listToJsonArray(excludeTailPhrases));
             obj.put("excludeHeadWords", listToJsonArray(excludeHeadWords));
             obj.put("byLookaheadWords", listToJsonArray(byLookaheadWords));
             obj.put("extraFeatureWords", listToJsonArray(extraFeatureWords));

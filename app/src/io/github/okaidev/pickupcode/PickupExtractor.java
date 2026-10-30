@@ -582,6 +582,17 @@ public class PickupExtractor {
                 if (!w.isEmpty() && tail.startsWith(w)) return true;
             }
         }
+        // 3.5) 可分隔的尾词短语（码与短语之间允许空格/逗号）：
+        //      「取件码 33-2-1188 暂未生成」——码还没生效，不该抓。
+        if (r != null && r.excludeTailPhrases != null) {
+            int p = end;
+            // 跳过分隔符（空格、逗号、顿号、冒号）
+            while (p < body.length() && " \u3000,，、:：".indexOf(body.charAt(p)) >= 0) p++;
+            String after = body.substring(p, Math.min(body.length(), p + 6));
+            for (String ph : r.excludeTailPhrases) {
+                if (ph != null && !ph.isEmpty() && after.startsWith(ph)) return true;
+            }
+        }
         // 4) 前接修饰语/单号类（已超6/低至6折/单号123123123/订单1064）
         String head = body.substring(Math.max(0, start - 6), start);
         if (r != null && r.excludeHeadWords != null) {

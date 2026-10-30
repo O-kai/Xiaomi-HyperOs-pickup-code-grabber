@@ -89,6 +89,7 @@ tasks.register('generateRules') {
                 ['PLACE_SUFFIXES', 'placeSuffixes'],
                 ['NEGATIVE_KEYWORDS', 'negativeKeywords'],
                 ['EXCLUDE_TAIL_WORDS', 'excludeTailWords'],
+                ['EXCLUDE_TAIL_PHRASES', 'excludeTailPhrases'],
                 ['EXCLUDE_HEAD_WORDS', 'excludeHeadWords'],
                 ['EXTRA_FEATURE_WORDS', 'extraFeatureWords'],
         ]

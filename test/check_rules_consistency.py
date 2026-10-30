@@ -63,7 +63,7 @@ REQUIRED_KEYS = [
     "featureWords", "actionWords", "keywordAnchors", "byWords",
     "byLookaheadWords", "dashPattern", "alnumPattern",
     "placePrefixes", "placeSuffixes", "negativeKeywords",
-    "excludeTailWords", "excludeHeadWords",
+    "excludeTailWords", "excludeHeadWords", "excludeTailPhrases",
 ]
 
 # 生成文件里的常量名 <-> rules.json 里的字段名
@@ -84,6 +84,7 @@ ARRAYS = [
     ("PLACE_SUFFIXES", "placeSuffixes"),
     ("NEGATIVE_KEYWORDS", "negativeKeywords"),
     ("EXCLUDE_TAIL_WORDS", "excludeTailWords"),
+    ("EXCLUDE_TAIL_PHRASES", "excludeTailPhrases"),
     ("EXCLUDE_HEAD_WORDS", "excludeHeadWords"),
     ("EXTRA_FEATURE_WORDS", "extraFeatureWords"),
 ]

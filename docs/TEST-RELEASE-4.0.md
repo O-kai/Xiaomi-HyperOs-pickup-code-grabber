@@ -31,10 +31,10 @@
 | UserRulesTest（用户规则安全） | 45 | PASS |
 | FeatureTest（配色对比度 / 提醒调度 / 导入解析） | 42 | PASS |
 | DataTest（保留期 / 导出导入 / 规则完整性） | 64 | PASS |
-| RulesRegression（内置规则副本） | 39 码 + 13 地点 | PASS |
-| RuleLab（`rules/rules.json` 直跑） | 39 | PASS |
+| RulesRegression（内置规则副本） | **100 码** + 13 地点 | PASS |
+| RuleLab（`rules/rules.json` 直跑） | **100** | PASS |
 | 规则单源一致性（三副本逐字段） | — | OK · v7 / 13 锚点 |
-| **合计** | **309 项断言** | **全绿** |
+| **合计** | **431 项断言** | **全绿** |
 
 ### 真机（REDMI K90 Pro Max / HyperOS 4.0 / Android 17）
 
@@ -49,6 +49,8 @@
 | 筛选 + 搜索组合 | PASS（「已取」→1；「待取」+「88-8」→1） |
 | 小组件隐藏取件码 | PASS（预览与实际一致） |
 | 错题本默认关闭 | PASS |
+| 真机浸泡（45 轮） | PASS：0 崩溃、0 ANR、RSS 75750→75817 KB（无泄漏） |
+| 规则集 v8 生效 | PASS（`loaded custom rules v8`，首页显示「官方规则集 v8」） |
 | 规则热更完整性校验 | 逻辑 PASS；**本机网络不可达**（两个镜像都连不上），如实提示「网络不可用」 |
 
 ### 发布产物
@@ -56,7 +58,7 @@
 | 项 | 值 |
 |---|---|
 | APK | `artifacts/pickup-code-grabber-4.0.0-release.apk`（5,953,824 字节） |
-| SHA-256 | `954e5652bc95579555040ed292b968aeac020d7343994592167ed1f6553bc960` |
+| SHA-256 | `7e1ec600a2903c9b683f9ce3e5e5768c94314f592277f463e8b00be7db265db7` |
 | versionCode / versionName | 400 / 4.0.0 |
 | 证书 | `CN=PickupCodeGrabber, OU=Personal, O=PickupCodeGrabber, C=CN` |
 | 证书 SHA-256 | `fba0e7cc3fae670fc846d99c77a36c130045d4eb8ab28a2a52066551e8b78d8b` |

@@ -113,11 +113,19 @@
 - 通知提取页「需要重启」原本说两遍，合并成一条。
 - 代码层：默认待办模板与黑名单默认词表原先各散在 3–4 处，现各收成唯一来源。
 
-### 回归（离线 309 项断言全绿）
+| 36 | 特征化语料 **39 → 100 条** | P0-11「≥100 条语料」 | RulesRegression 100/100、RuleLab 100/100 |
+| 37 | **规则集 v8**：新增 `excludeTailPhrases` 语义闸门 | 扩充语料时发现的漏网之鱼 | 089 反例从「误抓」变为「不抓」 |
+| 38 | 真机浸泡测试（`tools/soak.sh`） | P0-11「48h soak」的加速版 | 45 轮 0 崩溃 0 ANR，RSS 75750→75817 KB |
+
+### 回归（离线 431 项断言全绿）
 
 `FullReg 20/20 · ChannelParity 7/7 · PkgInput 8/8 · TierExclusion 21/21 ·
 CallerPolicy 11/11 · UserRules 45/45 · FeatureTest 42/42 · DataTest 64/64 ·
-RulesRegression 39+13 · RuleLab 39/39 · 规则单源一致性 OK`
+RulesRegression 100+13 · RuleLab 100/100 · 规则单源一致性 OK（v8）`
+
+> 顺带修掉一个隐患：规则实验台 `test/RuleLab.java` 原先手抄了一份
+> 「把 rules.json 填进 ExtractorRules」的加载逻辑，与 App 的 `fromJson` 各写各的——
+> v8 新增字段时它就漏了。现在直接复用 App 的加载器，实验台跑的就是 App 会跑的那份规则。
 
 ---
 

@@ -144,11 +144,11 @@ fi
 echo ""
 echo "===== RuleLab（rules/rules.json 源） ====="
 "$JDK/bin/javac.exe" -encoding UTF-8 -nowarn \
-  -classpath "$APPCLS;$SDK" -d "$OUT/testclasses" test/RuleLab.java 2>> "$OUT/javac.log"
+  -classpath "$CP" -d "$OUT/testclasses" test/RuleLab.java 2>> "$OUT/javac.log"
 if [ $? -ne 0 ]; then
   echo "RuleLab javac FAILED"; FAILED=1
 else
-  out=$("$JDK/bin/java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp "$OUT/testclasses;$APPCLS;$SDK" RuleLab "$ROOT" 2>&1)
+  out=$("$JDK/bin/java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp "$CP" RuleLab "$WINROOT" 2>&1)
   code=$?
   echo "$out" | tail -4
   if [ $code -ne 0 ]; then FAILED=1; SUMMARY="$SUMMARY\n  [FAIL] RuleLab"; else
