@@ -77,3 +77,39 @@ MIUI 的「添加小部件 → 全部应用」列出的
 这台设备上 shell 身份的 `adb install` 会被判成
 `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`（系统直接取消安装确认），
 必须用 root 才装得上。
+
+## 补充：App 更新后桌面不重建小组件（2026-10-31 真机确认）
+
+**现象**：App 升级后，桌面上已有的小组件仍是旧结构——
+表现为「行距被压扁、标题不见、内容挤成一团」。
+
+**原因**：Android 的 `AppWidgetHost` 在 App 更新后**不会重建**已有小组件的视图树。
+它只在首次添加时 inflate 一次 `initialLayout`，之后的 `updateAppWidget` 只是往
+那棵已存在的视图树上套新数据。改 `initialLayout` 的内容不会生效。
+
+**试过并确认无效的做法**：
+
+| 尝试 | 结果 |
+|---|---|
+| 改 `initialLayout` 指向的 XML 内容 | 无效，桌面仍是旧结构 |
+| 改布局文件名（`widget_pickup` → `widget_pickup_v2`） | 无效 |
+| 改根 View 的 `android:id` | 无效 |
+| 重新 `updateAppWidget` | 无效（数据更新了，结构没变） |
+| 广播 `APPWIDGET_OPTIONS_CHANGED` | 无效 |
+| `requestPinAppWidget` | HyperOS 上返回成功但**什么都不做**（既有的 AddItemActivity 30ms 内自退） |
+
+**唯一有效的办法**：移除旧的、重新添加一次。
+
+**因此 4.0.2 做了两件事**：
+
+1. 小组件设置页新增「**重新添加小组件**」按钮 + 明确提示，
+   免得用户看到一个坏掉的组件却找不到原因；
+2. 布局改动尽量收敛——结构稳定后，后续升级不再需要用户重新添加。
+
+**顺带发现**：`bindAppWidgetIdIfAllowed`（公开 API，可在 App 内托管桌面上已有的组件）
+在 HyperOS 上需要用户先在「应用设置 → 桌面小组件」给本 App 开开关，否则绑定被拒。
+所以「App 内真实预览」这条路对多数用户不可用，没有做成正式功能。
+
+**另一个 LinearLayout 的坑**：v4.0.1 把行高从 `layout_weight=1` 改成 `wrap_content` 后，
+行被压扁了——LinearLayout 在空间不足且子视图无 weight 时会**均分压缩**子视图。
+现在行高写死 `40dp`（固定值不会被压缩），放不下的行直接 GONE，剩余空间留白。
