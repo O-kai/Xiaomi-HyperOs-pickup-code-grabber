@@ -226,6 +226,7 @@ public class PickupListActivity extends Activity {
     }
 
     private View card(PickupRecord record) {
+        boolean pending = record.isPending();
         LinearLayout card = UiKit.card(this, p);
         card.setPadding(dp(16), dp(14), dp(16), dp(12));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -233,36 +234,70 @@ public class PickupListActivity extends Activity {
         lp.setMargins(0, 0, 0, dp(10));
         card.setLayoutParams(lp);
 
+        // v4.0.1：视觉区分——待取的卡片左侧有一条强调色竖条，
+        // 已取的整张卡片灰掉（半透明 + 无竖条 + 取件码加删除线）。
+        // 之前两者的差别只在右上角一个 12sp 的小标签，扫一眼根本分不出来。
+        //
+        // 注意：card 本身是竖向布局，竖条与内容列必须放进一个横向容器里，
+        // 否则两者会上下排列（竖条独占一行，内容被挤到下一行）。
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        if (pending) {
+            View bar = new View(this);
+            bar.setBackgroundColor(p.accent);
+            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                    dp(3), LinearLayout.LayoutParams.MATCH_PARENT);
+            blp.setMargins(0, dp(2), dp(12), dp(2));
+            row.addView(bar, blp);
+        } else {
+            card.setAlpha(0.62f);
+        }
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        row.addView(col, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView code = UiKit.text(this, record.code, 21,
-                record.isPending() ? UiKit.INK : UiKit.INK3);
+                pending ? UiKit.INK : UiKit.INK3);
         code.setTypeface(Typeface.create("monospace", Typeface.BOLD));
+        // 已取的加删除线：一眼能看出「这条已经处理完了」
+        if (!pending) {
+            code.setPaintFlags(code.getPaintFlags()
+                    | android.graphics.Paint.STRIKE_THRU_TEXT_FLAG);
+        }
         top.addView(code, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         // 超过三天还没取的件多半已经过期了——提示一下，但绝不自动删
-        if (record.isPending()
+        if (pending
                 && Retention.isProbablyExpired(record.receivedAt, System.currentTimeMillis())) {
             top.addView(UiKit.badgeWarn(this, "可能已过期"));
         }
 
-        TextView state = UiKit.text(this, record.isPending() ? "待取" : "已取", 12,
-                record.isPending() ? p.accentInk : UiKit.OK);
+        TextView state = UiKit.text(this, pending ? "待取" : "已取", 12,
+                pending ? p.accentInk : UiKit.INK3);
         LinearLayout.LayoutParams stp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         stp.setMargins(dp(8), 0, 0, 0);
         top.addView(state, stp);
-        card.addView(top);
+        col.addView(top);
 
         String meta = (empty(record.source) ? "—" : record.source)
                 + " · " + (empty(record.place) ? "—" : record.place)
                 + " · " + format(record.receivedAt);
         TextView metaView = UiKit.text(this, meta, 12, UiKit.INK3);
         metaView.setPadding(0, dp(4), 0, dp(10));
-        card.addView(metaView);
+        col.addView(metaView);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -272,15 +307,54 @@ public class PickupListActivity extends Activity {
         copy.setOnClickListener(v -> copy(record.code));
         actions.addView(copy);
 
-        if (record.isPending()) {
+        if (pending) {
             TextView done = action("已取件");
             done.setOnClickListener(v -> markDone(record));
             actions.addView(done);
+        } else {
+            // v4.0.1：已取的可以「恢复为待取」——点错了能反悔，形成闭环
+            TextView back = action("恢复待取");
+            back.setOnClickListener(v -> restorePending(record));
+            actions.addView(back);
         }
-        card.addView(actions);
+
+        // v4.0.1：单条删除。此前只有「管理」里的按策略清理，
+        // 想删掉某一条误抓的记录只能清空全部——太粗了。
+        TextView del = action("删除");
+        del.setTextColor(UiKit.DANGER);
+        del.setOnClickListener(v -> confirmDelete(record));
+        actions.addView(del);
+
+        col.addView(actions);
 
         card.setOnClickListener(v -> copy(record.code));
         return card;
+    }
+
+    /** 恢复为待取（v4.0.1）：点错了「已取件」能反悔。 */
+    private void restorePending(PickupRecord record) {
+        PickupRepository.get(this).restorePendingAsync(record.id, ok -> {
+            if (isFinishing() || isDestroyed()) return;
+            Toast.makeText(this, ok > 0 ? "已恢复为待取" : "恢复失败",
+                    Toast.LENGTH_SHORT).show();
+            refresh();
+        });
+    }
+
+    /** 删除单条记录（v4.0.1）：二次确认，避免手滑。 */
+    private void confirmDelete(PickupRecord record) {
+        UiKit.dialog(this, p, R.drawable.ic_ban, "删除这条记录",
+                "将从本机删除：" + record.code + "\n\n"
+                        + (empty(record.source) ? "" : record.source + " · ")
+                        + format(record.receivedAt) + "\n\n"
+                        + "删除后无法恢复。（系统待办里的内容不受影响。）",
+                null,
+                UiKit.primary("确认删除", () -> {
+                    PickupRepository.get(this).deleteAsync(record.id);
+                    Toast.makeText(this, "已删除 " + record.code, Toast.LENGTH_SHORT).show();
+                    refresh();
+                }),
+                UiKit.ghost("取消", null));
     }
 
     private TextView action(String label) {

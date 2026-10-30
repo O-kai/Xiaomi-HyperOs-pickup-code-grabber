@@ -21,6 +21,17 @@ public final class PickupActions {
     }
 
     public static void markDone(Context context, PickupRecord record, Callback callback) {
+        markDone(context, record, callback, false);
+    }
+
+    /**
+     * 标记已取件。
+     *
+     * @param animateWidget true 时小组件带「补位动画」刷新——
+     *        从小组件上操作时，下面的内容要往上顶；App 内操作则不需要。
+     */
+    public static void markDone(Context context, PickupRecord record, Callback callback,
+                                boolean animateWidget) {
         if (record == null) {
             callback.onResult(0, -1);
             return;
@@ -29,7 +40,16 @@ public final class PickupActions {
         new Thread(() -> {
             int local = PickupRepository.get(app).markDoneSync(record.id);
             int backend = markBackend(app, record.code);
-            new Handler(Looper.getMainLooper()).post(() -> callback.onResult(local, backend));
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (local > 0) {
+                    // 小组件刷新放在这里：仓库层不再自动刷，
+                    // 否则会先出一版没有动画的内容，把补位动画顶掉。
+                    try {
+                        PickupWidgetProvider.refresh(app, animateWidget);
+                    } catch (Throwable ignored) { }
+                }
+                callback.onResult(local, backend);
+            });
         }, "pickup-mark-done").start();
     }
 

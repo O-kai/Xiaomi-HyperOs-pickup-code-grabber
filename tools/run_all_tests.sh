@@ -89,7 +89,7 @@ echo "===== javac：测试源码 ====="
   -classpath "$CP" -d "$OUT/testclasses" \
   test/FullReg.java test/ChannelParity.java test/PkgInputTest.java \
   test/TierExclusionTest.java test/CallerPolicyTest.java \
-  test/UserRulesTest.java test/FeatureTest.java test/DataTest.java 2> "$OUT/javac.log"
+  test/UserRulesTest.java test/FeatureTest.java test/DataTest.java test/V401Test.java 2> "$OUT/javac.log"
 if [ $? -ne 0 ]; then
   echo "javac FAILED:"
   head -30 "$OUT/javac.log"
@@ -104,7 +104,7 @@ echo "===== RulesRegression（内置规则副本） ====="
 # 否则 javac 找不到类（之前把 .class 拷到源目录根，编译直接失败）。
 mkdir -p "$OUT/src/io/github/okaidev/pickupcode" "$OUT/cls"
 for f in ExtractorRules PickupExtractor UserRules TodoWriter MissedSmsStore \
-         NotesBackend Repair Diagnostics NotesFormat PkgInput NetPolicy; do
+         NotesBackend Repair Diagnostics NotesFormat PkgInput NetPolicy AppVersion; do
   cp "$SRC/$f.java" "$OUT/src/io/github/okaidev/pickupcode/" 2>/dev/null
 done
 GEN="$ROOT/app/build/generated/rules/java/io/github/okaidev/pickupcode/GeneratedRules.java"
@@ -173,25 +173,29 @@ run_java "FeatureTest"
 echo "----- DataTest -----"
 run_java "DataTest"
 
+echo "----- V401Test -----"
+run_java "V401Test"
+
 echo ""
 echo "===== 规则单源一致性 ====="
+# 注意：这里不能用 `python ... | tail -6` 再看 PIPESTATUS——
+# 管道里的 PIPESTATUS 在不同 bash 下取到的位置不一样，会误判成失败。
+# 改成先落盘再取退出码。
+_RULE_OUT="$OUT/_rule_consistency.txt"
 if command -v python >/dev/null 2>&1; then
-  python test/check_rules_consistency.py 2>&1 | tail -6
-  if [ ${PIPESTATUS[0]} -ne 0 ]; then
-    FAILED=1
-    SUMMARY="$SUMMARY\n  [FAIL] 规则单源一致性"
-  else
-    SUMMARY="$SUMMARY\n  [ OK ] 规则单源一致性"
-  fi
+  python test/check_rules_consistency.py > "$_RULE_OUT" 2>&1
+  _RULE_RC=$?
 else
-  echo "python 不可用，跳过（Windows 可用 python3）"
-  python3 test/check_rules_consistency.py 2>&1 | tail -6
-  if [ ${PIPESTATUS[0]} -ne 0 ]; then
-    FAILED=1
-    SUMMARY="$SUMMARY\n  [FAIL] 规则单源一致性"
-  else
-    SUMMARY="$SUMMARY\n  [ OK ] 规则单源一致性"
-  fi
+  python3 test/check_rules_consistency.py > "$_RULE_OUT" 2>&1
+  _RULE_RC=$?
+fi
+tail -6 "$_RULE_OUT"
+rm -f "$_RULE_OUT"
+if [ $_RULE_RC -ne 0 ]; then
+  FAILED=1
+  SUMMARY="$SUMMARY\n  [FAIL] 规则单源一致性"
+else
+  SUMMARY="$SUMMARY\n  [ OK ] 规则单源一致性"
 fi
 
 echo ""

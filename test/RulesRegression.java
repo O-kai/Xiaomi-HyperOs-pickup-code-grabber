@@ -21,11 +21,16 @@ import java.util.List;
  *  - 结果写入 reg-result.txt。
  */
 public class RulesRegression {
-    /** 参与编译的源文件（新增依赖时记得同步这里） */
+    /**
+     * 参与编译的源文件（新增依赖时记得同步这里）。
+     *
+     * <p>v4.0.1：补上 AppVersion.java —— Diagnostics 现在用它取版本号
+     * （原先 Diagnostics 自己读 PackageManager，各写各的）。
+     */
     static final String[] NEED = {
             "ExtractorRules.java", "PickupExtractor.java", "UserRules.java",
             "TodoWriter.java", "MissedSmsStore.java", "NotesBackend.java",
-            "Repair.java", "Diagnostics.java"
+            "Repair.java", "Diagnostics.java", "AppVersion.java"
     };
 
     /**

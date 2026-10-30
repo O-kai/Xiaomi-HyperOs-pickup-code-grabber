@@ -458,8 +458,7 @@ public class ChainTestActivity extends Activity {
                     + "\n\n### 2. 期望结果\n（应提取到的取件码 / 来源 / 地点）\n\n"
                     + "### 3. 实际表现\n· 在「一键链路测试」中解析结果：\n\n"
                     + "### 4. 运行环境\n"
-                    + "- 模块版本：v" + getPackageManager()
-                    .getPackageInfo(getPackageName(), 0).versionName + "\n"
+                    + "- 模块版本：" + AppVersion.label(this) + "\n"
                     + "- 规则版本：v" + PickupExtractor.getActiveRulesVersion() + "\n";
             Intent it = new Intent(Intent.ACTION_VIEW,
                     android.net.Uri.parse("https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/issues/new"

@@ -80,10 +80,14 @@ public class RecordManager {
         LinearLayout wrap = new LinearLayout(act);
         wrap.setOrientation(LinearLayout.VERTICAL);
 
-        addRow(wrap, R.drawable.ic_notebook, "记录保留期",
-                "当前：" + Retention.label(PickupRepository.retentionDays(act))
-                        + " · 只清理已取件的记录",
-                v -> showRetentionPicker());
+        // v4.0.1：保留期这一行需要能在改完之后就地刷新副标题
+        // （用户反馈「切换保留期时，外面的『当前 XX 天』不会直接修改」）。
+        // 用数组包一层：lambda 里要引用它自己所在的行，
+        // 直接用局部变量会编译不过（变量尚未初始化）。
+        final LinearLayout[] retentionRow = new LinearLayout[1];
+        retentionRow[0] = addRow(wrap, R.drawable.ic_notebook, "记录保留期",
+                retentionSub(),
+                v -> showRetentionPicker(retentionRow[0]));
         wrap.addView(UiKit.divider(act, p));
         final LinearLayout exportRow = addRow(wrap, R.drawable.ic_download, "导出记录",
                 "导出 JSON 或 CSV", v -> showExportPicker());
@@ -92,10 +96,8 @@ public class RecordManager {
                 "从文件导入 JSON 或 CSV（已有同码记录会跳过）",
                 v -> startImport());
         wrap.addView(UiKit.divider(act, p));
-        addRow(wrap, R.drawable.ic_refresh, "立即清理过期记录",
-                days() <= 0 ? "当前为永久保留，无可清理内容"
-                        : "删除超过 " + days() + " 天的已取件记录",
-                v -> purgeNow());
+        final LinearLayout purgeRow = addRow(wrap, R.drawable.ic_refresh, "立即清理过期记录",
+                purgeSub(), v -> purgeNow());
         wrap.addView(UiKit.divider(act, p));
         final LinearLayout clearRow = addRow(wrap, R.drawable.ic_ban, "清空全部记录",
                 "删除本机保存的全部记录", v -> confirmClearAll());
@@ -111,6 +113,22 @@ public class RecordManager {
             UiKit.setRowSub(exportRow, "导出 JSON 或 CSV，共 " + n + " 条");
             UiKit.setRowSub(clearRow, "删除本机保存的全部 " + n + " 条记录");
         });
+    }
+
+    /** 保留期行的副标题（唯一来源：设置页与管理弹窗共用） */
+    public String retentionSubText() {
+        return retentionSub();
+    }
+
+    /** 保留期行的副标题 */
+    private String retentionSub() {
+        return "当前：" + Retention.label(days()) + " · 只清理已取件的记录";
+    }
+
+    /** 「立即清理过期记录」行的副标题 */
+    private String purgeSub() {
+        return days() <= 0 ? "当前为永久保留，无可清理内容"
+                : "删除超过 " + days() + " 天的已取件记录";
     }
 
     /** 当前保留期天数（供副标题用） */
@@ -131,7 +149,13 @@ public class RecordManager {
     //  保留期
     // ================================================================
 
-    public void showRetentionPicker() {
+    /**
+     * 保留期选择器。
+     *
+     * @param row 需要就地刷新的那一行（管理面板里的「记录保留期」行）。
+     *             传 null 也能用，只是不会刷新外层文案。
+     */
+    public void showRetentionPicker(LinearLayout row) {
         refreshPalette();
         int[] opts = Retention.options();
         CharSequence[] items = new CharSequence[opts.length];
@@ -144,8 +168,19 @@ public class RecordManager {
         UiKit.chooser(act, p, R.drawable.ic_notebook, "记录保留期", items, checked, w -> {
             PickupRepository.setRetentionDays(act, opts[w]);
             Toast.makeText(act, "保留期已设为 " + Retention.label(opts[w]), Toast.LENGTH_SHORT).show();
+            // v4.0.1：就地刷新外层文案。
+            // 用户反馈「在设置里切换保留期时，外面的『当前 XX 天』并不会直接修改」——
+            // 弹窗是一次性构建的，改完值不会自己变，必须显式更新。
+            if (row != null) {
+                UiKit.setRowSub(row, retentionSub());
+            }
             notifyChanged();
         });
+    }
+
+    /** 兼容旧调用点：不刷新外层文案。 */
+    public void showRetentionPicker() {
+        showRetentionPicker(null);
     }
 
     // ================================================================

@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面小组件布局。
+
+  v4.0.1 重做行高策略：
+    每一行是【固定高度】，内容从上往下排。
+    此前每行是 layout_height=0dp + layout_weight=1，五行会把整个组件高度均分——
+    于是「有 5 条时铺满、有 4 条时每行更高」，同一个组件里的行高会随条数变化，
+    看上去像在缩放。固定行高之后，一行就是一行，与条数无关。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -31,212 +40,224 @@
             android:textSize="12sp" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/widget_empty"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center"
-        android:text="暂无待取件\n收到短信后会自动出现"
-        android:textColor="#B3FFFFFF"
-        android:textSize="12sp"
-        android:visibility="gone" />
-
+    <!--
+      列表容器：占据标题与「查看全部」之间的全部空间。
+      里面的行是固定高度、从上往下排；条数少时下方留白，不拉伸行高。
+    -->
     <LinearLayout
-        android:id="@+id/widget_row_1"
+        android:id="@+id/widget_list"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:orientation="vertical">
 
         <TextView
-            android:id="@+id/widget_code_1"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textColor="#FFFFFFFF"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/widget_place_1"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
+            android:id="@+id/widget_empty"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
             android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="#B3FFFFFF"
-            android:textSize="11sp" />
-
-        <TextView
-            android:id="@+id/widget_done_1"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:background="@drawable/widget_done_bg"
             android:gravity="center"
-            android:text="✓"
-            android:textColor="#FFFFFFFF"
-            android:textSize="16sp" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/widget_row_2"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:id="@+id/widget_code_2"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textColor="#FFFFFFFF"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/widget_place_2"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
+            android:text="暂无待取件\n收到短信后会自动出现"
             android:textColor="#B3FFFFFF"
-            android:textSize="11sp" />
+            android:textSize="12sp"
+            android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/widget_done_2"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:background="@drawable/widget_done_bg"
-            android:gravity="center"
-            android:text="✓"
-            android:textColor="#FFFFFFFF"
-            android:textSize="16sp" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/widget_row_3"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:id="@+id/widget_code_3"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/widget_row_1"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textColor="#FFFFFFFF"
-            android:textSize="17sp"
-            android:textStyle="bold" />
+            android:minHeight="40dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/widget_place_3"
-            android:layout_width="0dp"
+            <TextView
+                android:id="@+id/widget_code_1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textColor="#FFFFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_place_1"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#B3FFFFFF"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/widget_done_1"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@drawable/widget_done_bg"
+                android:gravity="center"
+                android:text="✓"
+                android:textColor="#FFFFFFFF"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_row_2"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="#B3FFFFFF"
-            android:textSize="11sp" />
+            android:minHeight="40dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/widget_done_3"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:background="@drawable/widget_done_bg"
-            android:gravity="center"
-            android:text="✓"
-            android:textColor="#FFFFFFFF"
-            android:textSize="16sp" />
-    </LinearLayout>
+            <TextView
+                android:id="@+id/widget_code_2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textColor="#FFFFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
 
-    <LinearLayout
-        android:id="@+id/widget_row_4"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:visibility="gone">
+            <TextView
+                android:id="@+id/widget_place_2"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#B3FFFFFF"
+                android:textSize="11sp" />
 
-        <TextView
-            android:id="@+id/widget_code_4"
-            android:layout_width="wrap_content"
+            <TextView
+                android:id="@+id/widget_done_2"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@drawable/widget_done_bg"
+                android:gravity="center"
+                android:text="✓"
+                android:textColor="#FFFFFFFF"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_row_3"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textColor="#FFFFFFFF"
-            android:textSize="17sp"
-            android:textStyle="bold" />
+            android:minHeight="40dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/widget_place_4"
-            android:layout_width="0dp"
+            <TextView
+                android:id="@+id/widget_code_3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textColor="#FFFFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_place_3"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#B3FFFFFF"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/widget_done_3"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@drawable/widget_done_bg"
+                android:gravity="center"
+                android:text="✓"
+                android:textColor="#FFFFFFFF"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_row_4"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="#B3FFFFFF"
-            android:textSize="11sp" />
+            android:minHeight="40dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
 
-        <TextView
-            android:id="@+id/widget_done_4"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:background="@drawable/widget_done_bg"
-            android:gravity="center"
-            android:text="✓"
-            android:textColor="#FFFFFFFF"
-            android:textSize="16sp" />
-    </LinearLayout>
+            <TextView
+                android:id="@+id/widget_code_4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textColor="#FFFFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
 
-    <LinearLayout
-        android:id="@+id/widget_row_5"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:visibility="gone">
+            <TextView
+                android:id="@+id/widget_place_4"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#B3FFFFFF"
+                android:textSize="11sp" />
 
-        <TextView
-            android:id="@+id/widget_code_5"
-            android:layout_width="wrap_content"
+            <TextView
+                android:id="@+id/widget_done_4"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@drawable/widget_done_bg"
+                android:gravity="center"
+                android:text="✓"
+                android:textColor="#FFFFFFFF"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_row_5"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textColor="#FFFFFFFF"
-            android:textSize="17sp"
-            android:textStyle="bold" />
+            android:minHeight="40dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
 
-        <TextView
-            android:id="@+id/widget_place_5"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="#B3FFFFFF"
-            android:textSize="11sp" />
+            <TextView
+                android:id="@+id/widget_code_5"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textColor="#FFFFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/widget_done_5"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:background="@drawable/widget_done_bg"
-            android:gravity="center"
-            android:text="✓"
-            android:textColor="#FFFFFFFF"
-            android:textSize="16sp" />
+            <TextView
+                android:id="@+id/widget_place_5"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#B3FFFFFF"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/widget_done_5"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@drawable/widget_done_bg"
+                android:gravity="center"
+                android:text="✓"
+                android:textColor="#FFFFFFFF"
+                android:textSize="16sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <TextView

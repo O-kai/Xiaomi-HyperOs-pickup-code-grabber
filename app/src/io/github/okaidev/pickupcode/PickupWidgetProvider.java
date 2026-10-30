@@ -3,6 +3,7 @@ package io.github.okaidev.pickupcode;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -15,12 +16,25 @@ import android.util.TypedValue;
 import android.view.View;
 import android.widget.RemoteViews;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * 4.0 桌面小组件。
  *
- * 设计要点（2026-10-30 参考社区改版后收敛）：
+ * 设计要点（2026-10-30 参考社区改版后收敛，v4.0.1 再改）：
  *  - 不做滚动列表：RemoteViewsService + ListView 在部分桌面/系统版本上刷新不可靠，
- *    固定行数 + 事件驱动更稳；行数按组件高度自适应（1–5 行）。
+ *    固定行数 + 事件驱动更稳。
+ *  - <b>行高固定</b>（v4.0.1）：每行一个固定高度，内容从上往下排。
+ *    此前每行 layout_weight=1，五行会把组件高度均分——条数一变行高就跟着变，
+ *    看上去像在缩放。现在一条就是一行，与条数无关；放不下的部分留白。
+ *  - <b>动作不跳转</b>（v4.0.1）：打勾 / 点取件码走广播（BroadcastReceiver），
+ *    不再启动 Activity——在小组件上操作就不该把 App 拉到前台。
+ *    点击其它区域（标题、件数、查看全部、空白）才打开 App。
+ *  - <b>补位动画</b>（v4.0.1）：取完一条后，下面的内容要「顶上来」。
+ *    RemoteViews 没有真正的列表 item 动画，但支持 setFloat 改 alpha / translationY，
+ *    这里用它做「从下方淡入 + 上移」的过渡。
  *  - 刷新分两段：立即刷一次 + 600ms 后补刷一次，绕开系统下发 options/数据不同步的时序问题。
  *  - 数据只来自本地取件库，不读短信库、不存正文。
  */
@@ -32,14 +46,24 @@ public class PickupWidgetProvider extends AppWidgetProvider {
 
     private static final String TAG = "PICKUPDEBUG";
     private static final long SECOND_PASS_DELAY = 600L;
+    /** 补位动画的时长（ms）：先落在「下移 + 半透明」，再落回原位。 */
+    private static final long SHIFT_SETTLE_DELAY = 90L;
+
+    /** 每行的固定高度（dp）。与布局里的 minHeight 保持一致，用于补位动画的位移量。 */
+    static final float ROW_HEIGHT_DP = 40f;
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static volatile Context appContext;
 
+    /** 最近一次渲染的快照：补位动画的「第二次更新」要用它重建同样的内容。 */
+    private static volatile PickupRepository.PendingSnapshot lastSnapshot;
+    /** 上一次显示出来的记录 id（按行序）：用来判断哪些行是「顶上来的」。 */
+    private static volatile List<Long> lastShownIds = Collections.emptyList();
+
     private static final Runnable SECOND_PASS = () -> {
         Context ctx = appContext;
         if (ctx != null) {
-            doRefresh(ctx);
+            doRefresh(ctx, false);
         }
     };
 
@@ -73,19 +97,32 @@ public class PickupWidgetProvider extends AppWidgetProvider {
     }
 
     public static void refreshAsync(Context context) {
+        refresh(context, false);
+    }
+
+    /**
+     * 刷新小组件。
+     *
+     * @param animate true 时启用「补位动画」：把刚刚顶上来的行做成从下方淡入。
+     */
+    static void refresh(Context context, boolean animate) {
         if (context == null) return;
         final Context app = context.getApplicationContext();
         appContext = app;
-        doRefresh(app);
-        // 二次补刷：系统在添加/改尺寸后可能先渲染旧 RemoteViews，再补一次保证最终一致
-        MAIN.removeCallbacks(SECOND_PASS);
-        MAIN.postDelayed(SECOND_PASS, SECOND_PASS_DELAY);
+        doRefresh(app, animate);
+        // 二次补刷：系统在添加/改尺寸后可能先渲染旧 RemoteViews，再补一次保证最终一致。
+        // 动画那次不参与二次补刷——否则会覆盖掉动画中间态。
+        if (!animate) {
+            MAIN.removeCallbacks(SECOND_PASS);
+            MAIN.postDelayed(SECOND_PASS, SECOND_PASS_DELAY);
+        }
     }
 
-    private static void doRefresh(final Context app) {
+    private static void doRefresh(final Context app, final boolean animate) {
         try {
             final int maxRows = WidgetPrefs.maxRows(app);
             PickupRepository.get(app).pendingSnapshotAsync(maxRows, snap -> {
+                lastSnapshot = snap;
                 AppWidgetManager manager = AppWidgetManager.getInstance(app);
                 ComponentName component = new ComponentName(app, PickupWidgetProvider.class);
                 int[] ids;
@@ -95,23 +132,80 @@ public class PickupWidgetProvider extends AppWidgetProvider {
                     Log.w(TAG, "widget ids failed: " + t);
                     return;
                 }
+
+                // 找出「顶上来的行」：某条记录上一轮显示在更靠下的位置，这一轮往上挪了。
+                List<Integer> shifted = animate ? detectShiftedRows(snap) : Collections.emptyList();
+
                 for (int id : ids) {
                     try {
-                        manager.updateAppWidget(id, build(app, id, snap));
+                        manager.updateAppWidget(id, build(app, id, snap, shifted));
                     } catch (Throwable t) {
                         Log.w(TAG, "widget update failed id=" + id + ": " + t);
                     }
                 }
+                lastShownIds = shownIds(snap);
+
+                if (!shifted.isEmpty()) {
+                    // 动画的「第二次更新」：用同一份快照重建内容，只是把动画参数归位。
+                    // 注意必须是完整重建——updateAppWidget 是整体替换，
+                    // 传一个空的 RemoteViews 会把小组件内容清空。
+                    MAIN.postDelayed(() -> settle(app, ids, snap), SHIFT_SETTLE_DELAY);
+                }
+
                 Log.i(TAG, "WIDGET refresh: n=" + ids.length
-                        + " pending=" + (snap == null ? 0 : snap.total));
+                        + " pending=" + (snap == null ? 0 : snap.total)
+                        + (shifted.isEmpty() ? "" : " shifted=" + shifted));
             });
         } catch (Throwable t) {
             Log.w(TAG, "widget refresh failed: " + t);
         }
     }
 
+    /** 归位：把动画中的行恢复成正常透明度与位置。 */
+    private static void settle(Context app, int[] ids, PickupRepository.PendingSnapshot snap) {
+        try {
+            AppWidgetManager manager = AppWidgetManager.getInstance(app);
+            for (int id : ids) {
+                try {
+                    manager.updateAppWidget(id, build(app, id, snap, Collections.emptyList()));
+                } catch (Throwable t) {
+                    Log.w(TAG, "widget settle failed id=" + id + ": " + t);
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "widget settle failed: " + t);
+        }
+    }
+
+    /** 当前显示出来的记录 id（按行序）。 */
+    private static List<Long> shownIds(PickupRepository.PendingSnapshot snap) {
+        List<Long> out = new ArrayList<>();
+        if (snap == null || snap.items == null) return out;
+        for (PickupRecord r : snap.items) out.add(r.id);
+        return out;
+    }
+
+    /**
+     * 找出「顶上来的行」。
+     *
+     * <p>判据：这一轮显示的第 i 条记录，上一轮显示在第 j 行（j &gt; i）——
+     * 说明中间有一条被取走了，它往上挪了位，需要做补位动画。
+     */
+    private static List<Integer> detectShiftedRows(PickupRepository.PendingSnapshot snap) {
+        List<Integer> shifted = new ArrayList<>();
+        List<Long> now = shownIds(snap);
+        List<Long> before = lastShownIds;
+        if (before.isEmpty() || now.isEmpty()) return shifted;
+        for (int i = 0; i < now.size(); i++) {
+            int j = before.indexOf(now.get(i));
+            if (j > i) shifted.add(i);
+        }
+        return shifted;
+    }
+
     private static RemoteViews build(Context context, int widgetId,
-                                     PickupRepository.PendingSnapshot snap) {
+                                     PickupRepository.PendingSnapshot snap,
+                                     List<Integer> shiftedRows) {
         RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_pickup);
 
         int rows = rowsFor(context, widgetId);
@@ -119,7 +213,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         boolean hideCode = WidgetPrefs.hideCode(context);
         float scale = WidgetPrefs.fontScale(context);
         int total = snap == null ? 0 : snap.total;
-        java.util.List<PickupRecord> items = snap == null ? null : snap.items;
+        List<PickupRecord> items = snap == null ? null : snap.items;
 
         rv.setTextViewText(R.id.widget_count, total + " 个");
         rv.setTextViewTextSize(R.id.widget_title, TypedValue.COMPLEX_UNIT_SP, 16f);
@@ -128,6 +222,9 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         boolean empty = total == 0;
         rv.setViewVisibility(R.id.widget_empty, empty ? View.VISIBLE : View.GONE);
         rv.setTextViewTextSize(R.id.widget_empty, TypedValue.COMPLEX_UNIT_SP, 12f * scale);
+
+        float rowPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, ROW_HEIGHT_DP,
+                context.getResources().getDisplayMetrics());
 
         int shown = 0;
         for (int i = 0; i < ROW_IDS.length; i++) {
@@ -152,11 +249,23 @@ public class PickupWidgetProvider extends AppWidgetProvider {
                     : (record.place == null || record.place.trim().isEmpty() ? "—" : record.place));
             rv.setTextViewTextSize(PLACE_IDS[i], TypedValue.COMPLEX_UNIT_SP, 11f * scale);
 
-            PendingIntent copy = action(context, record.id, ACTION_COPY, 1);
-            PendingIntent done = action(context, record.id, ACTION_DONE, 2);
-            rv.setOnClickPendingIntent(CODE_IDS[i], copy);
-            rv.setOnClickPendingIntent(PLACE_IDS[i], copy);
-            rv.setOnClickPendingIntent(DONE_IDS[i], done);
+            // 补位动画：刚顶上来的行先落在「下移一格 + 半透明」，再归位。
+            // 位移加在整行上（不是只加在文字上），这样取件码、地点、打勾一起动。
+            if (shiftedRows.contains(i)) {
+                rv.setFloat(ROW_IDS[i], "setAlpha", 0.4f);
+                rv.setFloat(ROW_IDS[i], "setTranslationY", rowPx);
+            } else {
+                rv.setFloat(ROW_IDS[i], "setAlpha", 1f);
+                rv.setFloat(ROW_IDS[i], "setTranslationY", 0f);
+            }
+
+            // 打勾：标记已取件，【不跳转 App】——在小组件上操作就不该把 App 拉到前台。
+            // 走广播而不是 Activity：Activity 一定会带起界面（哪怕是透明主题，
+            // 用户仍会看到任务切换一闪）。
+            rv.setOnClickPendingIntent(DONE_IDS[i], doneAction(context, record.id));
+            // 点击取件码 / 地点：复制到剪贴板，同样不跳转。
+            rv.setOnClickPendingIntent(CODE_IDS[i], copyAction(context, record.id));
+            rv.setOnClickPendingIntent(PLACE_IDS[i], copyAction(context, record.id));
         }
 
         // 还有更多没显示时才提示「查看全部」
@@ -164,6 +273,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         rv.setViewVisibility(R.id.widget_more, more ? View.VISIBLE : View.GONE);
         rv.setTextViewTextSize(R.id.widget_more, TypedValue.COMPLEX_UNIT_SP, 11f * scale);
 
+        // 其余位置（标题、件数、查看全部、空白）点击才打开 App——这才是「正常点击小组件」。
         PendingIntent open = openApp(context);
         rv.setOnClickPendingIntent(R.id.widget_more, open);
         rv.setOnClickPendingIntent(R.id.widget_title, open);
@@ -173,8 +283,10 @@ public class PickupWidgetProvider extends AppWidgetProvider {
     }
 
     /**
-     * 按组件高度推算能放几行：头部约 30dp，每行随字号约 34–48dp。
-     * 拿不到 options 时退回 3 行，保证默认观感。
+     * 按组件高度推算能放几行。
+     *
+     * <p>行高是固定的（ROW_HEIGHT_DP），所以这里算的是「放得下几行」，
+     * 而不是「把高度均分成几行」。放不下的部分不显示，剩余空间留白。
      */
     private static int rowsFor(Context context, int widgetId) {
         int maxPref = WidgetPrefs.maxRows(context);
@@ -192,8 +304,10 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         if (heightDp <= 0) {
             return Math.min(3, maxPref);
         }
-        int rowHeight = (int) (38 * WidgetPrefs.fontScale(context)) + 6;
-        int rows = (heightDp - 30) / Math.max(1, rowHeight);
+        // 头部标题行约 26dp，底部「查看全部」约 18dp，组件内边距上下共 24dp
+        int available = heightDp - 26 - 18 - 24;
+        int rowHeight = (int) (ROW_HEIGHT_DP * WidgetPrefs.fontScale(context));
+        int rows = available / Math.max(1, rowHeight);
         if (widthDp > 0 && widthDp < 150) {
             rows = Math.min(rows, 2);
         }
@@ -207,13 +321,77 @@ public class PickupWidgetProvider extends AppWidgetProvider {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    private static PendingIntent action(Context context, long recordId, String action, int kind) {
-        Intent intent = new Intent(context, WidgetActionActivity.class);
+    /** 打勾：标记已取件。广播（不启动界面）。 */
+    private static PendingIntent doneAction(Context context, long recordId) {
+        return broadcast(context, ACTION_DONE, recordId, 2);
+    }
+
+    /** 点击取件码：复制。广播（不启动界面）。 */
+    private static PendingIntent copyAction(Context context, long recordId) {
+        return broadcast(context, ACTION_COPY, recordId, 1);
+    }
+
+    private static PendingIntent broadcast(Context context, String action, long recordId, int kind) {
+        Intent intent = new Intent(context, WidgetActionReceiver.class);
         intent.setAction(action);
         intent.putExtra(EXTRA_ID, recordId);
         intent.setData(Uri.parse("pickup://widget/" + recordId + "/" + kind));
         int requestCode = (int) (recordId % 100000L) * 10 + kind;
-        return PendingIntent.getActivity(context, requestCode, intent,
+        return PendingIntent.getBroadcast(context, requestCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /**
+     * 小组件动作接收端。
+     *
+     * <p>v4.0.1：原先用 Activity 承接动作（WidgetActionActivity），
+     * 点一下打勾就会把 App 拉到前台——用户明确要求「在小组件上操作不该跳转」。
+     * 现在改为广播：动作在后台完成，只更新小组件与本地库，不带起任何界面。
+     */
+    public static class WidgetActionReceiver extends BroadcastReceiver {
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (context == null || intent == null) return;
+            final String action = intent.getAction();
+            final long id = intent.getLongExtra(EXTRA_ID, -1L);
+            if (id <= 0) return;
+            final Context app = context.getApplicationContext();
+
+            PickupRepository.get(app).getByIdAsync(id, record -> {
+                if (record == null) return;
+                if (ACTION_COPY.equals(action)) {
+                    copy(app, record.code);
+                    return;
+                }
+                if (ACTION_DONE.equals(action)) {
+                    markDone(app, record);
+                }
+            });
+        }
+
+        private void copy(Context app, String code) {
+            try {
+                android.content.ClipboardManager cm =
+                        (android.content.ClipboardManager)
+                                app.getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm != null) {
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("pickupcode", code));
+                }
+                // 后台广播里弹 Toast 需要主线程 Handler
+                MAIN.post(() -> android.widget.Toast.makeText(app,
+                        "已复制取件码：" + code,
+                        android.widget.Toast.LENGTH_SHORT).show());
+            } catch (Throwable t) {
+                Log.w(TAG, "widget copy failed: " + t);
+            }
+        }
+
+        private void markDone(Context app, PickupRecord record) {
+            PickupActions.markDone(app, record, (localChanged, backendRc) -> {
+                if (localChanged <= 0) return;
+                // 标记后刷新小组件，并启用「补位动画」——下面的内容顶上来。
+            }, true);
+        }
     }
 }

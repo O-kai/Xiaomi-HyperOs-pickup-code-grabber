@@ -118,6 +118,28 @@ public class Diagnostics {
         return out;
     }
 
+    /**
+     * 轻量体检：<b>完全不调用 su</b>。
+     *
+     * <p>v4.0.1 新增。起因：Magisk 的 su 每次被调用都会弹一次
+     * 「取件码助手已授予超级用户权限」——而原先 App 一启动就体检一次，
+     * 于是用户每次打开 App 都要看一次那个框。用户反馈「这信息没有价值、没有意义，
+     * 因为我本身都已经一切正常了」。
+     *
+     * <p>只有两项不需要 root：
+     *  - LSPosed 注入：读进程内的 Xposed 标志；
+     *  - 通知权限：查 NotificationManager。
+     *
+     * <p>需要 root 的四项（root 授权 / 作用域 / sqlite3 部署 / 待办库访问）
+     * 留到用户主动点「重新体检」时再跑。
+     */
+    public static List<Check> lightHealthCheck(Context ctx) {
+        List<Check> out = new ArrayList<>();
+        out.add(checkLsposedInject(ctx));
+        out.add(checkNotification(ctx));
+        return out;
+    }
+
     /** 供 Repair 调用的 su 执行器（多路径：HyperOS 的 su 常不在应用 PATH） */
     public static String[] suExecPublic(String cmd, int timeoutSec) {
         String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/debug_ramdisk/su",
@@ -362,14 +384,11 @@ public class Diagnostics {
      *        JSON 报告会先把体检结果算一次再传进来，避免两次 su 体检把等待时间翻倍。
      */
     public static String collectReport(Context ctx, List<Check> health) {
-        String ver = "unknown";
-        try {
-            android.content.pm.PackageInfo pi = ctx.getPackageManager()
-                    .getPackageInfo(ctx.getPackageName(), 0);
-            ver = pi.versionName + " (code " + pi.versionCode + ")";
-        } catch (Throwable ignored) { }
+        // v4.0.1：版本号统一走 AppVersion，报告里不再混排两套数字
+        String ver = AppVersion.dotted(ctx);
+        int verCode = AppVersion.code(ctx);
         StringBuilder sb = new StringBuilder();
-        sb.append("===== 取件码助手 诊断报告 ").append(ver).append(" =====\n");
+        sb.append("===== 取件码助手 诊断报告 V").append(ver).append(" =====\n");
         sb.append("生成时间: ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(new Date())).append("\n\n");
 
         sb.append("---- 基本信息 ----\n");
@@ -387,12 +406,8 @@ public class Diagnostics {
         sb.append("写入后端: ").append(NotesBackend.detect(ctx)).append("（")
           .append(NotesBackend.targetAppName(ctx)).append("）\n");
         sb.append("Magisk: ").append(prop("magisk.version") ).append("\n");
-        try {
-            android.content.pm.PackageInfo pi = ctx.getPackageManager()
-                    .getPackageInfo(ctx.getPackageName(), 0);
-            sb.append("模块版本: ").append(pi.versionName)
-              .append(" (code ").append(pi.versionCode).append(")\n");
-        } catch (Throwable ignored) { }
+        sb.append("模块版本: V").append(ver)
+          .append("（构建号 ").append(verCode).append("）\n");
         sb.append("\n");
 
         sb.append("---- LSPosed 配置库查询（原始结果，用于定位作用域判定问题）----\n");
@@ -694,12 +709,11 @@ public class Diagnostics {
                     new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.CHINA).format(new Date()));
 
             JSONObject app = new JSONObject();
-            try {
-                android.content.pm.PackageInfo pi = ctx.getPackageManager()
-                        .getPackageInfo(ctx.getPackageName(), 0);
-                app.put("versionName", pi.versionName);
-                app.put("versionCode", pi.versionCode);
-            } catch (Throwable ignored) { }
+            // v4.0.1：version 字段是给人看的主版本号（点分），
+            // versionCode 保留给机器判定用；两者分开，不再混成一个字符串。
+            app.put("version", AppVersion.dotted(ctx));
+            app.put("versionLabel", AppVersion.label(ctx));
+            app.put("versionCode", AppVersion.code(ctx));
             try {
                 app.put("rulesVersion", PickupExtractor.getActiveRulesVersion());
             } catch (Throwable ignored) { }

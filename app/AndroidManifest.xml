@@ -97,12 +97,20 @@
         </receiver>
 
         <!-- 小组件动作入口：exported=false -->
-        <activity
-            android:name=".WidgetActionActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!--
+          v4.0.1：原先用 Activity 承接（WidgetActionActivity），点一下打勾就会把 App
+          拉到前台——用户明确要求「在小组件上操作不该跳转」。
+          现在改成广播：动作在后台完成，只更新小组件与本地库，不带起任何界面。
+          exported=false：只能由本 App 的 PendingIntent 触发。
+        -->
+        <receiver
+            android:name=".PickupWidgetProvider$WidgetActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="io.github.okaidev.pickupcode.widget.COPY" />
+                <action android:name="io.github.okaidev.pickupcode.widget.DONE" />
+            </intent-filter>
+        </receiver>
 
         <!-- 打赏页（v2.5.0）：右上角菜单进入，不对外暴露 -->
         <activity

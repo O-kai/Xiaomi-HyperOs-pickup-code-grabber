@@ -37,18 +37,24 @@ public class MissedSmsStore {
     /**
      * 错题本默认是否开启。
      *
-     * <p>v4.0 收口：原先是<b>默认开启</b>的——也就是说用户没做任何选择，
-     * 模块就在后台悄悄保存他收到的疑似漏抓短信正文。这与本项目
-     * 「默认不存短信正文」的隐私取舍自相矛盾，所以改成默认关闭，
-     * 需要用户在「反馈与支持 → 疑似漏抓错题本」里显式打开。
+     * <p>v4.0 收口曾改成默认关闭（理由：未经同意就存短信正文与本项目的隐私取舍矛盾）。
+     * <b>v4.0.1 改回默认开启</b>——用户明确要求：
+     * 「把记录疑似漏抓短信默认开启」。
+     *
+     * <p>改回之后，靠另外几道闸门控制风险，而不是靠「默认关」：
+     *  - 只存<b>疑似漏抓</b>的短信（本来就该被识别却没识别出取件码的），
+     *    不是所有短信；
+     *  - 样本 <b>30 天自动过期</b>，容量上限 30 条，不无限累积；
+     *  - 上报前必须<b>用户主动</b>点击「复制上报文本」，模块不会自动外发；
+     *  - 随时可以在同一个弹窗里「一键清空」。
      */
     public static boolean isEnabled(Context ctx) {
-        if (ctx == null) return false;
+        if (ctx == null) return true;
         try {
             return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .getBoolean(KEY_MISSED_ENABLED, false);
+                    .getBoolean(KEY_MISSED_ENABLED, true);
         } catch (Throwable t) {
-            return false;
+            return true;
         }
     }
 

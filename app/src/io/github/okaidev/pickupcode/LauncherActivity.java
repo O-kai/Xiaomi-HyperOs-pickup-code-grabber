@@ -81,6 +81,8 @@ public class LauncherActivity extends Activity {
     private LinearLayout checklistCard;
     private LinearLayout checklistBox;
     private TextView deployBtn, troubleshootBtn;
+    /** v4.0.1：「完整体检」按钮（需要 root 授权，用户主动触发） */
+    private TextView fullHealthBtn;
     /** v4.3：新用户「开始配置」引导入口（未完全就绪时显示） */
     private TextView guideBtn;
     /** 4.1：一键链路测试入口（从「规则 → 工具」移到首页） */
@@ -115,6 +117,12 @@ public class LauncherActivity extends Activity {
     private volatile boolean lastHealthDeploy;
     private volatile String lastHealthErr;
     private volatile long lastHealthAt;
+    /**
+     * v4.0.1：上一次体检是不是「完整体检」。
+     *
+     * <p>用来区分措辞——轻量体检只覆盖 2 项，不能说成「6 项全部通过」。
+     */
+    private volatile boolean lastHealthFull;
 
     // ==================== 应用 ====================
     private TextView backendValue, envValue, extraSummary;
@@ -205,13 +213,15 @@ public class LauncherActivity extends Activity {
         headerTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         titleRow.addView(headerTitle, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        // v4.0.1：移除右上角的「进阶模式 ›」入口。
+        // 用户要求把它移到页面最下方——「离开简洁模式」是页尾动作，
+        // 放在标题栏里既占位置，又容易让人以为是另一个功能。
         modeSwitch = UiKit.text(this, "进阶模式 ›", 13f, P.accent);
         modeSwitch.setPadding(dp(12), dp(8), 0, dp(8));
         modeSwitch.setVisibility(View.GONE);
-        modeSwitch.setOnClickListener(v -> switchToFullMode());
-        titleRow.addView(modeSwitch);
+        modeSwitch.setOnClickListener(v -> showModeSwitchDialog());
         header.addView(titleRow);
-        headerSub = UiKit.text(this, "", 12.5f, UiKit.INK3);
+        headerSub = UiKit.text(this, "", 13f, UiKit.INK3);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         subLp.setMargins(0, dp(5), 0, 0);
@@ -469,6 +479,14 @@ public class LauncherActivity extends Activity {
         navHolder.removeAllViews();
         LinearLayout bar = UiKit.tabbar(this, P, UiKit.navBlur(this), index, this::showTab);
         navHolder.addView(bar, UiKit.tabbarLp(this));
+
+        // v4.0.1：进入「通知提取」页时才查 LSPosed 作用域。
+        // 这一步要走 su（读 LSPosed 配置库），会触发 Magisk 的
+        // 「已授予超级用户权限」提示——放在这里，既不打扰每次打开 App 的人，
+        // 又能保证进这一页的人看到准确的「通知能不能用」判断。
+        if (index == 1) {
+            checkNotiHookScopeAsync(false);
+        }
     }
 
     /**
@@ -476,12 +494,15 @@ public class LauncherActivity extends Activity {
      *
      * 写法思路：首页给版本与定位（新用户第一次看到，需要知道这是什么）；
      * 其余三页给「这一页在干什么」的一句话总结。
+     *
+     * <p>v4.0.1：首页这一行改成两段不同样式——
+     * 版本号用中灰半粗（「V4.0.0」），署名用更浅的灰与更小的字号（「design by 欧锴」）。
+     * 之前是一整串同色同字号，署名和版本号混在一起看不出层次。
      */
-    private String headerSubtitle(int index) {
+    private CharSequence headerSubtitle(int index) {
         switch (index) {
             case 0:
-                // 只放版本号：一句之内、不会换行；写入目标等信息由下方卡片承担
-                return appVersionLabel();
+                return versionSubtitle();
             case 1:
                 return "从 App 通知里提取取件码 · 短信通道不受此限制";
             case 2:
@@ -491,6 +512,40 @@ public class LauncherActivity extends Activity {
             default:
                 return "";
         }
+    }
+
+    /**
+     * 首页副标题：「V4.0.0 · design by 欧锴」。
+     *
+     * <p>版本号与署名用不同字号与颜色：版本号是信息主体（半粗、中灰），
+     * 署名是次要信息（小一号、浅灰），中间用「·」分隔。
+     */
+    private CharSequence versionSubtitle() {
+        String ver = appVersionLabel();
+        String credit = "design by 欧锴";
+        String sep = "  ·  ";
+        String all = ver + sep + credit;
+
+        android.text.SpannableString ss = new android.text.SpannableString(all);
+        // 版本号：半粗 + 主文字色
+        ss.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                0, ver.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        ss.setSpan(new android.text.style.ForegroundColorSpan(UiKit.INK2),
+                0, ver.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        ss.setSpan(new android.text.style.RelativeSizeSpan(1.06f),
+                0, ver.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        // 署名：小一号 + 浅灰
+        int creditStart = ver.length() + sep.length();
+        ss.setSpan(new android.text.style.ForegroundColorSpan(UiKit.INK3),
+                creditStart, all.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        ss.setSpan(new android.text.style.RelativeSizeSpan(0.9f),
+                creditStart, all.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return ss;
     }
 
     private void rebuildUi() {
@@ -544,10 +599,12 @@ public class LauncherActivity extends Activity {
         heroCard.setPadding(dp(20), dp(17), dp(20), dp(17));
         heroCard.setElevation(dp(1));
         heroCard.setOnClickListener(v -> toggleChecklist());
-        // 4.0 Stage 2.1：长按状态卡强制重新体检（体检结果默认缓存 120 秒）
+        // v4.0.1：长按状态卡 = 跑完整体检（会调 su，触发 Magisk 授权提示）。
+        // 提示语要说清楚「会请求 root 授权」，免得用户被弹框吓到。
         heroCard.setOnLongClickListener(v -> {
             refreshHealth(true);
-            Toast.makeText(this, "正在重新体检…", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "正在跑完整体检（会请求 root 授权）…",
+                    Toast.LENGTH_SHORT).show();
             return true;
         });
         heroIcon = UiKit.icon(this, R.drawable.ic_check, 32, P.heroInk);
@@ -569,6 +626,25 @@ public class LauncherActivity extends Activity {
         heroCard.addView(heroCol, hcLp);
         // 与「待取件」卡之间留 12dp，和下面几张卡的间距一致
         box.addView(heroCard, UiKit.cardLp(this, 12));
+
+        // v4.0.1：「完整体检」入口。
+        //
+        // 完整体检要调 su（查 root 授权、作用域、sqlite3、待办库），
+        // 一定会触发 Magisk 的「已授予超级用户权限」提示。
+        // 所以默认不自动跑，改成用户主动点这个按钮——噪音归零，需要时随时能查。
+        //
+        // 样式用描边（ghostLine）而不是实心：这是「诊断工具」不是主操作，
+        // 做成橙色大按钮会抢走「官方规则集」这些更常用入口的注意力。
+        fullHealthBtn = UiKit.button(this, P, "完整体检（含 root 检测）", "ghostLine");
+        LinearLayout.LayoutParams fullLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        fullLp.setMargins(0, dp(10), 0, 0);
+        fullHealthBtn.setLayoutParams(fullLp);
+        fullHealthBtn.setOnClickListener(v -> {
+            refreshHealth(true);
+            Toast.makeText(this, "正在跑完整体检…", Toast.LENGTH_SHORT).show();
+        });
+        box.addView(fullHealthBtn);
 
         // 体检清单（仅异常时显示）
         checklistCard = UiKit.card(this, P);
@@ -662,20 +738,22 @@ public class LauncherActivity extends Activity {
         box.addView(tplCard, UiKit.cardLp(this, 12));
 
         // 一键链路测试（放在页面最下方——整套流程走完后的最终验证）
+        // v4.0.1：样式做得更显眼——它是这一页最该被用到的功能
+        // （验证「收到短信 → 写进待办」整条链路通不通），
+        // 之前是一行普通文字入口，跟别的行长得一样，用户根本注意不到。
         LinearLayout ctCard = UiKit.card(this, P);
+        ctCard.setBackground(UiKit.bg(P.accentSoft, this, 18));
         chainTestBtn = toolRow(R.drawable.ic_flask, "一键链路测试",
-                "不消耗短信 · 分步验证「识别 → 写入」", v -> precheckThenOpenChainTest());
+                "验证「收到短信 → 写入待办」整条链路是否通", v -> precheckThenOpenChainTest());
+        chainTestBtn.setPadding(dp(16), dp(13), dp(16), dp(13));
         ctCard.addView(chainTestBtn);
         box.addView(ctCard, UiKit.cardLp(this, 12));
 
         if (simple) {
-            // 简洁模式：进阶模式入口 + 反馈渠道。
-            // 高级规则、通知来源在简洁模式里不出现，但仍保留在进阶模式，数据不受影响。
-            LinearLayout more = UiKit.card(this, P);
-            more.addView(toolRow(R.drawable.ic_grid, "进阶模式",
-                    "更多规则、来源与设置", v -> switchToFullMode()));
-            box.addView(more, UiKit.cardLp(this, 12));
-
+            // v4.0.1：简洁模式的底部结构（顺序按用户要求调整）
+            //   倒数第二：反馈与支持
+            //   最底下：进阶模式入口（点击弹窗确认，与进阶→简洁一致）
+            //
             // v4.0 收口：原先这里是「提交问题到 GitHub」+「加入开发者 QQ 群」两行，
             // 与进阶模式的设置重复（同一个去处摆两次）。现在收成一个入口，
             // 弹窗内容与进阶模式「反馈与支持」完全一致。
@@ -684,6 +762,13 @@ public class LauncherActivity extends Activity {
                     "诊断报告 · 错题本 · GitHub · QQ 群 · 酷安",
                     v -> showFeedbackSupportDialog()));
             box.addView(fb, UiKit.cardLp(this, 12));
+
+            // 进阶模式入口放在最末位：它是「离开简洁模式」的动作，
+            // 放在页面最下方才符合「页尾导航」的直觉。
+            LinearLayout more = UiKit.card(this, P);
+            more.addView(toolRow(R.drawable.ic_grid, "进阶模式",
+                    "更多规则、来源与设置", v -> showModeSwitchDialog()));
+            box.addView(more, UiKit.cardLp(this, 12));
         }
 
         return sv;
@@ -693,6 +778,35 @@ public class LauncherActivity extends Activity {
     private void switchToFullMode() {
         UiMode.set(this, UiMode.ADVANCED);
         recreate();
+    }
+
+    /**
+     * 模式切换确认弹窗（v4.0.1）。
+     *
+     * <p>之前进阶→简洁用的是系统 AlertDialog，简洁→进阶则直接切换、没有弹窗——
+     * 两边行为不一致，而且系统弹窗的观感跟 App 内部的 UiKit 卡片差很多
+     * （用户反馈「这个对话框展示的内容和下面的按钮，与软件内部的 UI 差别有点大」）。
+     *
+     * <p>现在两个方向共用这一个弹窗，都走 UiKit，视觉与 App 内部一致。
+     */
+    private void showModeSwitchDialog() {
+        boolean toSimple = !simpleMode;
+        String title = toSimple ? "切换到简洁模式" : "切换到进阶模式";
+        String message = toSimple
+                ? "简洁模式是一页：取件信息、官方规则、写入目标、写入格式、"
+                        + "一键链路测试都在首页，不出现通知来源与高级规则。\n\n"
+                        + "进阶模式保留四个页面：首页、通知提取、高级规则、设置。"
+                : "进阶模式保留四个页面：首页、通知提取、高级规则、设置，"
+                        + "规则、来源与外观设置都能单独调整。\n\n"
+                        + "简洁模式只有一页，把常用内容都收在一起。";
+        String action = toSimple ? "切换到简洁模式" : "切换到进阶模式";
+
+        UiKit.dialog(this, P, R.drawable.ic_grid, title, message, null,
+                UiKit.primary(action, () -> {
+                    UiMode.set(this, toSimple ? UiMode.SIMPLE : UiMode.ADVANCED);
+                    recreate();
+                }),
+                UiKit.ghost("取消", null));
     }
 
     private View statCard(String label, String value, String hint) {
@@ -801,7 +915,11 @@ public class LauncherActivity extends Activity {
         placeLp.setMargins(dp(10), 0, dp(8), 0);
         row.addView(place, placeLp);
 
-        TextView done = UiKit.text(this, "已取", 12f, P.accent);
+        // v4.0.1：按钮文案从「已取」改成「✓ 取件」。
+        // 「已取」在这里是个动作按钮（点了就标记为已取），
+        // 但字面意思更像状态标签——用户看截图会以为这条已经取过了。
+        // 改成动词短语后，一眼能看出「点它会把它取掉」。
+        TextView done = UiKit.text(this, "✓ 取件", 12f, P.accent);
         done.setPadding(dp(8), dp(4), 0, dp(4));
         done.setOnClickListener(v -> PickupActions.markDone(this, record, (localChanged, backendRc) -> {
             String msg;
@@ -1396,18 +1514,7 @@ public class LauncherActivity extends Activity {
         TextView modeValue = UiKit.value(this, P, "进阶");
         LinearLayout modeRow = UiKit.row(this, P, R.drawable.ic_grid, "界面模式",
                 "简洁：一页包含规则与写入格式；进阶：四个页面分区", modeValue);
-        modeRow.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
-                .setTitle("切换到简洁模式")
-                .setMessage("简洁模式是一页：取件信息、官方规则、写入目标、写入格式、"
-                        + "一键链路测试都在首页，不出现通知来源与高级规则。\n\n"
-                        + "进阶模式保留四个页面：首页、通知提取、高级规则、设置。\n\n"
-                        + "两种模式数据共享，随时可以在简洁模式右上角切回进阶模式。")
-                .setPositiveButton("切换到简洁模式", (d, w) -> {
-                    UiMode.set(this, UiMode.SIMPLE);
-                    recreate();
-                })
-                .setNegativeButton("取消", null)
-                .show());
+        modeRow.setOnClickListener(v -> showModeSwitchDialog());
         perCard.addView(modeRow);
         perCard.addView(UiKit.divider(this, P));
 
@@ -1476,8 +1583,15 @@ public class LauncherActivity extends Activity {
         // 清理归到一组；「取件记录」页里的「管理」按钮打开的是同一套实现。
         box.addView(UiKit.groupLabel(this, P, "本地记录"));
         LinearLayout recCard = UiKit.card(this, P);
-        recCard.addView(toolRow(R.drawable.ic_notebook, "记录保留期",
-                retentionLabel(), v -> recordManager.showRetentionPicker()));
+        // v4.0.1：保留期这行要能在改完后就地刷新副标题
+        // （用户反馈「切换保留期时，外面的『当前 XX 天』不会直接修改」）。
+        // 用数组包一层：lambda 里要引用它自己所在的行，
+        // 直接用局部变量会编译不过（变量尚未初始化）。
+        final LinearLayout[] retentionRow = new LinearLayout[1];
+        retentionRow[0] = toolRow(R.drawable.ic_notebook, "记录保留期",
+                retentionLabel(),
+                v -> recordManager.showRetentionPicker(retentionRow[0]));
+        recCard.addView(retentionRow[0]);
         recCard.addView(UiKit.divider(this, P));
         recCard.addView(toolRow(R.drawable.ic_download, "导出与导入",
                 "导出 JSON / CSV，或从文件导入",
@@ -1541,10 +1655,14 @@ public class LauncherActivity extends Activity {
         if (sub != null) sub.setText(updateLabel());
     }
 
-    /** 「记录保留期」行的副标题 */
+    /**
+     * 「记录保留期」行的副标题。
+     *
+     * <p>v4.0.1：唯一来源在 {@link RecordManager#retentionSubText()}——
+     * 设置页与「管理本地记录」弹窗都要显示这句话，各写一份迟早漂移。
+     */
     private String retentionLabel() {
-        return "当前：" + Retention.label(PickupRepository.retentionDays(this))
-                + " · 只清理已取件的记录";
+        return recordManager.retentionSubText();
     }
 
     /** v4.3：使用说明弹窗（原先是页面底部一大段裸露文字） */
@@ -1996,6 +2114,7 @@ public class LauncherActivity extends Activity {
                 r.keywordAnchors.size() + " 组锚点词 / " + r.featureWords.size() + " 特征词 / "
                         + r.negativeKeywords.size() + " 负向词";
         String msg = "模块版本：" + appVersionLabel() + "\n"
+                + "设计：欧锴（O-kai）\n"
                 + "规则集：v" + PickupExtractor.getActiveRulesVersion() + "\n"
                 + "词表规模：" + counts + "\n"
                 + "许可协议：MIT License\n\n"
@@ -2348,6 +2467,18 @@ public class LauncherActivity extends Activity {
      *
      * @param force true=忽略节流强制复查（开关刚被切换时用）
      */
+    /**
+     * 通知作用域检查。
+     *
+     * <p>v4.0.1：这一步要读 LSPosed 配置库，走的是 su ——于是每次回到前台
+     * 都会触发一次 Magisk 的「已授予超级用户权限」提示。
+     * 用户反馈这个提示「没有价值、没有意义」。
+     *
+     * <p>改法：默认<b>不自动检查</b>。它要回答的是「通知提取能不能用」，
+     * 而这个问题的答案在用户打开「通知提取」页时才有意义——
+     * 所以改成：进入那一页时才查一次（并缓存结果），
+     * 以及用户主动打开通知开关时才查。
+     */
     private void checkNotiHookScopeAsync(boolean force) {
         long now = System.currentTimeMillis();
         if (!force && now - lastNotiScopeCheck < NOTI_SCOPE_CHECK_INTERVAL) return;
@@ -2390,11 +2521,20 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * 4.0 Stage 2.1：体检结果缓存。
+     * 体检分两级（v4.0.1）。
      *
-     * onResume 每次都跑 healthCheck 会反复 su，Magisk 每次都会弹一次授权提示，
-     * 用户看到的就是「每次回到 App 都弹一次超级用户」。这里做 120 秒缓存：
-     * 期间回到前台直接复用上次结果；用户主动下拉/长按状态卡才强制重跑。
+     * <p><b>轻量体检</b>（默认，自动跑）：只查不需要 root 的两项
+     * （LSPosed 注入 + 通知权限），<b>完全不调 su</b>，所以不会触发
+     * Magisk 的「已授予超级用户权限」提示框。
+     *
+     * <p><b>完整体检</b>（需用户主动触发）：包含 root 授权、作用域、
+     * sqlite3 部署、待办库访问——这些都要 su，会弹授权框。
+     * 由用户长按状态卡或点清单里的「重新体检」触发。
+     *
+     * <p>为什么这么分：用户反馈「每次打开软件都弹超级用户授权提示，
+     * 这信息没有价值、没有意义，因为我本身都已经一切正常了」。
+     * 确实如此——环境正常时这个框提供不了任何信息，只是噪音。
+     * 所以默认不再自动跑；真出问题时，用户主动点一下就能看到完整诊断。
      */
     private void refreshHealth(boolean force) {
         if (!force && lastHealthChecks != null
@@ -2402,8 +2542,8 @@ public class LauncherActivity extends Activity {
             renderHealth(lastHealthChecks, lastHealthOk, lastHealthDeploy, lastHealthErr);
             return;
         }
-        heroTitle.setText("正在体检…");
-        heroSub.setText("root 检测约需 2-5 秒");
+        heroTitle.setText("正在检查…");
+        heroSub.setText(force ? "完整体检需要 root 授权，约需 2-5 秒" : "快速检查，不触发 root 授权");
         heroIcon.setImageResource(R.drawable.ic_check);
         heroCard.setBackground(UiKit.bg(P.hero, this, 18));
         heroIcon.setColorFilter(P.heroInk, android.graphics.PorterDuff.Mode.SRC_IN);
@@ -2413,13 +2553,16 @@ public class LauncherActivity extends Activity {
         deployBtn.setVisibility(View.GONE);
         troubleshootBtn.setVisibility(View.GONE);
 
+        final boolean full = force;
         new Thread(() -> {
             List<Diagnostics.Check> checks;
             boolean needDeploy = false;
             boolean allOk = true;
             String err = null;
             try {
-                checks = Diagnostics.healthCheck(this);
+                // force=false → 轻量体检（不碰 su）；force=true → 完整体检
+                checks = full ? Diagnostics.healthCheck(this)
+                        : Diagnostics.lightHealthCheck(this);
                 for (Diagnostics.Check c : checks) {
                     if (!c.ok) allOk = false;
                     if ("sqlite3 部署".equals(c.title) && !c.ok
@@ -2440,14 +2583,25 @@ public class LauncherActivity extends Activity {
             lastHealthDeploy = show;
             lastHealthErr = errMsg;
             lastHealthAt = System.currentTimeMillis();
-            runOnUiThread(() -> renderHealth(cs, ok, show, errMsg));
+            lastHealthFull = full;
+            runOnUiThread(() -> renderHealth(cs, ok, show, errMsg, full));
         }).start();
     }
 
-    private void renderHealth(List<Diagnostics.Check> checks, boolean allOk, boolean needDeploy, String err) {
+    private void renderHealth(List<Diagnostics.Check> checks, boolean allOk, boolean needDeploy,
+                              String err) {
+        renderHealth(checks, allOk, needDeploy, err, lastHealthFull);
+    }
+
+    /**
+     * @param full true = 完整体检结果（6 项）；false = 轻量体检结果（2 项）。
+     */
+    private void renderHealth(List<Diagnostics.Check> checks, boolean allOk, boolean needDeploy,
+                              String err, boolean full) {
         healthAllOk = allOk;
         int failed = 0;
         if (checks != null) for (Diagnostics.Check c : checks) if (!c.ok) failed++;
+        int total = checks == null ? 0 : checks.size();
 
         if (err != null) {
             heroTitle.setText("体检异常");
@@ -2459,8 +2613,13 @@ public class LauncherActivity extends Activity {
             heroSub.setTextColor(P.heroWarnSubInk);
         } else if (allOk) {
             heroTitle.setText("一切正常 · 已激活");
-            // 不再重复版本号、规则集版本、写入目标——这些都在下面的卡片里能看到
-            heroSub.setText("LSPosed 已注入 · 6 项体检全部通过");
+            if (full) {
+                heroSub.setText("LSPosed 已注入 · 6 项体检全部通过");
+            } else {
+                // v4.0.1：轻量体检只覆盖 2 项，措辞必须准确——
+                // 说「全部通过」会让用户以为跑过完整检测，那是骗人。
+                heroSub.setText("LSPosed 已注入 · 点「完整体检」可跑 root 相关检测");
+            }
             heroIcon.setImageResource(R.drawable.ic_check);
             heroCard.setBackground(UiKit.bg(P.hero, this, 18));
             heroIcon.setColorFilter(P.heroInk, android.graphics.PorterDuff.Mode.SRC_IN);
@@ -2468,7 +2627,7 @@ public class LauncherActivity extends Activity {
             heroSub.setTextColor(P.heroSubInk);
         } else {
             heroTitle.setText(failed + " 项待处理");
-            heroSub.setText("体检 " + (6 - failed) + "/6 通过 · 点此查看六项清单");
+            heroSub.setText("体检 " + (total - failed) + "/" + total + " 通过 · 点此查看清单");
             heroIcon.setImageResource(R.drawable.ic_alert);
             heroCard.setBackground(UiKit.bg(P.heroWarn, this, 18));
             heroIcon.setColorFilter(P.heroWarnInk, android.graphics.PorterDuff.Mode.SRC_IN);
@@ -2510,6 +2669,8 @@ public class LauncherActivity extends Activity {
         deployBtn.setVisibility(needDeploy ? View.VISIBLE : View.GONE);
         troubleshootBtn.setVisibility(allOk ? View.GONE : View.VISIBLE);
         if (guideBtn != null) guideBtn.setVisibility(allOk ? View.GONE : View.VISIBLE);
+        // v4.0.1：已经跑过完整体检就不用再显示这个按钮了（省一屏空间）
+        if (fullHealthBtn != null) fullHealthBtn.setVisibility(full ? View.GONE : View.VISIBLE);
     }
 
     /**
@@ -2644,7 +2805,12 @@ public class LauncherActivity extends Activity {
         notiSwitchOn = isNotiHookFlagOn();
         if (notiSw != null) notiSw.setChecked(notiSwitchOn, false);
         renderNotiSwitchUi();
-        checkNotiHookScopeAsync(false);
+        // v4.0.1：不再在这里自动查 LSPosed 作用域——那一步要走 su，
+        // 会触发 Magisk 的「已授予超级用户权限」提示，用户明确表示这提示没有意义。
+        // 改为进入「通知提取」页时才查一次（那时这个信息才有价值）。
+        if (currentTab == 1) {
+            checkNotiHookScopeAsync(false);
+        }
         UpdateCenter.maybeCheck(this);
         refreshUserRuleCard();
     }
@@ -3079,10 +3245,14 @@ public class LauncherActivity extends Activity {
             final List<String> blocking = new ArrayList<>();
             final List<String> warning = new ArrayList<>();
             try {
-                for (Diagnostics.Check c : Diagnostics.healthCheck(this)) {
-                    if (c.ok) continue;
-                    if (isBlockingCheck(c.title)) blocking.add("· " + c.title + "：" + c.detail);
-                    else warning.add("· " + c.title + "：" + c.detail);
+                // v4.0.1：预检用【轻量体检】——不调 su，因此不会触发
+                // Magisk 的「已授予超级用户权限」提示。
+                // 需要 root 的检查留到链路测试第 3 步（真正写入时）再做，
+                // 那时候用户本来就知道这一步要写系统待办库。
+                for (Diagnostics.Check c : Diagnostics.lightHealthCheck(this)) {
+                    if (!c.ok) {
+                        warning.add("· " + c.title + "：" + c.detail);
+                    }
                 }
             } catch (Throwable t) {
                 blocking.add("体检执行异常：" + t.getMessage());
@@ -3174,30 +3344,15 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * 版本显示：V + 构建号（纯数字），例如 V394。
+     * 版本显示：V + 点分版本号，例如 V4.0.0。
      *
-     * 之前用 versionName，显示成「v3.9.4-internal」——后缀是内部发布节奏的标记，
-     * 对用户没有意义，还把头部那一行撑成两行。这里统一用构建号：短、唯一、不会换行。
+     * <p>v4.0.1 起统一走 {@link AppVersion}，全项目只有一处取版本号的地方。
+     * 此前这里显示的是「V400」（versionCode），而用户心里想的是「4.0.0」——
+     * 两套数字并行的代价是：界面上的版本号和更新说明、热更兼容性都对不上。
+     * versionCode 仍然保留，但只用于 Android 升级判定，不再参与展示。
      */
     private String appVersionLabel() {
-        int code = appVersionCode();
-        return code > 0 ? "V" + code : "V?";
-    }
-
-    /**
-     * 动态读取 versionCode。
-     * v6.1：此前版本信息里把 versionCode 写死成 (310)，发版改了 build.gradle 也不会变，
-     * 界面会长期显示错误的构建号。改为从 PackageManager 读取，与 build.gradle 永远一致。
-     */
-    private int appVersionCode() {
-        try {
-            android.content.pm.PackageInfo pi =
-                    getPackageManager().getPackageInfo(getPackageName(), 0);
-            return android.os.Build.VERSION.SDK_INT >= 28
-                    ? (int) pi.getLongVersionCode() : pi.versionCode;
-        } catch (Throwable t) {
-            return 0;
-        }
+        return AppVersion.label(this);
     }
 
     private static String nz(String s) { return s == null ? "" : s; }

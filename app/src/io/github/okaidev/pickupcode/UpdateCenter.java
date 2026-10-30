@@ -225,13 +225,10 @@ public class UpdateCenter {
         if (fetched == null) return 3;
         try {
             ExtractorRules cand = ExtractorRules.fromJson(fetched);
-            int appVer;
-            try {
-                appVer = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).versionCode;
-            } catch (Throwable t) {
-                appVer = Integer.MAX_VALUE;
-            }
-            if (cand.minAppVersionCode > appVer) return 2; // 不兼容，静默跳过
+            // minAppVersionCode 是【构建号】语义（数字），必须用 versionCode 比，
+            // 不能拿点分版本号去比——那是两套体系。
+            int appVer = AppVersion.code(ctx);
+            if (appVer > 0 && cand.minAppVersionCode > appVer) return 2; // 不兼容，静默跳过
             if (RuleIntegrity.isNewer(cand.version, PickupExtractor.getActiveRulesVersion())) {
                 if (PickupExtractor.applyNewRules(ctx, fetched)) {
                     try { ProcessSync.push(ctx); } catch (Throwable ignored) { }
@@ -280,9 +277,11 @@ public class UpdateCenter {
     /** 升级 APK 后清一次规则时间戳，保证「装完新包会拉一次最新规则」 */
     private static void clearRulesStampIfUpgraded(Context ctx) {
         try {
-            int ver = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).versionCode;
+            // versionCode 只用于「App 是不是换了」这一件事：它单调递增，
+            // 装新包必然变大，所以变化即代表升级。
+            int ver = AppVersion.code(ctx);
             int last = sp(ctx).getInt(KEY_LAST_APP_VER, 0);
-            if (last != ver) {
+            if (ver > 0 && last != ver) {
                 sp(ctx).edit()
                         .putInt(KEY_LAST_APP_VER, ver)
                         .putLong(KEY_RULES_LAST, 0L)
@@ -296,46 +295,18 @@ public class UpdateCenter {
     }
 
     private static String currentVersion(Context ctx) {
-        try {
-            return ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).versionName;
-        } catch (Throwable t) {
-            return "0.0.0";
-        }
+        // v4.0.1：点分版本号是唯一事实源，版本比较也统一走它
+        return AppVersion.dotted(ctx);
     }
 
     /**
      * 比较两个版本号（如 3.9.4 与 4.0.0）。
      *
-     * 每段只取开头连续数字，容忍后缀：此前版本名带 "-internal"，
-     * Integer.parseInt("4-internal") 抛异常被吞掉、永远返回 0，
-     * 结果是「自动检查更新」始终认为本地已是最新。去掉后缀之外再加这层容错。
+     * <p>v4.0.1：实现搬到 {@link AppVersion#compare}，与版本号解析同源。
+     * 原先这里是另一份手写实现——展示与比较两套解析，改格式时容易只改一边。
      */
     private static int compareVersions(String a, String b) {
-        try {
-            String[] sa = a.split("\\.");
-            String[] sb = b.split("\\.");
-            int n = Math.max(sa.length, sb.length);
-            for (int i = 0; i < n; i++) {
-                int va = i < sa.length ? leadingNumber(sa[i]) : 0;
-                int vb = i < sb.length ? leadingNumber(sb[i]) : 0;
-                if (va != vb) return va - vb;
-            }
-        } catch (Throwable ignored) { }
-        return 0;
-    }
-
-    /** 取一段里的开头连续数字（"4-internal" → 4，"rc2" → 2） */
-    private static int leadingNumber(String part) {
-        if (part == null) return 0;
-        String seg = part.trim();
-        int end = 0;
-        while (end < seg.length() && Character.isDigit(seg.charAt(end))) end++;
-        if (end == 0) return 0;
-        try {
-            return Integer.parseInt(seg.substring(0, end));
-        } catch (Throwable ignored) {
-            return 0;
-        }
+        return AppVersion.compare(a, b);
     }
 
     private static void toast(Context ctx, String s) {

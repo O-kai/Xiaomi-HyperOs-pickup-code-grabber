@@ -308,7 +308,9 @@ public final class PickupRepository {
         try {
             int changed = dao.markDone(id, System.currentTimeMillis());
             if (changed > 0) {
-                PickupWidgetProvider.refreshAsync(appContext);
+                // v4.0.1：小组件刷新交给调用方决定要不要带「补位动画」。
+                // 这里如果直接 refreshAsync，会先刷一版没有动画的内容，
+                // 把动画的中间态顶掉——补位效果就没了。
                 notifyChanged();
             }
             return changed;
@@ -334,6 +336,29 @@ public final class PickupRepository {
             } catch (Throwable t) {
                 Log.w(TAG, "delete failed: " + t);
             }
+        });
+    }
+
+    /**
+     * 恢复为「待取」（v4.0.1）。
+     *
+     * <p>用户反馈「已取的也要有一个按钮把它返回成为待取，防止误操作」——
+     * 点错「已取件」之后能反悔，不需要去数据库里改。
+     */
+    public void restorePendingAsync(long id, Callback<Integer> callback) {
+        io.execute(() -> {
+            int changed = 0;
+            try {
+                changed = dao.markPending(id);
+                if (changed > 0) {
+                    PickupWidgetProvider.refreshAsync(appContext);
+                    notifyChanged();
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "restorePending failed: " + t);
+            }
+            final int n = changed;
+            main.post(() -> callback.onResult(n));
         });
     }
 
