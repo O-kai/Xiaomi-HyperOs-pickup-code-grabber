@@ -256,7 +256,8 @@ public class LauncherActivity extends Activity {
             if (navScrim != null) navScrim.setVisibility(View.GONE);
         }
 
-        showTab(0);
+        // 进阶模式恢复上次停留的 Tab；简洁模式只有首页
+        showTab(simpleMode ? 0 : currentTab);
         uiReady = true;
         refreshHealth();
         refreshUserRuleCard();
