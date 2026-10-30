@@ -228,9 +228,38 @@ public class PickupWidgetProvider extends AppWidgetProvider {
      * <p>供 {@link WidgetDiagActivity} 在本进程内 {@code RemoteViews.apply()}——
      * 桌面添加小组件报「载入窗口小部件时出现问题」时，用它能当场看到
      * 到底是哪个 action 不被系统接受。
+     *
+     * <p>snap 传 null 时会用【示例数据】填充，这样自检页能看到真实的行布局
+     * （行高是否均匀、内容是否填满），而不是只有一个空状态。
      */
     static RemoteViews buildForDiag(Context ctx, PickupRepository.PendingSnapshot snap) {
-        return build(ctx, -1, snap, Collections.emptyList());
+        return build(ctx, -1, snap == null ? sampleSnapshot() : snap, Collections.emptyList());
+    }
+
+    /** 自检用的示例快照（3 条待取 + 1 条已取） */
+    private static PickupRepository.PendingSnapshot sampleSnapshot() {
+        long now = System.currentTimeMillis();
+        java.util.List<PickupRecord> items = new java.util.ArrayList<>();
+        items.add(sample(1, "12-3-4567", "菜鸟驿站", "江南绿城西门", now - 60000, true));
+        items.add(sample(2, "58-2-9041", "顺丰速运", "望江路驿站", now - 120000, true));
+        items.add(sample(3, "93-6-8899", "京东物流", "幸福小区菜鸟柜", now - 180000, true));
+        items.add(sample(4, "09-8-7654", "中通快递", "锦绣路 18 号", now - 240000, false));
+        return new PickupRepository.PendingSnapshot(items, 4, 3, true);
+    }
+
+    private static PickupRecord sample(long id, String code, String source, String place,
+                                       long at, boolean pending) {
+        PickupRecord r = new PickupRecord();
+        r.id = id;
+        r.code = code;
+        r.source = source;
+        r.place = place;
+        r.receivedAt = at;
+        r.createdAt = at;
+        r.lastSeenAt = at;
+        r.status = pending ? PickupRecord.STATUS_PENDING : PickupRecord.STATUS_PICKED_UP;
+        r.pickedAt = pending ? 0L : at;
+        return r;
     }
 
     private static RemoteViews build(Context context, int widgetId,
@@ -238,7 +267,9 @@ public class PickupWidgetProvider extends AppWidgetProvider {
                                      List<Integer> shiftedRows) {
         RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_pickup_v2);
 
-        int rows = rowsFor(context, widgetId);
+        // v4.0.2 第三轮：一次算好行数与实际行高（补位动画的位移量要用真实行高）
+        int[] metrics = widgetMetrics(context, widgetId);
+        int rows = metrics[0];
         boolean showPlace = WidgetPrefs.showPlace(context);
         boolean hideCode = WidgetPrefs.hideCode(context);
         boolean showAll = snap != null && snap.showAll;
@@ -258,14 +289,16 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             rv.setTextViewText(R.id.widget_title, "待取件");
             rv.setTextViewText(R.id.widget_count, pendingTotal + " 个");
         }
-        rv.setTextViewTextSize(R.id.widget_title, TypedValue.COMPLEX_UNIT_SP, 16f);
+        rv.setTextViewTextSize(R.id.widget_title, TypedValue.COMPLEX_UNIT_SP, 18f);
         rv.setTextViewTextSize(R.id.widget_count, TypedValue.COMPLEX_UNIT_SP, 12f);
 
         boolean empty = items == null || items.isEmpty();
         rv.setViewVisibility(R.id.widget_empty, empty ? View.VISIBLE : View.GONE);
         rv.setTextViewTextSize(R.id.widget_empty, TypedValue.COMPLEX_UNIT_SP, 12f * scale);
 
-        float rowPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, ROW_HEIGHT_DP,
+        // v4.0.2 第三轮：行高改成按权重均分，位移量要用【实际行高】，
+        // 否则补位动画会错位（按固定 40dp 算，实际可能是 45dp）。
+        float rowPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, metrics[2],
                 context.getResources().getDisplayMetrics());
 
         int shown = 0;
@@ -340,14 +373,16 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             rv.setOnClickPendingIntent(PLACE_IDS[i], copyAction(context, record.id));
         }
 
-        // 还有更多没显示时才提示「查看全部」
-        boolean more = !empty && pendingTotal > pendingShown(items, shown);
-        rv.setViewVisibility(R.id.widget_more, more ? View.VISIBLE : View.GONE);
-        rv.setTextViewTextSize(R.id.widget_more, TypedValue.COMPLEX_UNIT_SP, 11f * scale);
+        // v4.0.2 第三轮：底部「查看全部」已去掉。
+        // 用户原话：「最右下角的『查看全部』我觉得完全可以拿掉。
+        // 因为点击上方『取件记录』最顶上的标题时，就可以直接跳转过去，
+        // 这已经足够完成跳转功能。这种重复的工作没有必要在两边同时展开。」
+        //
+        // 现在点标题（标题行 / 件数 / 空状态）都能跳到取件记录页，
+        // 组件里只剩一个跳转入口，不再让人犹豫该点哪个。
 
-        // 其余位置（标题、件数、查看全部、空白）点击才打开 App——这才是「正常点击小组件」。
+        // 其余位置（标题、件数、空白）点击才打开 App——这才是「正常点击小组件」。
         PendingIntent open = openApp(context);
-        rv.setOnClickPendingIntent(R.id.widget_more, open);
         rv.setOnClickPendingIntent(R.id.widget_title, open);
         rv.setOnClickPendingIntent(R.id.widget_count, open);
         rv.setOnClickPendingIntent(R.id.widget_empty, open);
@@ -378,6 +413,19 @@ public class PickupWidgetProvider extends AppWidgetProvider {
      * 组件拉得越大，这里算出来的行数就越多，最多到布局允许的 MAX_ROWS。
      */
     private static int rowsFor(Context context, int widgetId) {
+        return widgetMetrics(context, widgetId)[0];
+    }
+
+    /**
+     * 组件的尺寸与行数。
+     *
+     * <p>v4.0.2 第三轮：行高改成按权重均分后，【实际行高】=
+     * 可用高度 / 行数，必须算出来给补位动画用（位移量按真实行高走，
+     * 否则动画会错位）。所以这里一次把高度、宽度、行数、行高都算好。
+     *
+     * @return {行数, 组件高度dp, 实际行高dp}
+     */
+    private static int[] widgetMetrics(Context context, int widgetId) {
         int heightDp = 0;
         int widthDp = 0;
         try {
@@ -390,8 +438,13 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             Log.w(TAG, "widget options failed: " + t);
         }
         int rows = WidgetPrefs.rowsForHeight(heightDp, widthDp, MAX_ROWS);
-        Log.i(TAG, "WIDGET size: h=" + heightDp + "dp w=" + widthDp + "dp -> rows=" + rows);
-        return rows;
+        // 可用高度（去掉上下 padding 与标题行）与实际行高
+        int availDp = heightDp - 24 - 28;
+        if (availDp < 1) availDp = 1;
+        int rowDp = availDp / Math.max(1, rows);
+        Log.i(TAG, "WIDGET size: h=" + heightDp + "dp w=" + widthDp
+                + "dp -> rows=" + rows + " rowH=" + rowDp + "dp");
+        return new int[]{rows, heightDp, rowDp};
     }
 
     private static PendingIntent openApp(Context context) {

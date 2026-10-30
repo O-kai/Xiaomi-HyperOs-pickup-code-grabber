@@ -122,15 +122,21 @@ public final class WidgetPrefs {
      */
     public static int rowsForHeight(int heightDp, int widthDp, int maxRows) {
         if (heightDp <= 0) return 3;                       // 拿不到尺寸时的保守值
-        // 头部标题行约 26dp，底部「查看全部」约 18dp，组件内边距上下共 24dp
-        int available = heightDp - 26 - 18 - 24;
-        int rows = available / 40;                        // 行高固定 40dp
-        if (widthDp > 0 && widthDp < 150) rows = Math.min(rows, 2);
-        // 留一行安全余量：桌面给的 MIN_HEIGHT 有时比实际可用高度大，
-        // 多算一行会导致最后一行被压扁。
-        rows = Math.max(1, rows - 1);
-        return Math.max(1, Math.min(maxRows, rows));
+        // 上下 padding 各 12dp = 24dp；标题行约 28dp（18sp 文字 + 一点余量）
+        int avail = heightDp - 24 - 28;
+        if (avail <= 0) return 1;                          // 极小高度：至少留一行
+        int byMin = avail / ROW_MIN_DP;                    // 行高 ≥ 40dp 时最多几行
+        int byMax = (avail + ROW_MAX_DP - 1) / ROW_MAX_DP; // 行高 ≤ 79dp 时至少几行
+        int rows = Math.max(byMax, byMin);                 // 取大者：填满优先
+        rows = Math.min(rows, Math.max(1, maxRows));
+        if (widthDp > 0 && widthDp < 150) rows = Math.min(rows, 3);
+        return Math.max(1, rows);
     }
+
+    /** 单行最小可读高度（dp） */
+    public static final int ROW_MIN_DP = 40;
+    /** 单行最大高度（dp）——超过这个值一行内容会显得松散 */
+    public static final int ROW_MAX_DP = 79;
 
     /**
      * 是否隐藏取件码（只显示件数）。

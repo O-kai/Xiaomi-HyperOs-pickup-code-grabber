@@ -81,6 +81,10 @@ public class LauncherActivity extends Activity {
     private LinearLayout checklistCard;
     private LinearLayout checklistBox;
     private TextView deployBtn, troubleshootBtn;
+    /** v4.0.2 第三轮：清单里的「点击体检」按钮（手动跑完整校验） */
+    private TextView healthBtn;
+    /** 清单底部的操作区（体检 / 部署 / 排查向导） */
+    private LinearLayout healthActionsBox;
     /** v4.3：新用户「开始配置」引导入口（未完全就绪时显示） */
     private TextView guideBtn;
     /** 4.1：一键链路测试入口（从「规则 → 工具」移到首页） */
@@ -175,6 +179,8 @@ public class LauncherActivity extends Activity {
     private boolean notiSwitchOn = false;
     private long lastNotiScopeCheck = 0L;
     private boolean healthAllOk = false;
+    /** v4.0.2 第三轮：本次体检是不是用户手动点的（决定体检后清单要不要保持展开） */
+    private boolean healthManual = false;
 
     // ================================================================
     //  创建
@@ -615,18 +621,16 @@ public class LauncherActivity extends Activity {
         heroCard.setBackground(UiKit.bg(P.hero, this, 18));
         heroCard.setPadding(dp(20), dp(17), dp(20), dp(17));
         heroCard.setElevation(dp(1));
-        // v4.0.2：点状态卡 = 跑【完整体检】（含 root 检测）。
+        // v4.0.2 第三轮：点状态卡 = 展开 / 收起校验清单（不再直接跑体检）。
         //
-        // 原先这里点一下是展开/收起体检清单，完整体检另有一个独立按钮。
-        // 用户反馈「把完整体检完全整合进状态卡里，点一下就可以进行完整的检查校验」
-        // ——独立按钮确实是多余的一层，而且「磨磨唧唧的东西那么多，没有任何意义」。
+        // 用户原话：「点击『一切正常已激活』，正常列举出校验内容。
+        // 在内容下方补充一个『点击体检』的步骤……再次点击上面的标题，内容可以缩回去，
+        // 回到正常的场景。……省得每次用户点到外面的标题或内容上就开始体检。
+        // 其实正常情况下一切都正常，不用整天体检，可以减少这样的操作。」
         //
-        // 点一下就跑完整校验（含 root），用户对 Magisk 弹框有预期；
-        // 清单仍然照旧自动展开显示结果。
-        heroCard.setOnClickListener(v -> {
-            refreshHealth(true);
-            Toast.makeText(this, "正在跑完整体检…", Toast.LENGTH_SHORT).show();
-        });
+        // 完整体检改由清单里的「点击体检」按钮手动触发；
+        // 设置页的「排查问题向导」也并了进来（见清单底部「进入排查向导」）。
+        heroCard.setOnClickListener(v -> toggleChecklist());
         heroIcon = UiKit.icon(this, R.drawable.ic_check, 32, P.heroInk);
         heroCard.addView(heroIcon);
         LinearLayout heroCol = new LinearLayout(this);
@@ -651,32 +655,61 @@ public class LauncherActivity extends Activity {
         // 完整体检已整合进上面的状态卡——点一下状态卡就跑完整校验。
         // 用户原话：「把完整体检完全整合进状态卡里……磨磨唧唧的东西那么多，没有任何意义」。
 
-        // 体检清单（仅异常时显示）
+        // 体检清单（点状态卡展开 / 收起；异常时强制展开，不让红字被藏起来）
         checklistCard = UiKit.card(this, P);
         checklistBox = new LinearLayout(this);
         checklistBox.setOrientation(LinearLayout.VERTICAL);
         checklistCard.addView(checklistBox);
-        box.addView(checklistCard, UiKit.cardLp(this, 10));
-        checklistCard.setVisibility(View.GONE);
 
-        // 一键部署 / 排查问题
+        // v4.0.2 第三轮：清单底部的操作区。
+        //
+        // 用户原话：「点击『一切正常已激活』，正常列举出校验内容。
+        // 在内容下方补充一个『点击体检』的步骤……再次点击上面的标题，内容可以缩回去，
+        // 回到正常的场景。这样做的话有个好处，省得每次用户点到外面的标题或内容上
+        // 就开始体检。其实正常情况下一切都正常，不用整天体检。」
+        //
+        // 所以：状态卡点击 = 展开/收起清单（不触发任何体检）；
+        // 真正的完整体检由清单里的「点击体检」手动触发。
+        healthActionsBox = new LinearLayout(this);
+        healthActionsBox.setOrientation(LinearLayout.VERTICAL);
+        checklistCard.addView(healthActionsBox);
+
+        // 「点击体检」——手动跑完整校验（含 root 检测）
+        healthBtn = UiKit.button(this, P, "点击体检（完整校验，含 root）", "primary");
+        LinearLayout.LayoutParams hbLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+        hbLp.setMargins(0, dp(12), 0, 0);
+        healthBtn.setLayoutParams(hbLp);
+        healthBtn.setOnClickListener(v -> {
+            healthBtn.setEnabled(false);
+            healthBtn.setText("正在体检…");
+            refreshHealth(true);
+        });
+        healthActionsBox.addView(healthBtn);
+
+        // 一键部署 sqlite3（只在缺 sqlite3 时出现）
         deployBtn = UiKit.buttonIcon(this, P, R.drawable.ic_rocket, "一键部署 sqlite3（自动完成）", "ok");
         LinearLayout.LayoutParams depLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
         depLp.setMargins(0, dp(10), 0, 0);
         deployBtn.setLayoutParams(depLp);
         deployBtn.setVisibility(View.GONE);
         deployBtn.setOnClickListener(v -> deploySqlite3());
-        box.addView(deployBtn);
+        healthActionsBox.addView(deployBtn);
 
-        troubleshootBtn = UiKit.button(this, P, "排查问题向导（点不了 / 收不到）", "warn");
+        // 「进入排查向导」——状态不正常时的主要出口；
+        // 状态正常时也保留（用户可能想主动做一次深度排查）
+        troubleshootBtn = UiKit.button(this, P, "进入排查向导", "ghostLine");
         LinearLayout.LayoutParams tsLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
         tsLp.setMargins(0, dp(10), 0, 0);
         troubleshootBtn.setLayoutParams(tsLp);
         troubleshootBtn.setVisibility(View.GONE);
         troubleshootBtn.setOnClickListener(v -> runTroubleshoot());
-        box.addView(troubleshootBtn);
+        healthActionsBox.addView(troubleshootBtn);
+
+        box.addView(checklistCard, UiKit.cardLp(this, 10));
+        checklistCard.setVisibility(View.GONE);
 
         // v4.3：「开始配置」——新用户首次安装的总入口，按顺序走完六步。
         // 仅在未完全就绪时出现（全绿时藏起来，不打扰已用起来的用户）。
@@ -1578,25 +1611,15 @@ public class LauncherActivity extends Activity {
 
         box.addView(perCard, UiKit.cardLp(this, 0f));
 
-        // ==================== 排查与反馈 ====================
-        // v4.0 收口：原先这一堆散在「基础设置」里——排查向导、sqlite3 自检、
-        // 诊断报告、错题本、QQ 群、GitHub 反馈，一共 6 行，且大半要跳浏览器。
-        // 现在收成两行：排查向导（主入口，出问题时用）与反馈与支持（其余渠道）。
-        box.addView(UiKit.groupLabel(this, P, "排查与反馈"));
-        LinearLayout fixCard = UiKit.card(this, P);
-        fixCard.addView(toolRow(R.drawable.ic_search, "排查问题向导",
-                "未注入 → root → 作用域 → 通知 → sqlite3 → 笔记库",
-                v -> runTroubleshoot()));
-        fixCard.addView(UiKit.divider(this, P));
-        fixCard.addView(toolRow(R.drawable.ic_chat, "反馈与支持",
-                "诊断报告 · 错题本 · sqlite3 自检 · GitHub · QQ 群 · 酷安",
-                v -> showFeedbackSupportDialog()));
-        box.addView(fixCard, UiKit.cardLp(this, 0f));
-
         // ==================== 关于 ====================
-        // v4.0 收口：原来的「帮助与关于」有 6 行，其中 3 行都是跳 GitHub
-        // （项目仓库 / GitHub 反馈 / 更新日志），另有「用户协议」这一行，
-        // 而协议在「关于模块」弹窗里已经有一份完整版。现在合成 3 行。
+        // v4.0.2 第三轮：「排查问题向导」并入首页状态卡
+        // （点状态卡 → 校验清单 → 「进入排查向导」），
+        // 「反馈与支持」移到「关于」分组里。
+        //
+        // 用户原话：「把设置里的『反馈与支持』内容放到『关于』里面去。
+        // 这样设置里面就可以少一个细分类，界面清爽一点。」
+        //
+        // 设置页于是只剩「基础设置」+「关于」两组，入口不再分散在多处。
         box.addView(UiKit.groupLabel(this, P, "关于"));
         LinearLayout aboutCard = UiKit.card(this, P);
         aboutCard.addView(toolRow(R.drawable.ic_info, "关于模块",
@@ -1604,6 +1627,10 @@ public class LauncherActivity extends Activity {
         aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_github, "项目主页",
                 "GitHub · 仓库、更新日志与 Issue", v -> openUrl(REPO_URL)));
+        aboutCard.addView(UiKit.divider(this, P));
+        aboutCard.addView(toolRow(R.drawable.ic_chat, "反馈与支持",
+                "诊断报告 · 错题本 · sqlite3 自检 · GitHub · QQ 群 · 酷安",
+                v -> showFeedbackSupportDialog()));
         aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_heart, "打赏作者", "纯自愿，不影响任何功能",
                 v -> startActivity(new Intent(this, DonateActivity.class))));
@@ -2514,6 +2541,8 @@ public class LauncherActivity extends Activity {
      * 所以默认不再自动跑；真出问题时，用户主动点一下就能看到完整诊断。
      */
     private void refreshHealth(boolean force) {
+        // v4.0.2 第三轮：手动点的体检，跑完后清单保持展开（结果留在眼前）
+        healthManual = force;
         if (!force && lastHealthChecks != null
                 && System.currentTimeMillis() - lastHealthAt < HEALTH_CACHE_TTL) {
             renderHealth(lastHealthChecks, lastHealthOk, lastHealthDeploy, lastHealthErr);
@@ -2526,7 +2555,8 @@ public class LauncherActivity extends Activity {
         heroIcon.setColorFilter(P.heroInk, android.graphics.PorterDuff.Mode.SRC_IN);
         heroTitle.setTextColor(P.heroInk);
         heroSub.setTextColor(P.heroSubInk);
-        checklistCard.setVisibility(View.GONE);
+        // 手动体检时不要收起清单（用户正在看这一块）
+        if (!force) checklistCard.setVisibility(View.GONE);
         deployBtn.setVisibility(View.GONE);
         troubleshootBtn.setVisibility(View.GONE);
 
@@ -2596,9 +2626,9 @@ public class LauncherActivity extends Activity {
                 // v4.0.2：轻量体检只覆盖 2 项，措辞必须准确——
                 // 说「全部通过」会让用户以为跑过完整检测，那是骗人。
                 //
-                // 用户指定文案：「LSPosed 已注入·点击可跑 root 相关检测」，
-                // 保持一行不换行——之前那句太长，挤成两行把状态卡拉高了。
-                heroSub.setText("LSPosed 已注入 · 点击可跑 root 相关检测");
+                // v4.0.2 第三轮：点击语义变了（现在是展开清单，不是跑体检），
+                // 文案跟着改，否则会误导用户以为点一下就会弹 root 授权。
+                heroSub.setText("LSPosed 已注入 · 点此查看校验清单");
                 heroSub.setMaxLines(1);
                 heroSub.setEllipsize(android.text.TextUtils.TruncateAt.END);
             }
@@ -2646,11 +2676,31 @@ public class LauncherActivity extends Activity {
                 checklistBox.addView(row);
             }
         }
-        // 全绿时默认收起清单（点状态卡可展开）；异常时强制展开，不让红字被藏起来
-        checklistCard.setVisibility(allOk ? View.GONE : View.VISIBLE);
+        // 全绿时默认收起清单（点状态卡可展开）；异常时强制展开，不让红字被藏起来。
+        // v4.0.2 第三轮：手动点「点击体检」跑完体检后，清单要保持展开——
+        // 用户刚点的按钮，结果应该留在眼前，而不是又缩回去。
+        checklistCard.setVisibility(allOk && !healthManual ? View.GONE : View.VISIBLE);
         deployBtn.setVisibility(needDeploy ? View.VISIBLE : View.GONE);
-        troubleshootBtn.setVisibility(allOk ? View.GONE : View.VISIBLE);
+        // 「进入排查向导」始终保留：状态正常时用户也可能想主动做一次深度排查。
+        troubleshootBtn.setVisibility(View.VISIBLE);
+        if (healthBtn != null) {
+            healthBtn.setEnabled(true);
+            healthBtn.setText("点击体检（完整校验，含 root）");
+        }
         if (guideBtn != null) guideBtn.setVisibility(allOk ? View.GONE : View.VISIBLE);
+    }
+
+    /**
+     * 点状态卡：展开 / 收起校验清单。
+     *
+     * <p>v4.0.2 第三轮恢复的行为——原先点一下就跑完整体检，
+     * 用户反馈「正常情况下一切都正常，不用整天体检」，
+     * 所以改成只展开清单，完整体检由清单里的「点击体检」手动触发。
+     */
+    private void toggleChecklist() {
+        if (checklistCard == null) return;
+        boolean show = checklistCard.getVisibility() != View.VISIBLE;
+        checklistCard.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
     /**

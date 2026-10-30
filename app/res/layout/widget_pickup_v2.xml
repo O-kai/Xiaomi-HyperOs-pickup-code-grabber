@@ -1,18 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  桌面小组件布局。
+  桌面小组件布局（v4.0.2 第三轮重做）。
 
-  v4.0.2 重做：
-  - 每一行是【固定高度 40dp】，内容从上往下排。
-    此前每行 layout_weight=1，五行会把整个组件高度均分——条数一变行高就跟着变，
-    看着像在缩放。v4.0.1 改成 wrap_content 后又出现另一个问题：
-    LinearLayout 在空间不足且子视图无 weight 时会【均分压缩】子视图，
-    于是行被压成十几 dp，标题行也被挤没。
-    现在行高写死 40dp（固定值不会被压缩），列表容器用 wrap_content，
-    放不下的行直接不显示（GONE），剩余空间留白。
-  - 行数上限 12：组件可以被用户拉大，拉得越大显示得越多，
-    不再被一个固定条数卡住（条数由组件实际高度决定）。
-  - 行布局完全一致，只靠 id 区分，代码侧用数组批量处理。
+  核心变化：行高改为【按权重自适应】。
+  · 每行 layout_height="0dp" + layout_weight="1"，列表容器也用 weight 撑满，
+    于是「行数 × 行高」恒等于可用高度——组件里有多少空间就填多少，
+    不会再出现「下面一堆空着」。
+  · 行数由代码按每行至少 40dp 算出，保证文字永远不会被裁；
+    实际行高落在 40–79dp 之间，既填满又可读。
+  · 放不下的整行 GONE，不做半行截断——半行会被误读成完整的一条。
+
+  另外：
+  · 去掉底部「查看全部」：点顶部标题即可跳转，两处入口重复反而让人犹豫；
+  · 标题 18sp 并给标题行确定高度，解决「标题下沿被截」。
+  · 注意：Android 桌面在 App 更新后【不会重建】已有小组件的视图树，
+    布局结构变了必须移除旧组件再重新添加（设置页里有「重新添加小组件」入口）。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root_v2"
@@ -22,9 +24,11 @@
     android:orientation="vertical"
     android:padding="12dp">
 
+    <!-- 标题行：标题可点（跳转取件记录页），右侧显示件数 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:minHeight="28dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -33,32 +37,36 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
             android:text="待取件"
             android:textColor="#FFFFFFFF"
-            android:textSize="16sp"
+            android:textSize="18sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/widget_count"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
             android:textColor="#B3FFFFFF"
             android:textSize="12sp" />
     </LinearLayout>
 
+    <!-- 列表：weight 撑满剩余高度，行按权重均分 -->
     <LinearLayout
         android:id="@+id/widget_list"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:orientation="vertical">
 
         <TextView
             android:id="@+id/widget_empty"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center"
-            android:paddingTop="24dp"
-            android:paddingBottom="24dp"
             android:text="暂无待取件\n收到短信后会自动出现"
             android:textColor="#B3FFFFFF"
             android:textSize="12sp"
@@ -67,7 +75,8 @@
         <LinearLayout
             android:id="@+id/widget_row_1"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -101,10 +110,12 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_2"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -138,10 +149,12 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_3"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -175,10 +188,12 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_4"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -212,10 +227,12 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_5"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -249,12 +266,15 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_6"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
-            android:orientation="horizontal" android:visibility="gone">
+            android:orientation="horizontal"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/widget_code_6"
@@ -286,12 +306,15 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_7"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
-            android:orientation="horizontal" android:visibility="gone">
+            android:orientation="horizontal"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/widget_code_7"
@@ -323,12 +346,15 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_8"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
-            android:orientation="horizontal" android:visibility="gone">
+            android:orientation="horizontal"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/widget_code_8"
@@ -360,12 +386,15 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_9"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
-            android:orientation="horizontal" android:visibility="gone">
+            android:orientation="horizontal"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/widget_code_9"
@@ -397,12 +426,15 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_10"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
-            android:orientation="horizontal" android:visibility="gone">
+            android:orientation="horizontal"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/widget_code_10"
@@ -434,12 +466,15 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_11"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
-            android:orientation="horizontal" android:visibility="gone">
+            android:orientation="horizontal"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/widget_code_11"
@@ -471,12 +506,15 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
         <LinearLayout
             android:id="@+id/widget_row_12"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
-            android:orientation="horizontal" android:visibility="gone">
+            android:orientation="horizontal"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/widget_code_12"
@@ -509,31 +547,4 @@
                 android:textSize="16sp" />
         </LinearLayout>
     </LinearLayout>
-
-    <!--
-      弹性占位：把「查看全部」推到组件底部。
-      列表本身按内容高度（wrap_content），这里吃掉剩余空间。
-
-      v4.0.3 修正：这里原先写的是 <View>，结果桌面添加小组件直接报
-      「载入窗口小部件时出现问题」。原因是 Android 的 RemoteViews 只允许
-      inflate 一份白名单里的具体 View 类（LinearLayout / TextView / ImageView …），
-      裸的 android.view.View 不在白名单里，会抛
-      Class not allowed to be inflated android.view.View。
-      Space 同样不在白名单，只能用 TextView 顶替。
-    -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:text="" />
-
-    <TextView
-        android:id="@+id/widget_more"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="end"
-        android:paddingTop="2dp"
-        android:text="查看全部 ›"
-        android:textColor="#B3FFFFFF"
-        android:textSize="11sp" />
 </LinearLayout>

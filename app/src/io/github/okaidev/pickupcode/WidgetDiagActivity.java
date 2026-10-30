@@ -38,6 +38,8 @@ public class WidgetDiagActivity extends Activity {
     private static final String TAG = "PICKUPDEBUG";
 
     private LinearLayout resultBox;
+    /** ScrollView 里的内容盒（真实渲染预览要挂在这里） */
+    private LinearLayout contentBox;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,6 +59,7 @@ public class WidgetDiagActivity extends Activity {
         sv.setPadding(dp(18), dp(4), dp(18), dp(24));
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
+        contentBox = box;
         sv.addView(box, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(sv, new LinearLayout.LayoutParams(
@@ -144,6 +147,63 @@ public class WidgetDiagActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hlp.setMargins(0, dp(8), 0, 0);
         resultBox.addView(hint, hlp);
+
+        // ---- 真实渲染预览 ----
+        // v4.0.2 第三轮：RemoteViews.recreateView()（API 31+）能在普通 Activity 里
+        // 把小组件布局渲染成真实 View——不需要桌面授权、不需要 AppWidgetHost。
+        // 于是「行高按权重均分」这种只有真机才看得出的效果，这里能直接验。
+        addLivePreview(P);
+    }
+
+    /** 用真实布局渲染一份小组件出来看看 */
+    private void addLivePreview(UiKit.Palette P) {
+        TextView title = UiKit.text(this, "真实渲染（模拟 3 排格子高度）", 14.5f, P.navInk);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.setMargins(0, dp(16), 0, 0);
+
+        android.widget.FrameLayout host = new android.widget.FrameLayout(this);
+        android.widget.FrameLayout.LayoutParams hostLp = new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(280));
+        hostLp.setMargins(0, dp(10), 0, 0);
+
+        try {
+            RemoteViews rv = PickupWidgetProvider.buildForDiag(this, null);
+            // apply() 用的是与桌面同一套受限制的 inflater（所以它能抓到
+            // 「不允许 inflate 的控件」这类错误），并会真实执行所有 action。
+            // 容器固定 280dp 高 → 根布局 match_parent 撑满 → 行按权重均分，
+            // 于是「行高自适应、填满组件」的效果在这里能直接看到。
+            View v = rv.apply(this, host);
+            if (v != null) {
+                host.addView(v, new android.widget.FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "live preview failed: " + t);
+        }
+
+        // 说明
+        TextView note = UiKit.text(this,
+                "预览里的行高是按权重均分的——组件越高，行越多、行高越接近 40dp，"
+                        + "且内容填满整个组件，不会再留一块空白。",
+                12f, P.muteInk);
+        note.setLineSpacing(dp(2), 1f);
+        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        noteLp.setMargins(0, dp(8), 0, 0);
+
+        // 挂到页面（加进 ScrollView 的内容盒，而不是 content 根——
+        // 加到根上会盖住整个页面）
+        if (contentBox == null) return;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(title, titleLp);
+        box.addView(host, hostLp);
+        box.addView(note, noteLp);
+        contentBox.addView(box, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     private void addResult(UiKit.Palette P, String title, boolean ok, String detail) {

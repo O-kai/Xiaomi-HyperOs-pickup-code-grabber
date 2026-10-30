@@ -211,9 +211,39 @@ public class PickupListActivity extends Activity {
             listBox.addView(emptyView());
             return;
         }
+        // v4.0.2 第三轮：把「可能已失效」的含义讲清楚。
+        //
+        // 用户反馈「我都不知道这是什么情况，为什么会有这样的场景」。
+        // 这个标记的判据是「收到超过 3 天还没取」——取件码通常只有几天有效期，
+        // 驿站多半已经清理了，所以提醒一下用户去处理。
+        // 它只是提醒，绝不自动删（说不定用户过两天才去取）。
+        int staleCount = 0;
+        long now = System.currentTimeMillis();
+        for (PickupRecord r : list) {
+            if (r != null && r.isPending()
+                    && Retention.isProbablyExpired(r.receivedAt, now)) staleCount++;
+        }
+        if (staleCount > 0) {
+            listBox.addView(staleHint(staleCount));
+        }
         for (PickupRecord record : list) {
             listBox.addView(card(record));
         }
+    }
+
+    /** 「可能已失效」是什么意思——用一句话讲清楚 */
+    private View staleHint(int count) {
+        TextView v = UiKit.text(this,
+                "其中 " + count + " 条收到已超过 3 天还没取，标为「可能已失效」："
+                        + "取件码一般只有几天有效期，驿站多半已清理。\n"
+                        + "这只是提醒，不会自动删除——过两天才去取也还算数。",
+                12f, UiKit.INK3);
+        v.setLineSpacing(dp(2), 1f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dp(4), dp(2), dp(4), dp(10));
+        listBox.addView(v, lp);
+        return v;
     }
 
     private View emptyView() {
@@ -278,10 +308,14 @@ public class PickupListActivity extends Activity {
         top.addView(code, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        // 超过三天还没取的件多半已经过期了——提示一下，但绝不自动删
+        // v4.0.2 第三轮：文案改成「可能已失效」。
+        //
+        // 原文案「可能已过期」有歧义——用户看到会以为「这条记录过期了」，
+        // 其实是「取件码多半已经失效了」（驿站清理）。
+        // 判定不变：收到超过 3 天还没取。只提醒，绝不自动删。
         if (pending
                 && Retention.isProbablyExpired(record.receivedAt, System.currentTimeMillis())) {
-            top.addView(UiKit.badgeWarn(this, "可能已过期"));
+            top.addView(UiKit.badgeWarn(this, "可能已失效"));
         }
 
         TextView state = UiKit.text(this, pending ? "待取" : "已取", 12,

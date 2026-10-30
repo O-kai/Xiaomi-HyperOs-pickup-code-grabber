@@ -76,6 +76,35 @@ public class WidgetSettingsActivity extends Activity {
         rlp2.setMargins(0, dp(10), 0, 0);
         box.addView(readd, rlp2);
 
+        // v4.0.3：若桌面上已有小组件实例，提醒移除重加。
+        //
+        // 真机踩过的坑：Android 桌面在 App 更新后【不会重建】已有小组件的视图树——
+        // 它只在首次添加时 inflate 一次 initialLayout，之后的 updateAppWidget
+        // 只是往那棵已存在的视图树上套新数据。布局结构一旦变了，桌面上的组件
+        // 就会显示成错乱的样子（码和地点分行、底部有残留文字）。
+        // 系统层面没有让 App 主动重建的 API，只能移除后重新添加。
+        //
+        // 所以这里主动检测并提示，别让用户对着一个坏掉的组件猜原因。
+        try {
+            int[] ids = android.appwidget.AppWidgetManager.getInstance(this)
+                    .getAppWidgetIds(new android.content.ComponentName(this,
+                            PickupWidgetProvider.class));
+            if (ids != null && ids.length > 0) {
+                TextView warn = UiKit.text(this,
+                        "桌面上已有 " + ids.length + " 个小组件。"
+                                + "App 更新后桌面不会重建旧组件的视图，显示异常时"
+                                + "请先长按组件「移除」，再重新添加一次。",
+                        12f, P.heroWarnInk);
+                warn.setLineSpacing(dp(2), 1f);
+                warn.setBackground(UiKit.bg(P.heroWarn, this, 12));
+                warn.setPadding(dp(12), dp(10), dp(12), dp(10));
+                LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                wlp.setMargins(0, dp(10), 0, 0);
+                box.addView(warn, wlp);
+            }
+        } catch (Throwable ignored) { }
+
         // v4.0.3：小组件自检。
         //
         // 桌面加小组件失败时，系统日志里【什么都不会有】——失败发生在桌面进程
@@ -94,9 +123,10 @@ public class WidgetSettingsActivity extends Activity {
         box.addView(diag, dlp);
 
         TextView note = UiKit.text(this,
-                "显示条数由组件高度决定，把组件拉大就能看到更多；"
-                        + "点取件码复制，点右侧 ✓ 标记已取。\n\n"
-                        + "提示：App 更新后，桌面上已有的组件不会自动套用新样式，"
+                "显示条数由组件高度决定——把组件拉大就能看到更多；"
+                        + "点取件码复制，点右侧 ✓ 标记已取；点顶部标题进入取件记录页。\n\n"
+                        + "提示：App 更新后，桌面上已有的组件不会自动套用新样式"
+                        + "（Android 桌面不重建已有小组件的视图树），"
                         + "显示错乱时请先「移除」旧的，再点上面的「重新添加小组件」。",
                 12f, P.muteInk);
         note.setLineSpacing(dp(2), 1f);
@@ -232,7 +262,7 @@ public class WidgetSettingsActivity extends Activity {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        previewTitle = UiKit.text(this, "待取件", 16f, 0xFFFFFFFF);
+        previewTitle = UiKit.text(this, "待取件", 18f, 0xFFFFFFFF);
         previewTitle.setTypeface(null, Typeface.BOLD);
         head.addView(previewTitle, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -250,10 +280,16 @@ public class WidgetSettingsActivity extends Activity {
 
     /** 预览里加一行（picked = true 表示已取件那一行：划掉 + 变灰 + 无 ✓） */
     private void addPreviewRow(boolean picked) {
+        addPreviewRow(picked, picked ? "09-8-7654" : "12-3-4567",
+                picked ? "中通快递 · 已取" : "菜鸟驿站 · 1 号柜");
+    }
+
+    /** 预览里加一行（可指定码与地点） */
+    private void addPreviewRow(boolean picked, String codeText, String placeText) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        // 行高与真实布局一致（40dp）——预览与桌面看起来才是一回事
+        // 行高与真实布局的下限一致（真实布局按权重均分，实际会略大于 40dp）
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
         previewRows.addView(row, rlp);
@@ -261,7 +297,7 @@ public class WidgetSettingsActivity extends Activity {
         boolean hideCode = WidgetPrefs.hideCode(this);
         boolean showPlace = WidgetPrefs.showPlace(this);
 
-        TextView code = UiKit.text(this, picked ? "09-8-7654" : "12-3-4567", 17f,
+        TextView code = UiKit.text(this, codeText, 17f,
                 picked ? 0x99FFFFFF : 0xFFFFFFFF);
         code.setTypeface(Typeface.create("monospace", Typeface.BOLD));
         if (picked) {
@@ -272,8 +308,7 @@ public class WidgetSettingsActivity extends Activity {
         if (hideCode) code.setText("");
         row.addView(code);
 
-        TextView place = UiKit.text(this,
-                picked ? "中通快递 · 已取" : "菜鸟驿站 · 1 号柜", 11f,
+        TextView place = UiKit.text(this, placeText, 11f,
                 picked ? 0x80FFFFFF : 0xB3FFFFFF);
         place.setMaxLines(1);
         LinearLayout.LayoutParams plp2 = new LinearLayout.LayoutParams(
@@ -365,8 +400,8 @@ public class WidgetSettingsActivity extends Activity {
         previewRows.removeAllViews();
         // 行照旧画出来：隐私模式（隐藏取件码）下真实组件里行还在、
         // 只是码与地点为空。预览不画行的话，用户看到的与桌面不一样。
-        addPreviewRow(false);
-        addPreviewRow(false);
+        addPreviewRow(false, "12-3-4567", "菜鸟驿站 · 1 号柜");
+        addPreviewRow(false, "58-2-9041", "顺丰速运 · 望江路驿站");
         if (showAll) {
             // 全部信息模式：已取的也画出来（划掉 + 变灰 + 无 ✓）
             addPreviewRow(true);

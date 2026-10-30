@@ -64,13 +64,39 @@ public class WidgetTest {
                 WidgetPrefs.rowsForHeight(60, 333, MAX) >= 1,
                 String.valueOf(WidgetPrefs.rowsForHeight(60, 333, MAX)));
 
-        // 窄组件（<150dp）最多 2 行——放不下那么多字
-        check("窄组件最多 2 行",
-                WidgetPrefs.rowsForHeight(800, 120, MAX) <= 2,
+        // 窄组件（<150dp）最多 3 行——放不下那么多字
+        check("窄组件最多 3 行",
+                WidgetPrefs.rowsForHeight(800, 120, MAX) <= 3,
                 String.valueOf(WidgetPrefs.rowsForHeight(800, 120, MAX)));
         check("宽组件不受窄组件限制",
                 WidgetPrefs.rowsForHeight(800, 333, MAX) > 2,
                 String.valueOf(WidgetPrefs.rowsForHeight(800, 333, MAX)));
+
+        // v4.0.2 第三轮：行高改成按权重均分，行数算法同步改了。
+        //
+        // 核心性质：算出来的行数 × 实际行高（可用高度 / 行数）必须【填满可用高度】，
+        // 且单行高度落在 [40, 79]dp 这个可读区间内——这是用户反馈
+        // 「3 排格子只显示 4 行、下面一堆空着」的根治点。
+        for (int h = 120; h <= 900; h += 20) {
+            int avail = h - 24 - 28;          // 去掉上下 padding 与标题行
+            if (avail <= 0) continue;
+            int rows = WidgetPrefs.rowsForHeight(h, 333, MAX);
+            if (rows <= 0) { rows = 1; }
+            int rowDp = avail / rows;
+            if (rowDp < WidgetPrefs.ROW_MIN_DP || rowDp > WidgetPrefs.ROW_MAX_DP) {
+                check("行高应落在可读区间 [" + WidgetPrefs.ROW_MIN_DP + ", "
+                        + WidgetPrefs.ROW_MAX_DP + "]（h=" + h + "dp）", false,
+                        "rows=" + rows + " rowH=" + rowDp + "dp");
+                break;
+            }
+            // 填满：实际行高 × 行数 ≥ 可用高度 - 一行（余量不足一行就不该再少算）
+            if (avail - rowDp * rows >= WidgetPrefs.ROW_MIN_DP) {
+                check("行数应填满可用高度（h=" + h + "dp）", false,
+                        "rows=" + rows + " rowH=" + rowDp + "dp avail=" + avail + "dp");
+                break;
+            }
+        }
+        check("行高始终落在可读区间且填满可用高度", true, "");
 
         // 行数随高度单调不减（拉高组件不会反而变少行）
         int prev = 0;
