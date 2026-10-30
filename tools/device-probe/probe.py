@@ -122,10 +122,16 @@ def cmd_info(a):
 def cmd_inject(a):
     require_device()
     ts = str(int(time.time() * 1000))
+    # 正文里常有空格与中文：adb shell 会把参数按空格重新拼成一条命令，
+    # 不加引号的话设备端 shell 会把正文拆成多个参数，
+    # content 命令随即报 "Unsupported argument"。
+    def shq(s):
+        return "'" + str(s).replace("'", "'\\''") + "'"
+
     rc, out, err = run([
         "shell", "content", "call", "--uri", PROVIDER, "--method", "onSms",
-        "--extra", "sender:s:" + a.sender,
-        "--extra", "body:s:" + a.text,
+        "--extra", "sender:s:" + shq(a.sender),
+        "--extra", "body:s:" + shq(a.text),
         "--extra", "ts:l:" + ts,
     ])
     raw = (out + err).strip()

@@ -35,9 +35,12 @@ public class RecordManager {
     private static final String MIME_CSV = "text/csv";
 
     private final Activity act;
+    /** 当前配色缓存；用到时才取（构造期取会 NPE，见构造器注释） */
     private UiKit.Palette p;
 
-    /** 导出格式：true = JSON，false = CSV */
+    /**
+     * 导出格式：true = JSON，false = CSV
+     */
     private boolean exportAsJson = true;
 
     /** 数据变化后回调（刷新列表 / 首页待取件） */
@@ -45,7 +48,17 @@ public class RecordManager {
 
     public RecordManager(Activity act) {
         this.act = act;
-        this.p = UiKit.palette(act);
+        // 注意：这里<b>不能</b>去取 palette 或读 SharedPreferences——
+        // 本对象是在 Activity 的字段初始化期创建的，那时
+        // Activity.getApplicationContext() 还是 null，一碰就 NPE，
+        // 表现为「点开 App 直接闪退」。配色等用到时再取。
+    }
+
+    /** 当前配色（按需刷新，主题切换后自动跟上） */
+    private UiKit.Palette palette() {
+        UiKit.Palette cur = UiKit.palette(act);
+        p = cur;
+        return cur;
     }
 
     public void setOnChanged(Runnable r) {
@@ -63,42 +76,55 @@ public class RecordManager {
     /** 「管理记录」面板：保留期 / 导出 / 导入 / 清理 */
     public void showManageDialog() {
         refreshPalette();
-        final int days = PickupRepository.retentionDays(act);
-        final int total = PickupRepository.get(act).countAllSync();
 
         LinearLayout wrap = new LinearLayout(act);
         wrap.setOrientation(LinearLayout.VERTICAL);
 
         addRow(wrap, R.drawable.ic_notebook, "记录保留期",
-                "当前：" + Retention.label(days) + " · 只清理已取件的记录",
+                "当前：" + Retention.label(PickupRepository.retentionDays(act))
+                        + " · 只清理已取件的记录",
                 v -> showRetentionPicker());
         wrap.addView(UiKit.divider(act, p));
-        addRow(wrap, R.drawable.ic_download, "导出记录",
-                "导出 JSON 或 CSV，共 " + total + " 条",
-                v -> showExportPicker());
+        final LinearLayout exportRow = addRow(wrap, R.drawable.ic_download, "导出记录",
+                "导出 JSON 或 CSV", v -> showExportPicker());
         wrap.addView(UiKit.divider(act, p));
         addRow(wrap, R.drawable.ic_upload, "导入记录",
                 "从文件导入 JSON 或 CSV（已有同码记录会跳过）",
                 v -> startImport());
         wrap.addView(UiKit.divider(act, p));
         addRow(wrap, R.drawable.ic_refresh, "立即清理过期记录",
-                days <= 0 ? "当前为永久保留，无可清理内容" : "删除超过 " + days + " 天的已取件记录",
+                days() <= 0 ? "当前为永久保留，无可清理内容"
+                        : "删除超过 " + days() + " 天的已取件记录",
                 v -> purgeNow());
         wrap.addView(UiKit.divider(act, p));
-        addRow(wrap, R.drawable.ic_ban, "清空全部记录",
-                "删除本机保存的全部 " + total + " 条记录",
-                v -> confirmClearAll());
+        final LinearLayout clearRow = addRow(wrap, R.drawable.ic_ban, "清空全部记录",
+                "删除本机保存的全部记录", v -> confirmClearAll());
 
         UiKit.dialog(act, p, R.drawable.ic_notebook, "管理本地记录",
                 "本地库是取件码的事实源。导出的文件只含码、来源、地点与时间，不含短信正文。",
                 wrap, 0);
+
+        // 条数必须异步取：Room 不允许主线程查询，同步取会被拒绝然后吞掉，
+        // 结果就是「共 0 条」——这里曾经真的显示过 0。
+        PickupRepository.get(act).countAllAsync(n -> {
+            if (act.isFinishing() || act.isDestroyed()) return;
+            UiKit.setRowSub(exportRow, "导出 JSON 或 CSV，共 " + n + " 条");
+            UiKit.setRowSub(clearRow, "删除本机保存的全部 " + n + " 条记录");
+        });
     }
 
-    private void addRow(LinearLayout parent, int iconRes, String title, String sub,
-                        View.OnClickListener cb) {
-        LinearLayout r = UiKit.row(act, p, iconRes, title, sub, UiKit.chevron(act, p));
+    /** 当前保留期天数（供副标题用） */
+    private int days() {
+        return PickupRepository.retentionDays(act);
+    }
+
+    private LinearLayout addRow(LinearLayout parent, int iconRes, String title, String sub,
+                                View.OnClickListener cb) {
+        UiKit.Palette pal = palette();
+        LinearLayout r = UiKit.row(act, pal, iconRes, title, sub, UiKit.chevron(act, pal));
         r.setOnClickListener(cb);
         parent.addView(r);
+        return r;
     }
 
     // ================================================================
@@ -182,9 +208,9 @@ public class RecordManager {
         try {
             Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
+            // 只用 */*：再叠加 EXTRA_MIME_TYPES 会让部分系统改用第三方文件管理器，
+            // 与导出时的系统选择器不是同一个界面，用户会以为坏了。
             i.setType("*/*");
-            i.putExtra(Intent.EXTRA_MIME_TYPES,
-                    new String[]{MIME_JSON, MIME_CSV, "text/plain", "application/octet-stream"});
             act.startActivityForResult(i, REQ_IMPORT);
         } catch (Throwable t) {
             Toast.makeText(act, "无法打开文件选择器：" + t.getMessage(), Toast.LENGTH_LONG).show();
@@ -204,7 +230,7 @@ public class RecordManager {
                 return;
             }
             PickupRepository.get(act).importRowsAsync(parsed.rows, res -> {
-                StringBuilder sb = new StringBuilder("导入完成：新�� " + res.inserted + " 条");
+                StringBuilder sb = new StringBuilder("导入完成：新增 " + res.inserted + " 条");
                 if (res.duplicated > 0) sb.append("，跳过重复 ").append(res.duplicated).append(" 条");
                 if (parsed.skipped > 0) sb.append("，跳过坏行 ").append(parsed.skipped).append(" 条");
                 Toast.makeText(act, sb.toString(), Toast.LENGTH_LONG).show();
@@ -234,17 +260,21 @@ public class RecordManager {
     }
 
     public void confirmClearAll() {
-        int total = PickupRepository.get(act).countAllSync();
-        UiKit.dialog(act, p, R.drawable.ic_ban, "清空全部记录",
-                "将删除本机保存的全部 " + total + " 条记录，包括还没取的件。\n\n"
-                        + "如果只是想清理旧记录，请改用「立即清理过期记录」——它只删已取件的。",
-                null, 0,
-                UiKit.primary("确认清空", () ->
-                        PickupRepository.get(act).clearAllAsync(n -> {
-                            Toast.makeText(act, "已清空 " + n + " 条记录", Toast.LENGTH_SHORT).show();
-                            notifyChanged();
-                        })),
-                UiKit.ghost("取消", null));
+        refreshPalette();
+        // 条数异步取（Room 不允许主线程查询，同步取会静默返回 0）
+        PickupRepository.get(act).countAllAsync(total -> {
+            if (act.isFinishing() || act.isDestroyed()) return;
+            UiKit.dialog(act, p, R.drawable.ic_ban, "清空全部记录",
+                    "将删除本机保存的全部 " + total + " 条记录，包括还没取的件。\n\n"
+                            + "如果只是想清理旧记录，请改用「立即清理过期记录」——它只删已取件的。",
+                    null, 0,
+                    UiKit.primary("确认清空", () ->
+                            PickupRepository.get(act).clearAllAsync(n -> {
+                                Toast.makeText(act, "已清空 " + n + " 条记录", Toast.LENGTH_SHORT).show();
+                                notifyChanged();
+                            })),
+                    UiKit.ghost("取消", null));
+        });
     }
 
     // ================================================================

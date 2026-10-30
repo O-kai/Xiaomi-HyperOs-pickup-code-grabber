@@ -392,6 +392,30 @@ public final class UiKit {
     }
 
     /**
+     * 改一行里的副标题文字。
+     *
+     * <p>为什么需要这个 helper：行里的结构是「图标 + 标题/副标题列 + 右侧配件」，
+     * 副标题在第二层容器里，调用方拿不到它的引用，只能靠猜 child 下标——
+     * 一旦行里加了图标，下标就全错位了。这里按结构找（找到第一个含
+     * 「标题 + 副标题」两个 TextView 的容器），加不加图标都对。
+     */
+    public static boolean setRowSub(LinearLayout row, String text) {
+        if (row == null || text == null) return false;
+        for (int i = 0; i < row.getChildCount(); i++) {
+            View ch = row.getChildAt(i);
+            if (!(ch instanceof LinearLayout)) continue;
+            LinearLayout col = (LinearLayout) ch;
+            if (col.getChildCount() < 2) continue;
+            View first = col.getChildAt(0);
+            View second = col.getChildAt(1);
+            if (!(first instanceof TextView) || !(second instanceof TextView)) continue;
+            ((TextView) second).setText(text);
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * 一行：左侧图标（可选）+ 标题/说明 + 右侧配件
      * accessory 为 null 时右侧放一个右箭头（表示可点进二级页）
      */

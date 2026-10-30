@@ -420,6 +420,20 @@ public final class PickupRepository {
         }
     }
 
+    /**
+     * 异步取总数。
+     *
+     * <p>Room 默认不允许主线程查询，{@link #countAllSync()} 在 UI 线程调用会被拒绝
+     * 并被吞掉——表现是界面上的「共 N 条」永远是 0。所以界面上要显示条数，
+     * 一律走这个异步版本。
+     */
+    public void countAllAsync(Callback<Integer> callback) {
+        io.execute(() -> {
+            final int n = countAllSync();
+            main.post(() -> callback.onResult(n));
+        });
+    }
+
     /** 导出用：拿全部记录并转成可导出的行 */
     public void exportRowsAsync(Callback<List<PickupRow>> callback) {
         io.execute(() -> {
