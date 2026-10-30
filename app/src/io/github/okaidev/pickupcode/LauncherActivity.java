@@ -487,7 +487,7 @@ public class LauncherActivity extends Activity {
         sv.setFillViewport(true);
         sv.setClipToPadding(false);
         // 底部留出底栏高度 + 呼吸空间，保证最后一张卡能完整滚到遮罩上方
-        sv.setPadding(dp(18), dp(4), dp(18), dp(148));
+        sv.setPadding(dp(18), dp(4), dp(18), bottomSafePadding(148));
         return sv;
     }
 
@@ -506,7 +506,7 @@ public class LauncherActivity extends Activity {
         ScrollView sv = scrollPage();
         if (simple) {
             // 简洁模式没有底栏，底部不需要 148dp 的遮挡留白
-            sv.setPadding(dp(18), dp(4), dp(18), dp(28));
+            sv.setPadding(dp(18), dp(4), dp(18), bottomSafePadding(28));
         }
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -2642,6 +2642,22 @@ public class LauncherActivity extends Activity {
                 }
             });
         }).start();
+    }
+
+    /**
+     * 滚动区底部留白：底栏是悬浮的，底下必须留出足够空间，
+     * 否则最后一张卡会被底栏压住（1.0x 时 148dp 就够）。
+     *
+     * <p>系统字体放大后（老人常用 1.3x / 1.5x），底栏高度与文字行数都会变长，
+     * 这里按 fontScale 额外补一点，避免内容被遮。
+     */
+    private int bottomSafePadding(int baseDp) {
+        float fs = getResources().getConfiguration().fontScale;
+        int base = dp(baseDp);
+        // 简洁模式没有底栏（baseDp 很小），不需要额外留白
+        if (fs <= 1.05f || baseDp < 60) return base;
+        int extra = (int) (base * Math.min(0.45f, (fs - 1f) * 0.8f));
+        return base + extra;
     }
 
     /** 取件提醒：点开设置面板（时间 + 立即测试一次） */
