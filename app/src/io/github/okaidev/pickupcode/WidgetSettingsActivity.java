@@ -21,8 +21,10 @@ public class WidgetSettingsActivity extends Activity {
     private UiKit.Palette P;
     private LinearLayout fontSeg;
     private LinearLayout rowsSeg;
-    private TextView previewCode;
-    private TextView previewPlace;
+    /** v4.0.2：预览改成动态行列表（支持「全部信息」模式下多画一行已取的） */
+    private LinearLayout previewRows;
+    private TextView previewTitle;
+    private TextView previewCount;
     private UiKit.Switch placeSwitch;
     private UiKit.Switch hideSwitch;
 
@@ -56,8 +58,29 @@ public class WidgetSettingsActivity extends Activity {
         box.addView(buildRowsCard(), UiKit.cardLp(this, 10));
         box.addView(buildPreviewCard(), UiKit.cardLp(this, 10));
 
+        // v4.0.2：加「重新添加」入口。
+        //
+        // 真机结论（K90 Pro Max / HyperOS 4.0）：App 更新后，
+        // 桌面【不会重建】已有小组件的视图树——新的 initialLayout 不会生效，
+        // 表现为「行距被压扁、标题不见」这种明显错乱。
+        // 系统层面没有让 App 主动重建的 API，只能让用户重新添加一次。
+        // 所以这里给一个明确入口，别让用户自己猜「怎么桌面变乱了」。
+        TextView readd = UiKit.text(this, "重新添加小组件", 13.5f, P.accentInk);
+        readd.setGravity(Gravity.CENTER);
+        readd.setTypeface(null, Typeface.BOLD);
+        readd.setPadding(0, dp(12), 0, dp(12));
+        readd.setBackground(UiKit.bg(P.chipBg, this, 12));
+        readd.setOnClickListener(v -> WidgetPin.prompt(this));
+        LinearLayout.LayoutParams rlp2 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp2.setMargins(0, dp(10), 0, 0);
+        box.addView(readd, rlp2);
+
         TextView note = UiKit.text(this,
-                "小组件高度不够时会自动少显示几条；点取件码复制，点右侧 ✓ 标记已取。",
+                "显示条数由组件高度决定，把组件拉大就能看到更多；"
+                        + "点取件码复制，点右侧 ✓ 标记已取。\n\n"
+                        + "提示：App 更新后，桌面上已有的组件不会自动套用新样式，"
+                        + "显示错乱时请先「移除」旧的，再点上面的「重新添加小组件」。",
                 12f, P.muteInk);
         note.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
@@ -137,15 +160,27 @@ public class WidgetSettingsActivity extends Activity {
         return card;
     }
 
+    /**
+     * 「显示内容」卡片。
+     *
+     * <p>v4.0.2：原先这里���「最多显示条数」（2–5 条可选）。用户指出：
+     * 「最多可显示条数不应该有太明显的限制框架，我们只需要根据小组件的实际大小
+     * 来展示就可以了。组件够大，展示的内容就多，反正用户会自己调整大小，
+     * 他自己能感知得到。」
+     *
+     * <p>所以条数选项整个去掉——行数现在完全由组件高度决定。
+     * 这里换成「显示内容」：待取件（默认）或全部信息（含已取件）。
+     */
     private View buildRowsCard() {
         LinearLayout card = UiKit.card(this, P);
         card.setPadding(dp(16), dp(14), dp(16), dp(16));
 
-        TextView title = UiKit.text(this, "最多显示条数", 14.5f, P.navInk);
+        TextView title = UiKit.text(this, "显示内容", 14.5f, P.navInk);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         card.addView(title);
 
-        TextView sub = UiKit.text(this, "实际条数还会受组件高度限制", 11.5f, P.muteInk);
+        TextView sub = UiKit.text(this,
+                "显示条数由组件高度决定——把组件拉大就能看到更多", 11.5f, P.muteInk);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.setMargins(0, dp(4), 0, 0);
@@ -180,37 +215,59 @@ public class WidgetSettingsActivity extends Activity {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView t = UiKit.text(this, "待取件", 16f, 0xFFFFFFFF);
-        t.setTypeface(null, Typeface.BOLD);
-        head.addView(t, new LinearLayout.LayoutParams(
+        previewTitle = UiKit.text(this, "待取件", 16f, 0xFFFFFFFF);
+        previewTitle.setTypeface(null, Typeface.BOLD);
+        head.addView(previewTitle, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        head.addView(UiKit.text(this, "2 个", 12f, 0xB3FFFFFF));
+        previewCount = UiKit.text(this, "2 个", 12f, 0xB3FFFFFF);
+        head.addView(previewCount);
         preview.addView(head);
 
+        previewRows = new LinearLayout(this);
+        previewRows.setOrientation(LinearLayout.VERTICAL);
+        preview.addView(previewRows, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        return card;
+    }
+
+    /** 预览里加一行（picked = true 表示已取件那一行：划掉 + 变灰 + 无 ✓） */
+    private void addPreviewRow(boolean picked) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        // 行高与真实布局一致（40dp）——预览与桌面看起来才是一回事
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rlp.setMargins(0, dp(10), 0, 0);
-        preview.addView(row, rlp);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+        previewRows.addView(row, rlp);
 
-        previewCode = UiKit.text(this, "12-3-4567", 17f, 0xFFFFFFFF);
-        previewCode.setTypeface(Typeface.create("monospace", Typeface.BOLD));
-        row.addView(previewCode);
+        TextView code = UiKit.text(this, picked ? "09-8-7654" : "12-3-4567", 17f,
+                picked ? 0x99FFFFFF : 0xFFFFFFFF);
+        code.setTypeface(Typeface.create("monospace", Typeface.BOLD));
+        if (picked) {
+            // 已取的加删除线：与小组件实际表现一致
+            code.setPaintFlags(code.getPaintFlags()
+                    | android.graphics.Paint.STRIKE_THRU_TEXT_FLAG);
+        }
+        row.addView(code);
 
-        previewPlace = UiKit.text(this, "菜鸟驿站 · 1 号柜", 11f, 0xB3FFFFFF);
-        previewPlace.setMaxLines(1);
+        TextView place = UiKit.text(this,
+                picked ? "中通快递 · 已取" : "菜鸟驿站 · 1 号柜", 11f,
+                picked ? 0x80FFFFFF : 0xB3FFFFFF);
+        place.setMaxLines(1);
         LinearLayout.LayoutParams plp2 = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         plp2.setMargins(dp(10), 0, dp(8), 0);
-        row.addView(previewPlace, plp2);
+        row.addView(place, plp2);
 
         TextView check = UiKit.text(this, "✓", 16f, 0xFFFFFFFF);
         check.setGravity(Gravity.CENTER);
         check.setBackgroundResource(R.drawable.widget_done_bg);
+        if (picked) {
+            // 已取的不再显示 ✓（小组件里也是这样）
+            check.setVisibility(View.INVISIBLE);
+        }
         row.addView(check, new LinearLayout.LayoutParams(dp(34), dp(34)));
-        return card;
     }
 
     private void rebuildSegments() {
@@ -238,15 +295,20 @@ public class WidgetSettingsActivity extends Activity {
         }
         if (rowsSeg != null) {
             rowsSeg.removeAllViews();
-            int current = WidgetPrefs.maxRows(this);
-            for (int n = 2; n <= 5; n++) {
-                final int rows = n;
-                addSeg(rowsSeg, n + " 条", current == n, () -> {
-                    WidgetPrefs.setMaxRows(this, rows);
-                    rebuildSegments();
-                    applyToWidget();
-                });
-            }
+            // v4.0.2：「显示内容」——待取件（默认）/ 全部信息（含已取件）
+            int current = WidgetPrefs.showMode(this);
+            addSeg(rowsSeg, "只看待取件", current == WidgetPrefs.SHOW_PENDING, () -> {
+                WidgetPrefs.setShowMode(this, WidgetPrefs.SHOW_PENDING);
+                rebuildSegments();
+                refreshPreview();
+                applyToWidget();
+            });
+            addSeg(rowsSeg, "全部信息", current == WidgetPrefs.SHOW_ALL, () -> {
+                WidgetPrefs.setShowMode(this, WidgetPrefs.SHOW_ALL);
+                rebuildSegments();
+                refreshPreview();
+                applyToWidget();
+            });
         }
     }
 
@@ -265,17 +327,36 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     private void refreshPreview() {
-        if (previewCode == null) return;
+        if (previewRows == null) return;
         float scale = WidgetPrefs.fontScale(this);
-        previewCode.setTextSize(17f * scale);
-        previewPlace.setTextSize(11f * scale);
-        // 用 INVISIBLE 而不是 GONE：保留权重占位，勾选按钮才会留在最右侧
-        boolean showPlace = WidgetPrefs.showPlace(this);
-        previewPlace.setVisibility(showPlace ? View.VISIBLE : View.INVISIBLE);
-        // 隐私模式：预览里也要把码和地点藏掉，否则预览与实际桌面不一致
+        boolean showAll = WidgetPrefs.showAll(this);
         boolean hideCode = WidgetPrefs.hideCode(this);
-        previewCode.setText(hideCode ? "" : "12-3-4567");
-        previewPlace.setText(hideCode ? "" : "菜鸟驿站 · 1 号柜");
+
+        previewTitle.setText(showAll ? "取件记录" : "待取件");
+        previewCount.setText(showAll ? "2 待取 · 1 已取" : "2 个");
+
+        previewRows.removeAllViews();
+        // 隐私模式：预览里也要把码和地点藏掉，否则预览与实际桌面不一致
+        if (hideCode) {
+            // 隐私模式下只显示件数，不画行
+            return;
+        }
+        addPreviewRow(false);
+        addPreviewRow(false);
+        if (showAll) {
+            // 全部信息模式：已取的也画出来（划掉 + 变灰 + 无 ✓）
+            addPreviewRow(true);
+        }
+        // 字号缩放（预览里的行是新建的，所以要在这里统一设）
+        for (int i = 0; i < previewRows.getChildCount(); i++) {
+            View row = previewRows.getChildAt(i);
+            if (!(row instanceof LinearLayout)) continue;
+            LinearLayout r = (LinearLayout) row;
+            TextView c = (TextView) r.getChildAt(0);
+            TextView p = (TextView) r.getChildAt(1);
+            c.setTextSize(17f * scale);
+            p.setTextSize(11f * scale);
+        }
     }
 
     private void applyToWidget() {

@@ -170,6 +170,10 @@ public final class PickupRepository {
             Log.i(TAG, "LOCAL DB: inserted=" + inserted + " touched=" + touched);
             PickupWidgetProvider.refreshAsync(appContext);
             notifyChanged();
+            // v4.0.2：写入后顺带做一次过期清理。
+            // 用户要求「过了日期立马就清掉」，那清理就不能只发生在用户点按钮时——
+            // 每新增一条记录正是最容易发现「有旧记录该清了」的时刻。
+            autoPurgeIfNeeded(appContext);
         }
         return new IngestResult(inserted, touched);
     }
@@ -276,19 +280,53 @@ public final class PickupRepository {
     public static final class PendingSnapshot {
         public final List<PickupRecord> items;
         public final int total;
+        /** 待取件总数（无论是否显示全部模式，这个数字始终是「还有几件没取」） */
+        public final int pendingTotal;
+        /** true = 显示全部信息模式（items 里含已取件） */
+        public final boolean showAll;
 
-        PendingSnapshot(List<PickupRecord> items, int total) {
+        PendingSnapshot(List<PickupRecord> items, int total, int pendingTotal, boolean showAll) {
             this.items = items;
             this.total = total;
+            this.pendingTotal = pendingTotal;
+            this.showAll = showAll;
         }
     }
 
     public void pendingSnapshotAsync(int limit, Callback<PendingSnapshot> callback) {
+        pendingSnapshotAsync(limit, false, callback);
+    }
+
+    /**
+     * 小组件数据快照。
+     *
+     * @param showAll true = 连已取件的一起给（待取在上、已取在下，已取划掉）
+     */
+    public void pendingSnapshotAsync(int limit, boolean showAll,
+                                     Callback<PendingSnapshot> callback) {
         io.execute(() -> {
-            final List<PickupRecord> items = pendingSync(limit);
-            final int total = countPendingSync();
-            main.post(() -> callback.onResult(new PendingSnapshot(items, total)));
+            final List<PickupRecord> items;
+            final int total;
+            final int pendingTotal = countPendingSync();
+            if (showAll) {
+                items = allForWidgetSync(limit);
+                total = items.size();
+            } else {
+                items = pendingSync(limit);
+                total = pendingTotal;
+            }
+            main.post(() -> callback.onResult(
+                    new PendingSnapshot(items, total, pendingTotal, showAll)));
         });
+    }
+
+    /** 全部记录（待取 + 已取），待取在上。 */
+    public List<PickupRecord> allForWidgetSync(int limit) {
+        try {
+            return dao.allForWidget(Math.max(1, limit));
+        } catch (Throwable t) {
+            return Collections.emptyList();
+        }
     }
 
     public void recentAsync(int limit, Callback<List<PickupRecord>> callback) {
@@ -414,6 +452,70 @@ public final class PickupRepository {
             final int n = purgeExpiredSync(days);
             main.post(() -> callback.onResult(n));
         });
+    }
+
+    /**
+     * 删除【全部】已取件记录（不论时间）。
+     *
+     * <p>v4.0.2：用户要求把管理页的「立刻清理过期记录」改成
+     * 「立刻清理所有已取件信息」——理由是「过了日期应该立马就被清理掉，
+     * 不需要我再点击管理并选择『立刻清理过期的记录』」。
+     *
+     * <p>即：过期清理是<b>自动</b>的（见 {@link #autoPurgeIfNeeded}），
+     * 手动按钮就应该是「一次性清掉所有已取件」，两件事分工明确。
+     *
+     * <p>待取件永远不删——那是要去取的东西。
+     */
+    public int deleteAllPickedSync() {
+        try {
+            int n = dao.deleteAllPicked();
+            Log.i(TAG, "LOCAL DB: deleted " + n + " picked-up records");
+            if (n > 0) {
+                PickupWidgetProvider.refreshAsync(appContext);
+                notifyChanged();
+            }
+            return n;
+        } catch (Throwable t) {
+            Log.w(TAG, "deleteAllPicked failed: " + t);
+            return 0;
+        }
+    }
+
+    public void deleteAllPickedAsync(Callback<Integer> callback) {
+        io.execute(() -> {
+            final int n = deleteAllPickedSync();
+            main.post(() -> callback.onResult(n));
+        });
+    }
+
+    /**
+     * 按当前保留期自动清理过期记录。
+     *
+     * <p>v4.0.2 新增。用户原话：「如果设置的过期时间是 90 天，
+     * 那么过了日期应该立马就被清理掉，不需要我再点击管理并选择
+     * 『立刻清理已过期的记录』」。
+     *
+     * <p>所以自动清理必须真的自动：App 每次启动（以及每次写入记录后）
+     * 都跑一次，不需要用户点任何按钮。代价是每次启动一次轻量 SQL——
+     * 可以接受，因为本地库本来就在这个进程里。
+     *
+     * @param ctx 用于读保留期设置
+     * @return 实际删除条数
+     */
+    public int autoPurgeIfNeeded(Context ctx) {
+        try {
+            int days = retentionDays(ctx);
+            if (days <= 0) return 0;   // 永久保留
+            return purgeExpiredSync(days);
+        } catch (Throwable t) {
+            Log.w(TAG, "auto purge failed: " + t);
+            return 0;
+        }
+    }
+
+    /** 自动清理的异步版本（不回调结果，只做清理） */
+    public void autoPurgeAsync(Context ctx) {
+        io.execute(() -> autoPurgeIfNeeded(ctx));
     }
 
     /** 清空全部记录（用户明确二次确认后才允许调用） */

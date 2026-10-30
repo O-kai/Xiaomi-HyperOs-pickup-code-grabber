@@ -38,10 +38,11 @@ public final class AppIcons {
         put("com.taobao.taobao", "taobao", "淘宝", R.drawable.app_fallback_taobao);
         put("com.xunmeng.pinduoduo", "pinduoduo", "拼多多", R.drawable.app_fallback_pinduoduo);
         put("com.sf.cdsibm", "sf", "顺丰速运", R.drawable.app_fallback_sf);
-        // v6.2：丰巢（取件码大户）。无官方位图与矢量素材，用自绘兜底图标
+        // v4.0.2：丰巢（取件码大户）——图标换成从用户真机上取的实际应用图标
+        // （黄色六边形 + 黑色蜂巢纹样），此前是自绘兜底，与真实图标差别明显。
         put("com.fcbox.hiveconsumer", "fengchao", "丰巢", R.drawable.app_fallback_fengchao);
-        // v4.8：设备互联。非小米设备无此包，图标走系统图标（bind 内已支持），
-        // 这里给一个自绘兜底，保证列表排版一致。
+        // v4.0.2：设备互联——图标换成从用户真机上取的实际应用图标
+        // （蓝底 #439DF6 + 白色 N 形箭头），此前是自绘兜底。
         put("com.xiaomi.mi_connect_service", "mi_connect", "设备互联",
                 R.drawable.app_fallback_mi_connect);
         // v4.0.1：菜鸟裹裹没有可公开抓取的位图，用用户提供的矢量图标（SVG → 矢量图）

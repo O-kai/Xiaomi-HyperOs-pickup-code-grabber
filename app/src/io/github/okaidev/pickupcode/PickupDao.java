@@ -33,6 +33,19 @@ public interface PickupDao {
             + "ORDER BY received_at DESC LIMIT :limit")
     List<PickupRecord> pendingLimit(int limit);
 
+    /**
+     * 全部记录（待取 + 已取），待取在上、已取在下，组内时间倒排。
+     *
+     * <p>v4.0.2：小组件新增「显示全部信息」模式——
+     * 待取件的在上面，已取件的在下面，已取的划掉，
+     * 「所有的内容都是倒排的，用户就能清楚看到哪几个已经取过，哪几个还没取」。
+     */
+    @Query("SELECT * FROM pickup_records WHERE is_test = 0 "
+            + "ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, received_at DESC "
+            + "LIMIT :limit")
+    List<PickupRecord> allForWidget(int limit);
+
+    /** 全部记录里待取件的条数（小组件件数显示用） */
     @Query("SELECT COUNT(*) FROM pickup_records WHERE status = 'PENDING' AND is_test = 0")
     int countPending();
 
@@ -103,6 +116,18 @@ public interface PickupDao {
     @Query("DELETE FROM pickup_records WHERE status = 'PICKED_UP' "
             + "AND COALESCE(picked_at, last_seen_at, received_at) < :cutoff")
     int deletePickedBefore(long cutoff);
+
+    /**
+     * 删除【全部】已取件记录（不论时间）。
+     *
+     * <p>v4.0.2：用户要求把管理页的「立刻清理过期记录」改成
+     * 「立刻清理所有已取件记录」——过期时间到了本来就该自动清，
+     * 手动按钮就不该再带着「过期」这个条件。
+     *
+     * <p>仍然只删已取件的：待取件永远不自动删、也不被手动删。
+     */
+    @Query("DELETE FROM pickup_records WHERE status = 'PICKED_UP'")
+    int deleteAllPicked();
 
     /** 清空全部记录（含待取件，仅在用户明确二次确认后调用） */
     @Query("DELETE FROM pickup_records")

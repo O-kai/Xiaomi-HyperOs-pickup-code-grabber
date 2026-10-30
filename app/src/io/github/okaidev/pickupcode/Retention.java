@@ -53,7 +53,12 @@ public final class Retention {
         return DEFAULT_DAYS;
     }
 
-    /** 展示用的文案 */
+    /**
+     * 展示用的文案。
+     *
+     * <p>v4.0.2：补上「已取件」三个字——用户在选择器里要能一眼看出
+     * 这个保留期管的是哪一类记录（待取件永远不删）。
+     */
     public static String label(int days) {
         switch (sanitize(days)) {
             case KEEP_FOREVER: return "永久保留";
@@ -62,6 +67,18 @@ public final class Retention {
             case KEEP_365D: return "1 年";
             default: return "90 天";
         }
+    }
+
+    /**
+     * 选择器里的完整说明（如「90 天 · 已取件记录保留 90 天后自动清理」）。
+     *
+     * <p>v4.0.2：用户要求「设置页面写清楚记录时间」——
+     * 光一个「90 天」说不清是全部记录还是已取件记录。
+     */
+    public static String labelWithHint(int days) {
+        int d = sanitize(days);
+        if (d <= 0) return "永久保留 · 已取件记录也不会自动删除";
+        return d + " 天 · 已取件记录保留 " + d + " 天后自动清理";
     }
 
     /**

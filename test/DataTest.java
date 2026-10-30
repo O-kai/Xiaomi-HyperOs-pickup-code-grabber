@@ -59,6 +59,20 @@ public class DataTest {
         check("文案：90 天", Retention.label(90).equals("90 天"), Retention.label(90));
         check("文案：1 年", Retention.label(365).equals("1 年"), Retention.label(365));
 
+        // v4.0.2：带说明的文案（选择器里每一项都要说清楚管哪类记录、何时清理）
+        check("说明文案：90 天提到保留天数",
+                Retention.labelWithHint(90).contains("90 天"), Retention.labelWithHint(90));
+        check("说明文案：提到自动清理",
+                Retention.labelWithHint(90).contains("自动清理"), Retention.labelWithHint(90));
+        check("说明文案：提到只管已取件",
+                Retention.labelWithHint(90).contains("已取件"), Retention.labelWithHint(90));
+        check("说明文案：永久保留也不删",
+                Retention.labelWithHint(0).contains("永久保留")
+                        && Retention.labelWithHint(0).contains("不会自动删除"),
+                Retention.labelWithHint(0));
+        check("说明文案：每个选项都有说明",
+                Retention.labelWithHint(30).length() > Retention.label(30).length(), "");
+
         // 过期提示：3 天以内不算过期，超过才算
         check("2 天内不算过期", !Retention.isProbablyExpired(now - 2 * day, now), "");
         check("刚超过 3 天算过期", Retention.isProbablyExpired(now - 3 * day - 1, now), "");

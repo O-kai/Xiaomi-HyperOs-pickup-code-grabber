@@ -89,7 +89,8 @@ echo "===== javac：测试源码 ====="
   -classpath "$CP" -d "$OUT/testclasses" \
   test/FullReg.java test/ChannelParity.java test/PkgInputTest.java \
   test/TierExclusionTest.java test/CallerPolicyTest.java \
-  test/UserRulesTest.java test/FeatureTest.java test/DataTest.java test/V401Test.java 2> "$OUT/javac.log"
+  test/UserRulesTest.java test/FeatureTest.java test/DataTest.java test/V401Test.java \
+  test/WidgetTest.java 2> "$OUT/javac.log"
 if [ $? -ne 0 ]; then
   echo "javac FAILED:"
   head -30 "$OUT/javac.log"
@@ -175,6 +176,9 @@ run_java "DataTest"
 
 echo "----- V401Test -----"
 run_java "V401Test"
+
+echo "----- WidgetTest -----"
+run_java "WidgetTest"
 
 echo ""
 echo "===== 规则单源一致性 ====="

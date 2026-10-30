@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Html;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
@@ -23,19 +24,23 @@ import java.util.List;
 /**
  * 4.0 桌面小组件。
  *
- * 设计要点（2026-10-30 参考社区改版后收敛，v4.0.1 再改）：
+ * 设计要点：
  *  - 不做滚动列表：RemoteViewsService + ListView 在部分桌面/系统版本上刷新不可靠，
  *    固定行数 + 事件驱动更稳。
  *  - <b>行高固定</b>（v4.0.1）：每行一个固定高度，内容从上往下排。
  *    此前每行 layout_weight=1，五行会把组件高度均分——条数一变行高就跟着变，
  *    看上去像在缩放。现在一条就是一行，与条数无关；放不下的部分留白。
- *  - <b>动作不跳转</b>（v4.0.1）：打勾 / 点取件码走广播（BroadcastReceiver），
+ *  - <b>行数由组件高度决定</b>（v4.0.2）：组件可以被用户拉到很大，
+ *    所以不再设固定条数上限——用户原话「最多可显示条数不应该有太明显的限制框架，
+ *    我们只需要根据小组件的实际大小来展示就可以了」。
+ *  - <b>动作不跳转</b>（v4.0.1）：打勾 / 复制走广播（BroadcastReceiver），
  *    不再启动 Activity——在小组件上操作就不该把 App 拉到前台。
  *    点击其它区域（标题、件数、查看全部、空白）才打开 App。
  *  - <b>补位动画</b>（v4.0.1）：取完一条后，下面的内容要「顶上来」。
- *    RemoteViews 没有真正的列表 item 动画，但支持 setFloat 改 alpha / translationY，
- *    这里用它做「从下方淡入 + 上移」的过渡。
- *  - 刷新分两段：立即刷一次 + 600ms 后补刷一次，绕开系统下发 options/数据不同步的时序问题。
+ *    RemoteViews 没有真正的列表 item 动画，这里用 setFloat 驱动
+ *    alpha + translationY 做位移淡入——效果接近，且不依赖 ListView。
+ *  - <b>显示内容可选</b>（v4.0.2）：只显示待取件（默认）或显示全部信息
+ *    （待取在上、已取在下，已取的划掉）。
  *  - 数据只来自本地取件库，不读短信库、不存正文。
  */
 public class PickupWidgetProvider extends AppWidgetProvider {
@@ -51,6 +56,9 @@ public class PickupWidgetProvider extends AppWidgetProvider {
 
     /** 每行的固定高度（dp）。与布局里的 minHeight 保持一致，用于补位动画的位移量。 */
     static final float ROW_HEIGHT_DP = 40f;
+
+    /** 布局里的最大行数。组件拉到最大时按高度取用。 */
+    static final int MAX_ROWS = 12;
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static volatile Context appContext;
@@ -69,19 +77,27 @@ public class PickupWidgetProvider extends AppWidgetProvider {
 
     private static final int[] ROW_IDS = {
             R.id.widget_row_1, R.id.widget_row_2, R.id.widget_row_3,
-            R.id.widget_row_4, R.id.widget_row_5
+            R.id.widget_row_4, R.id.widget_row_5, R.id.widget_row_6,
+            R.id.widget_row_7, R.id.widget_row_8, R.id.widget_row_9,
+            R.id.widget_row_10, R.id.widget_row_11, R.id.widget_row_12
     };
     private static final int[] CODE_IDS = {
             R.id.widget_code_1, R.id.widget_code_2, R.id.widget_code_3,
-            R.id.widget_code_4, R.id.widget_code_5
+            R.id.widget_code_4, R.id.widget_code_5, R.id.widget_code_6,
+            R.id.widget_code_7, R.id.widget_code_8, R.id.widget_code_9,
+            R.id.widget_code_10, R.id.widget_code_11, R.id.widget_code_12
     };
     private static final int[] PLACE_IDS = {
             R.id.widget_place_1, R.id.widget_place_2, R.id.widget_place_3,
-            R.id.widget_place_4, R.id.widget_place_5
+            R.id.widget_place_4, R.id.widget_place_5, R.id.widget_place_6,
+            R.id.widget_place_7, R.id.widget_place_8, R.id.widget_place_9,
+            R.id.widget_place_10, R.id.widget_place_11, R.id.widget_place_12
     };
     private static final int[] DONE_IDS = {
             R.id.widget_done_1, R.id.widget_done_2, R.id.widget_done_3,
-            R.id.widget_done_4, R.id.widget_done_5
+            R.id.widget_done_4, R.id.widget_done_5, R.id.widget_done_6,
+            R.id.widget_done_7, R.id.widget_done_8, R.id.widget_done_9,
+            R.id.widget_done_10, R.id.widget_done_11, R.id.widget_done_12
     };
 
     @Override
@@ -120,8 +136,10 @@ public class PickupWidgetProvider extends AppWidgetProvider {
 
     private static void doRefresh(final Context app, final boolean animate) {
         try {
-            final int maxRows = WidgetPrefs.maxRows(app);
-            PickupRepository.get(app).pendingSnapshotAsync(maxRows, snap -> {
+            final boolean showAll = WidgetPrefs.showAll(app);
+            // 行数上限不再由设置决定，取布局允许的最大值；
+            // 实际显示几行由组件高度算出来（见 rowsFor）。
+            PickupRepository.get(app).pendingSnapshotAsync(MAX_ROWS, showAll, snap -> {
                 lastSnapshot = snap;
                 AppWidgetManager manager = AppWidgetManager.getInstance(app);
                 ComponentName component = new ComponentName(app, PickupWidgetProvider.class);
@@ -153,7 +171,8 @@ public class PickupWidgetProvider extends AppWidgetProvider {
                 }
 
                 Log.i(TAG, "WIDGET refresh: n=" + ids.length
-                        + " pending=" + (snap == null ? 0 : snap.total)
+                        + " pending=" + (snap == null ? 0 : snap.pendingTotal)
+                        + (snap != null && snap.showAll ? " all" : "")
                         + (shifted.isEmpty() ? "" : " shifted=" + shifted));
             });
         } catch (Throwable t) {
@@ -206,20 +225,32 @@ public class PickupWidgetProvider extends AppWidgetProvider {
     private static RemoteViews build(Context context, int widgetId,
                                      PickupRepository.PendingSnapshot snap,
                                      List<Integer> shiftedRows) {
-        RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_pickup);
+        RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_pickup_v2);
 
         int rows = rowsFor(context, widgetId);
         boolean showPlace = WidgetPrefs.showPlace(context);
         boolean hideCode = WidgetPrefs.hideCode(context);
+        boolean showAll = snap != null && snap.showAll;
         float scale = WidgetPrefs.fontScale(context);
-        int total = snap == null ? 0 : snap.total;
+        int pendingTotal = snap == null ? 0 : snap.pendingTotal;
         List<PickupRecord> items = snap == null ? null : snap.items;
 
-        rv.setTextViewText(R.id.widget_count, total + " 个");
+        // 标题与件数：
+        //  - 只显示待取件：标题「待取件」，件数是待取总数
+        //  - 显示全部信息：标题「取件记录」，件数是「N 待取 · M 已取」
+        if (showAll) {
+            rv.setTextViewText(R.id.widget_title, "取件记录");
+            int shownPending = pendingShown(items, items == null ? 0 : items.size());
+            int shownPicked = (items == null ? 0 : items.size()) - shownPending;
+            rv.setTextViewText(R.id.widget_count, pendingTotal + " 待取 · " + shownPicked + " 已取");
+        } else {
+            rv.setTextViewText(R.id.widget_title, "待取件");
+            rv.setTextViewText(R.id.widget_count, pendingTotal + " 个");
+        }
         rv.setTextViewTextSize(R.id.widget_title, TypedValue.COMPLEX_UNIT_SP, 16f);
         rv.setTextViewTextSize(R.id.widget_count, TypedValue.COMPLEX_UNIT_SP, 12f);
 
-        boolean empty = total == 0;
+        boolean empty = items == null || items.isEmpty();
         rv.setViewVisibility(R.id.widget_empty, empty ? View.VISIBLE : View.GONE);
         rv.setTextViewTextSize(R.id.widget_empty, TypedValue.COMPLEX_UNIT_SP, 12f * scale);
 
@@ -227,7 +258,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
                 context.getResources().getDisplayMetrics());
 
         int shown = 0;
-        for (int i = 0; i < ROW_IDS.length; i++) {
+        for (int i = 0; i < MAX_ROWS; i++) {
             boolean has = !empty && i < rows && items != null && i < items.size();
             if (!has) {
                 rv.setViewVisibility(ROW_IDS[i], View.GONE);
@@ -235,11 +266,29 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             }
             PickupRecord record = items.get(i);
             shown++;
+            boolean pending = record.isPending();
             rv.setViewVisibility(ROW_IDS[i], View.VISIBLE);
+
             // 隐私模式：不显示取件码，也不显示地点——组件上只剩件数，
             // 想看码得点进 App。
-            rv.setTextViewText(CODE_IDS[i], hideCode ? "" : record.code);
+            //
+            // v4.0.2：「显示全部信息」模式下，已取的取件码加删除线。
+            // RemoteViews 没有设 PaintFlags 的接口，但 setTextViewText 接受
+            // Spanned——用 Html.fromHtml("<s>…</s>") 就能拿到带删除线的文本。
+            if (hideCode) {
+                rv.setTextViewText(CODE_IDS[i], "");
+            } else if (showAll && !pending) {
+                rv.setTextViewText(CODE_IDS[i],
+                        Html.fromHtml("<s>" + escapeHtml(record.code) + "</s>"));
+            } else {
+                rv.setTextViewText(CODE_IDS[i], record.code);
+            }
             rv.setTextViewTextSize(CODE_IDS[i], TypedValue.COMPLEX_UNIT_SP, 17f * scale);
+            if (showAll && !pending) {
+                rv.setTextColor(CODE_IDS[i], 0x99FFFFFF);
+            } else {
+                rv.setTextColor(CODE_IDS[i], 0xFFFFFFFF);
+            }
 
             // 关闭地点时不能 GONE：这一列是带 weight 的占位视图，
             // 一旦隐藏，右侧 ✓ 会贴到取件码旁边、右边留一大块空白。
@@ -248,6 +297,11 @@ public class PickupWidgetProvider extends AppWidgetProvider {
                     ? ""
                     : (record.place == null || record.place.trim().isEmpty() ? "—" : record.place));
             rv.setTextViewTextSize(PLACE_IDS[i], TypedValue.COMPLEX_UNIT_SP, 11f * scale);
+            if (showAll && !pending) {
+                rv.setTextColor(PLACE_IDS[i], 0x80FFFFFF);
+            } else {
+                rv.setTextColor(PLACE_IDS[i], 0xB3FFFFFF);
+            }
 
             // 补位动画：刚顶上来的行先落在「下移一格 + 半透明」，再归位。
             // 位移加在整行上（不是只加在文字上），这样取件码、地点、打勾一起动。
@@ -262,14 +316,21 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             // 打勾：标记已取件，【不跳转 App】——在小组件上操作就不该把 App 拉到前台。
             // 走广播而不是 Activity：Activity 一定会带起界面（哪怕是透明主题，
             // 用户仍会看到任务切换一闪）。
-            rv.setOnClickPendingIntent(DONE_IDS[i], doneAction(context, record.id));
+            // 已取的记录不再显示 ✓（没什么可点的了）。
+            if (pending) {
+                rv.setViewVisibility(DONE_IDS[i], View.VISIBLE);
+                rv.setOnClickPendingIntent(DONE_IDS[i], doneAction(context, record.id));
+            } else {
+                rv.setViewVisibility(DONE_IDS[i], View.INVISIBLE);
+                rv.setOnClickPendingIntent(DONE_IDS[i], null);
+            }
             // 点击取件码 / 地点：复制到剪贴板，同样不跳转。
             rv.setOnClickPendingIntent(CODE_IDS[i], copyAction(context, record.id));
             rv.setOnClickPendingIntent(PLACE_IDS[i], copyAction(context, record.id));
         }
 
         // 还有更多没显示时才提示「查看全部」
-        boolean more = !empty && total > shown;
+        boolean more = !empty && pendingTotal > pendingShown(items, shown);
         rv.setViewVisibility(R.id.widget_more, more ? View.VISIBLE : View.GONE);
         rv.setTextViewTextSize(R.id.widget_more, TypedValue.COMPLEX_UNIT_SP, 11f * scale);
 
@@ -282,14 +343,30 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         return rv;
     }
 
+    /** items 里待取件的条数 */
+    private static int pendingShown(List<PickupRecord> items, int limit) {
+        if (items == null) return 0;
+        int n = 0;
+        int lim = Math.min(limit, items.size());
+        for (int i = 0; i < lim; i++) if (items.get(i).isPending()) n++;
+        return n;
+    }
+
+    private static String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
     /**
      * 按组件高度推算能放几行。
      *
-     * <p>行高是固定的（ROW_HEIGHT_DP），所以这里算的是「放得下几行」，
-     * 而不是「把高度均分成几行」。放不下的部分不显示，剩余空间留白。
+     * <p>实现放在 {@link WidgetPrefs#rowsForHeight}——那是纯逻辑、可离线单测的地方。
+     * 这里只负责把 Android 的 options 读出来传进去。
+     *
+     * <p>v4.0.2：不再有「最多 5 条」这类硬上限——
+     * 组件拉得越大，这里算出来的行数就越多，最多到布局允许的 MAX_ROWS。
      */
     private static int rowsFor(Context context, int widgetId) {
-        int maxPref = WidgetPrefs.maxRows(context);
         int heightDp = 0;
         int widthDp = 0;
         try {
@@ -301,17 +378,9 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         } catch (Throwable t) {
             Log.w(TAG, "widget options failed: " + t);
         }
-        if (heightDp <= 0) {
-            return Math.min(3, maxPref);
-        }
-        // 头部标题行约 26dp，底部「查看全部」约 18dp，组件内边距上下共 24dp
-        int available = heightDp - 26 - 18 - 24;
-        int rowHeight = (int) (ROW_HEIGHT_DP * WidgetPrefs.fontScale(context));
-        int rows = available / Math.max(1, rowHeight);
-        if (widthDp > 0 && widthDp < 150) {
-            rows = Math.min(rows, 2);
-        }
-        return Math.max(1, Math.min(maxPref, rows));
+        int rows = WidgetPrefs.rowsForHeight(heightDp, widthDp, MAX_ROWS);
+        Log.i(TAG, "WIDGET size: h=" + heightDp + "dp w=" + widthDp + "dp -> rows=" + rows);
+        return rows;
     }
 
     private static PendingIntent openApp(Context context) {

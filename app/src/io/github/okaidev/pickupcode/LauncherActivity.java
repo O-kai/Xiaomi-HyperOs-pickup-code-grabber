@@ -81,8 +81,6 @@ public class LauncherActivity extends Activity {
     private LinearLayout checklistCard;
     private LinearLayout checklistBox;
     private TextView deployBtn, troubleshootBtn;
-    /** v4.0.1：「完整体检」按钮（需要 root 授权，用户主动触发） */
-    private TextView fullHealthBtn;
     /** v4.3：新用户「开始配置」引导入口（未完全就绪时显示） */
     private TextView guideBtn;
     /** 4.1：一键链路测试入口（从「规则 → 工具」移到首页） */
@@ -598,14 +596,17 @@ public class LauncherActivity extends Activity {
         heroCard.setBackground(UiKit.bg(P.hero, this, 18));
         heroCard.setPadding(dp(20), dp(17), dp(20), dp(17));
         heroCard.setElevation(dp(1));
-        heroCard.setOnClickListener(v -> toggleChecklist());
-        // v4.0.1：长按状态卡 = 跑完整体检（会调 su，触发 Magisk 授权提示）。
-        // 提示语要说清楚「会请求 root 授权」，免得用户被弹框吓到。
-        heroCard.setOnLongClickListener(v -> {
+        // v4.0.2：点状态卡 = 跑【完整体检】（含 root 检测）。
+        //
+        // 原先这里点一下是展开/收起体检清单，完整体检另有一个独立按钮。
+        // 用户反馈「把完整体检完全整合进状态卡里，点一下就可以进行完整的检查校验」
+        // ——独立按钮确实是多余的一层，而且「磨磨唧唧的东西那么多，没有任何意义」。
+        //
+        // 点一下就跑完整校验（含 root），用户对 Magisk 弹框有预期；
+        // 清单仍然照旧自动展开显示结果。
+        heroCard.setOnClickListener(v -> {
             refreshHealth(true);
-            Toast.makeText(this, "正在跑完整体检（会请求 root 授权）…",
-                    Toast.LENGTH_SHORT).show();
-            return true;
+            Toast.makeText(this, "正在跑完整体检…", Toast.LENGTH_SHORT).show();
         });
         heroIcon = UiKit.icon(this, R.drawable.ic_check, 32, P.heroInk);
         heroCard.addView(heroIcon);
@@ -627,24 +628,9 @@ public class LauncherActivity extends Activity {
         // 与「待取件」卡之间留 12dp，和下面几张卡的间距一致
         box.addView(heroCard, UiKit.cardLp(this, 12));
 
-        // v4.0.1：「完整体检」入口。
-        //
-        // 完整体检要调 su（查 root 授权、作用域、sqlite3、待办库），
-        // 一定会触发 Magisk 的「已授予超级用户权限」提示。
-        // 所以默认不自动跑，改成用户主动点这个按钮——噪音归零，需要时随时能查。
-        //
-        // 样式用描边（ghostLine）而不是实心：这是「诊断工具」不是主操作，
-        // 做成橙色大按钮会抢走「官方规则集」这些更常用入口的注意力。
-        fullHealthBtn = UiKit.button(this, P, "完整体检（含 root 检测）", "ghostLine");
-        LinearLayout.LayoutParams fullLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
-        fullLp.setMargins(0, dp(10), 0, 0);
-        fullHealthBtn.setLayoutParams(fullLp);
-        fullHealthBtn.setOnClickListener(v -> {
-            refreshHealth(true);
-            Toast.makeText(this, "正在跑完整体检…", Toast.LENGTH_SHORT).show();
-        });
-        box.addView(fullHealthBtn);
+        // v4.0.2：删掉了独立的「完整体检（含 root 检测）」按钮。
+        // 完整体检已整合进上面的状态卡——点一下状态卡就跑完整校验。
+        // 用户原话：「把完整体检完全整合进状态卡里……磨磨唧唧的东西那么多，没有任何意义」。
 
         // 体检清单（仅异常时显示）
         checklistCard = UiKit.card(this, P);
@@ -834,13 +820,8 @@ public class LauncherActivity extends Activity {
         return lp;
     }
 
-    /** 点状态卡：展开/收起体检清单（异常时强制展开，不给藏红字） */
-    private void toggleChecklist() {
-        if (healthAllOk) {
-            checklistCard.setVisibility(
-                    checklistCard.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
-        }
-    }
+    // v4.0.2：原先的 toggleChecklist（点状态卡展开/收起清单）已移除——
+    // 状态卡的点击现在用来跑完整体检，清单由体检结果自动决定显不显示。
 
     // ================================================================
     //  应用
@@ -2616,9 +2597,14 @@ public class LauncherActivity extends Activity {
             if (full) {
                 heroSub.setText("LSPosed 已注入 · 6 项体检全部通过");
             } else {
-                // v4.0.1：轻量体检只覆盖 2 项，措辞必须准确——
+                // v4.0.2：轻量体检只覆盖 2 项，措辞必须准确——
                 // 说「全部通过」会让用户以为跑过完整检测，那是骗人。
-                heroSub.setText("LSPosed 已注入 · 点「完整体检」可跑 root 相关检测");
+                //
+                // 用户指定文案：「LSPosed 已注入·点击可跑 root 相关检测」，
+                // 保持一行不换行——之前那句太长，挤成两行把状态卡拉高了。
+                heroSub.setText("LSPosed 已注入 · 点击可跑 root 相关检测");
+                heroSub.setMaxLines(1);
+                heroSub.setEllipsize(android.text.TextUtils.TruncateAt.END);
             }
             heroIcon.setImageResource(R.drawable.ic_check);
             heroCard.setBackground(UiKit.bg(P.hero, this, 18));
@@ -2669,8 +2655,6 @@ public class LauncherActivity extends Activity {
         deployBtn.setVisibility(needDeploy ? View.VISIBLE : View.GONE);
         troubleshootBtn.setVisibility(allOk ? View.GONE : View.VISIBLE);
         if (guideBtn != null) guideBtn.setVisibility(allOk ? View.GONE : View.VISIBLE);
-        // v4.0.1：已经跑过完整体检就不用再显示这个按钮了（省一屏空间）
-        if (fullHealthBtn != null) fullHealthBtn.setVisibility(full ? View.GONE : View.VISIBLE);
     }
 
     /**
@@ -2800,6 +2784,11 @@ public class LauncherActivity extends Activity {
         super.onResume();
         // 首启模式选择 / 简洁模式跳转时没有建界面，此时不能碰任何视图
         if (!uiReady) return;
+        // v4.0.2：启动时自动清理过期记录。
+        // 用户原话：「如果设置的过期时间是 90 天，那么过了日期应该立马就被清理掉，
+        // 不需要我再点击管理并选择『立刻清理已过期的记录』」。
+        // 所以保留期必须真的自动生效——用户不点按钮，记录也会按期消失。
+        PickupRepository.get(this).autoPurgeAsync(this);
         refreshPickupCard();
         refreshHealth();
         notiSwitchOn = isNotiHookFlagOn();

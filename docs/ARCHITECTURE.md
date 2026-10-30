@@ -3,7 +3,7 @@
 > **文档定位**：给「要接手这个项目继续开发的人」看的交接文档。
 > 读者假设：你会 Java/Android，但**没有读过这个仓库的任何一行代码**。
 >
-> **基线版本**：`versionCode 310` / `versionName 3.1.0`（`app/build.gradle:13-14`，与 `app/AndroidManifest.xml:4-5` 一致）
+> **基线版本**：`4.0.2`（`version.properties` 唯一事实源；`versionCode` 由点分版本号推导，见 `docs/VERSION-MAP.md`）
 > **源码根**：`app/src/io/github/okaidev/pickupcode/`（下文所有文件名不带路径时均指这里）
 > **包名**：`io.github.okaidev.pickupcode`
 > **构建**：AGP + `java.srcDirs = ['src']`（非标准布局，`app/build.gradle:47-54`）；Java 11，无 androidx 依赖；Xposed API 仅 `compileOnly`
@@ -1279,5 +1279,6 @@ adb shell su -c "LD_LIBRARY_PATH=/data/local/tmp/pickup_sqlite/lib /data/local/t
 
 ---
 
-*本文档基于 `versionCode 310` 源码通读生成，行号快照时间 2026-10-04 约 02:50。*
+*本文档基于 4.0 之前的源码通读生成，行号快照时间 2026-10-04 约 02:50；
+版本号相关表述已按 4.0.2 规范统一（见 `docs/VERSION-MAP.md`）。*
 *该时刻仓库正在被并行修改，后续提交后行号可能漂移 —— **以文件内容为准，不要以行号为准**。*

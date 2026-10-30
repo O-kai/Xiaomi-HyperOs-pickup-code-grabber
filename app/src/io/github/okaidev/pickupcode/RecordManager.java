@@ -96,14 +96,18 @@ public class RecordManager {
                 "从文件导入 JSON 或 CSV（已有同码记录会跳过）",
                 v -> startImport());
         wrap.addView(UiKit.divider(act, p));
-        final LinearLayout purgeRow = addRow(wrap, R.drawable.ic_refresh, "立即清理过期记录",
+        // v4.0.2：「立即清理过期记录」→「立即清理所有已取件记录」。
+        // 用户理由：过期清理本来就该自动发生（保留期到了就删），
+        // 手动按钮再带「过期」这个条件就是多余的一层。
+        final LinearLayout purgeRow = addRow(wrap, R.drawable.ic_refresh, "立即清理所有已取件记录",
                 purgeSub(), v -> purgeNow());
         wrap.addView(UiKit.divider(act, p));
         final LinearLayout clearRow = addRow(wrap, R.drawable.ic_ban, "清空全部记录",
                 "删除本机保存的全部记录", v -> confirmClearAll());
 
         UiKit.dialog(act, p, R.drawable.ic_notebook, "管理本地记录",
-                "本地库是取件码的事实源。导出的文件只含码、来源、地点与时间，不含短信正文。",
+                "本地库是取件码的事实源。导出的文件只含码、来源、地点与时间，不含短信正文。\n\n"
+                        + "超过保留期的已取件记录会自动清理，不需要手动操作。",
                 wrap, 0);
 
         // 条数必须异步取：Room 不允许主线程查询，同步取会被拒绝然后吞掉，
@@ -122,13 +126,20 @@ public class RecordManager {
 
     /** 保留期行的副标题 */
     private String retentionSub() {
-        return "当前：" + Retention.label(days()) + " · 只清理已取件的记录";
+        // v4.0.2：把语义写清楚。用户原话：
+        // 「设置页面：写清楚记录时间。比如如果设置只记录 90 天，
+        //   那么 90 天之后到了立马就应该把它删掉。」
+        // 所以这里要说三件事：保留多久、到期自动清、待取件不删。
+        int d = days();
+        if (d <= 0) {
+            return "永久保留 · 已取件的记录也不会自动删除";
+        }
+        return "已取件记录保留 " + d + " 天 · 到期自动清理 · 待取件永不删除";
     }
 
-    /** 「立即清理过期记录」行的副标题 */
+    /** 「立即清理所有已取件记录」行的副标题 */
     private String purgeSub() {
-        return days() <= 0 ? "当前为永久保留，无可清理内容"
-                : "删除超过 " + days() + " 天的已取件记录";
+        return "一次性删除全部已取件记录（待取件保留）";
     }
 
     /** 当前保留期天数（供副标题用） */
@@ -162,7 +173,8 @@ public class RecordManager {
         int checked = 0;
         int cur = PickupRepository.retentionDays(act);
         for (int i = 0; i < opts.length; i++) {
-            items[i] = Retention.label(opts[i]);
+            // v4.0.2：选项带上完整说明——用户要能一眼看出这个保留期管哪类记录
+            items[i] = Retention.labelWithHint(opts[i]);
             if (opts[i] == cur) checked = i;
         }
         UiKit.chooser(act, p, R.drawable.ic_notebook, "记录保留期", items, checked, w -> {
@@ -280,16 +292,20 @@ public class RecordManager {
     //  清理
     // ================================================================
 
+    /**
+     * 「立即清理所有已取件记录」。
+     *
+     * <p>v4.0.2：从「清理超过保留期的记录」改成「清理全部已取件记录」。
+     * 用户理由：过期清理本来就自动发生（保留期到了就删），
+     * 手动按钮再带「过期」条件就是多余的一层。
+     *
+     * <p>待取件永远保留——那是要去取的东西。
+     */
     public void purgeNow() {
-        int days = PickupRepository.retentionDays(act);
-        if (days <= 0) {
-            Toast.makeText(act, "当前为永久保留，没有需要清理的记录", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        PickupRepository.get(act).purgeExpiredAsync(days, n -> {
+        PickupRepository.get(act).deleteAllPickedAsync(n -> {
             Toast.makeText(act, n > 0
-                    ? "已清理 " + n + " 条超过 " + days + " 天的记录"
-                    : "没有需要清理的记录", Toast.LENGTH_LONG).show();
+                    ? "已清理 " + n + " 条已取件记录"
+                    : "没有已取件记录需要清理", Toast.LENGTH_LONG).show();
             notifyChanged();
         });
     }

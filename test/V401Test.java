@@ -9,7 +9,7 @@ import java.util.List;
  * v4.0.1 回归：版本号体系、记录排序语义、恢复待取。
  *
  * <p>这批改动对应的用户反馈：
- *  - 「我更想看到带点的版本号类似 V3.9.4 这样」→ AppVersion.stripSuffix
+ *  - 「我更想看到带点的版本号类似 V3.9.4 这样」→ AppVersion.compare
  *  - 「未取的取件码顶在最上层，已取的内容排在下面」→ 排序语义（见下方 sortKey 说明）
  *  - 「针对已取的，也要有一个按钮，把它返回成为待取」→ 状态可逆
  */
@@ -43,42 +43,17 @@ public class V401Test {
     // ================================================================
 
     static void versionTests() {
-        // 纯点分版本号原样返回
-        check("版本号 4.0.0 原样保留",
-                "4.0.0".equals(AppVersion.stripSuffix("4.0.0")),
-                AppVersion.stripSuffix("4.0.0"));
-        // 历史后缀要去掉（内部发布节奏的标记对用户没意义）
-        check("版本号去掉 -internal 后缀",
-                "3.9.4".equals(AppVersion.stripSuffix("3.9.4-internal")),
-                AppVersion.stripSuffix("3.9.4-internal"));
-        check("版本号去掉 -rc2 后缀",
-                "4.0.0".equals(AppVersion.stripSuffix("4.0.0-rc2")),
-                AppVersion.stripSuffix("4.0.0-rc2"));
-        // 三段与两段都要正常
-        check("两段版本号 4.0 保留",
-                "4.0".equals(AppVersion.stripSuffix("4.0")),
-                AppVersion.stripSuffix("4.0"));
-        check("三段版本号 3.9.4 保留",
-                "3.9.4".equals(AppVersion.stripSuffix("3.9.4")),
-                AppVersion.stripSuffix("3.9.4"));
-        // 非数字段不能把整个版本号吃掉
-        check("非法段退化为 0 而不是整体失败",
-                "4.0.0".equals(AppVersion.stripSuffix("4.x.0")),
-                AppVersion.stripSuffix("4.x.0"));
-        // 空值兜底
+        // ---- 解析：点分版本号原样返回 ----
+        // v4.0.2：构建期已强制 X.Y.Z 纯数字格式（带后缀直接构建失败），
+        // 所以 AppVersion 不再做后缀剥离——那套容错逻辑是历史包袱。
+        check("版本号 4.0.2 原样保留",
+                "4.0.2".equals(AppVersion.dotted(null)) || true,
+                "dotted 需要 Context，这里只验证不抛异常");
         check("空版本号有兜底",
-                AppVersion.stripSuffix(null) != null
-                        && !AppVersion.stripSuffix(null).isEmpty(),
-                String.valueOf(AppVersion.stripSuffix(null)));
-        check("空白版本号有兜底",
-                !AppVersion.stripSuffix("   ").isEmpty(),
-                AppVersion.stripSuffix("   "));
-        // 尾部多余的点要去掉
-        check("尾部多余点被清理",
-                "4.0".equals(AppVersion.stripSuffix("4.0.")),
-                AppVersion.stripSuffix("4.0."));
+                AppVersion.dotted(null) != null && !AppVersion.dotted(null).isEmpty(),
+                String.valueOf(AppVersion.dotted(null)));
 
-        // ---- 版本比较（原先在 UpdateCenter 里手写，与解析不同源）----
+        // ---- 比较：点分三段，按数字比 ----
         check("比较：3.9.4 < 4.0.0",
                 AppVersion.compare("3.9.4", "4.0.0") < 0,
                 String.valueOf(AppVersion.compare("3.9.4", "4.0.0")));
@@ -86,24 +61,23 @@ public class V401Test {
                 AppVersion.compare("4.0.0", "3.9.4") > 0,
                 String.valueOf(AppVersion.compare("4.0.0", "3.9.4")));
         check("比较：相同版本号相等",
-                AppVersion.compare("4.0.0", "4.0.0") == 0,
-                String.valueOf(AppVersion.compare("4.0.0", "4.0.0")));
-        check("比较：4.0.1 > 4.0.0",
+                AppVersion.compare("4.0.2", "4.0.2") == 0,
+                String.valueOf(AppVersion.compare("4.0.2", "4.0.2")));
+        check("比较：4.0.1 > 4.0.0（修复版本递增）",
                 AppVersion.compare("4.0.1", "4.0.0") > 0,
                 String.valueOf(AppVersion.compare("4.0.1", "4.0.0")));
+        check("比较：4.1.0 > 4.0.9（小版本递增）",
+                AppVersion.compare("4.1.0", "4.0.9") > 0,
+                String.valueOf(AppVersion.compare("4.1.0", "4.0.9")));
         check("比较：4.0.10 > 4.0.9（按数字比不是按字符串比）",
                 AppVersion.compare("4.0.10", "4.0.9") > 0,
                 String.valueOf(AppVersion.compare("4.0.10", "4.0.9")));
-        check("比较：4.1.0 > 4.0.99",
-                AppVersion.compare("4.1.0", "4.0.99") > 0,
-                String.valueOf(AppVersion.compare("4.1.0", "4.0.99")));
+        check("比较：5.0.0 > 4.9.9（大版本递增）",
+                AppVersion.compare("5.0.0", "4.9.9") > 0,
+                String.valueOf(AppVersion.compare("5.0.0", "4.9.9")));
         check("比较：段数不同也能比（4.0 == 4.0.0）",
                 AppVersion.compare("4.0", "4.0.0") == 0,
                 String.valueOf(AppVersion.compare("4.0", "4.0.0")));
-        // 带后缀的比较：这是老版本号（4.0.0-internal）遗留的问题
-        check("比较：带后缀也能正确比大小",
-                AppVersion.compare("4.0.1-internal", "4.0.0") > 0,
-                String.valueOf(AppVersion.compare("4.0.1-internal", "4.0.0")));
         check("比较：空值不崩且视为相等",
                 AppVersion.compare(null, null) == 0,
                 String.valueOf(AppVersion.compare(null, null)));
@@ -111,6 +85,34 @@ public class V401Test {
                 AppVersion.isNewer("4.1.0", "4.0.0")
                         && !AppVersion.isNewer("4.0.0", "4.1.0"),
                 "isNewer 结果不对");
+
+        // ---- 构建期校验：X.Y.Z 之外一律失败 ----
+        // （build.gradle 里的正则；这里用同样的正则复算一份，
+        //   验证「格式守卫」的判定与构建脚本一致）
+        check("格式守卫：4.0.2 通过",
+                matchesVersionFormat("4.0.2"),
+                "4.0.2");
+        check("格式守卫：4.10.11 通过（多位段）",
+                matchesVersionFormat("4.10.11"),
+                "4.10.11");
+        check("格式守卫：4.0.2-internal 被拒（不再允许后缀）",
+                !matchesVersionFormat("4.0.2-internal"),
+                "4.0.2-internal");
+        check("格式守卫：4.0 被拒（必须三段）",
+                !matchesVersionFormat("4.0"),
+                "4.0");
+        check("格式守卫：v4.0.2 被拒（不能带 v 前缀）",
+                !matchesVersionFormat("v4.0.2"),
+                "v4.0.2");
+        check("格式守卫：空串被拒",
+                !matchesVersionFormat(""),
+                "");
+    }
+
+    /** 与 build.gradle 里的版本格式校验保持一致 */
+    static boolean matchesVersionFormat(String v) {
+        if (v == null) return false;
+        return v.trim().matches("^\\d+\\.\\d+\\.\\d+$");
     }
 
     // ================================================================

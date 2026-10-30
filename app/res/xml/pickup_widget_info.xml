@@ -11,8 +11,8 @@
   （见 PickupWidgetProvider.onAppWidgetOptionsChanged）。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:initialLayout="@layout/widget_pickup"
-    android:previewLayout="@layout/widget_pickup"
+    android:initialLayout="@layout/widget_pickup_v2"
+    android:previewLayout="@layout/widget_pickup_v2"
     android:previewImage="@drawable/widget_preview"
     android:description="@string/widget_description"
     android:minWidth="250dp"
