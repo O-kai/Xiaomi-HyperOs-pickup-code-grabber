@@ -46,6 +46,7 @@ test/*-out.txt
 test/reg-result.txt
 test/place_res*.txt
 test/out/
+test/out-*/
 
 # ---------- 内部实验代码（不对外发布）----------
 # 未启用/未公开的内部实验实现，仅本地留存备查，不进公开仓库

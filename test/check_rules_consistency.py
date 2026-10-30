@@ -62,6 +62,63 @@ def scan_hidden(data):
     return hits
 
 
+def _java_unescape(t):
+    out = []
+    i = 0
+    while i < len(t):
+        c = t[i]
+        if c == "\\" and i + 1 < len(t):
+            n = t[i + 1]
+            if n == "\\":
+                out.append("\\")
+            elif n == '"':
+                out.append('"')
+            elif n == "n":
+                out.append("\n")
+            elif n == "t":
+                out.append("\t")
+            else:
+                out.append("\\" + n)
+            i += 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def parse_java_constant(src, name):
+    """取 Java 里的字符串常量（支持 '+' 拼接的多段字面量）"""
+    m = re.search(re.escape(name) + r"\s*=\s*", src)
+    if not m:
+        return None
+    i = m.end()
+    parts = []
+    while i < len(src):
+        c = src[i]
+        if c == '"':
+            i += 1
+            buf = []
+            while i < len(src):
+                if src[i] == "\\":
+                    buf.append(src[i])
+                    buf.append(src[i + 1])
+                    i += 2
+                    continue
+                if src[i] == '"':
+                    break
+                buf.append(src[i])
+                i += 1
+            parts.append("".join(buf))
+            i += 1
+        elif c == ";":
+            break
+        else:
+            i += 1
+    if not parts:
+        return None
+    return _java_unescape("".join(parts))
+
+
 def parse_java_default(path):
     """从 ExtractorRules.java 的 createDefault() 里抠出 version / minAppVersionCode / 锚点"""
     src = io.open(path, encoding="utf-8").read()
@@ -82,6 +139,10 @@ def parse_java_default(path):
         out["anchors"] = re.findall(r'"([^"]*)"', mk.group(1)) if mk else None
     out["version"] = int(mv.group(1)) if mv else None
     out["minAppVersionCode"] = int(ma.group(1)) if ma else None
+    # v7：码形正则同样要三份一致——只比版本号和锚点的话，
+    # 改完 rules.json 忘了改 Java 副本，系统进程会一直用旧码形且没有任何提示。
+    out["dashPattern"] = parse_java_constant(src, "DEFAULT_DASH_PATTERN")
+    out["alnumPattern"] = parse_java_constant(src, "alnumPatternStr")
     return out
 
 
@@ -148,6 +209,18 @@ def main():
         print("      java   = %s" % a_java)
     elif a_repo != a_asset or a_repo != (a_java or []):
         problems.append("keywordAnchors 集合相同但顺序不同")
+
+    for k in ("dashPattern", "alnumPattern"):
+        a, b, c = j_repo.get(k), j_asset.get(k), jd.get(k)
+        ok = (a == b == c)
+        shown = (a or "")[:60]
+        print("  %-20s repo=%-5s assets=%-5s java=%-5s  %s"
+              % (k, len(a or ""), len(b or ""), len(c or ""), "OK" if ok else "FAIL"))
+        if not ok:
+            problems.append("%s 三处不一致" % k)
+            print("      repo   = %s" % shown)
+            print("      assets = %s" % (b or "")[:60])
+            print("      java   = %s" % (c or "")[:60])
 
     print("")
     print("=== 5. 结论 ===")

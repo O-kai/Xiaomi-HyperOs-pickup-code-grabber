@@ -17,9 +17,10 @@
 | `CallerPolicyTest.java` | **IPC 调用方白名单（4.0 Stage 0 新增，11 项）**：验证系统/电话/短信/telephony 包名放行，第三方/伪造包名/null 拒绝 |
 | `SecurityChecklist.md` | **真机 IPC 安全验收清单**：未授权 `onSms`/`markDone`、旧广播、Launcher `done` extra、通知动作回归 |
 | `UserRulesTest.java` | **用户自定义规则安全测试**：危险正则拦截 / 强制自测 / 50ms 熔断 / 四层发送方匹配 / 优先级 / 导入导出往返 |
-| `check_rules_consistency.py` | **规则三副本一致性校验**（改规则后必跑，见下） |
-| `sms-cases.txt` | 官方规则用例集（`ID｜期望码｜短信原文`，期望为 `-` 表示反例） |
-| `sms-corpus-public.jsonl` | **公开脱敏语料集**（18 条，正例 12 / 反例 6），供研究与二次开发 |
+| `RuleLab.java` | **规则实验台（v7 新增）**：直接加载 `rules/rules.json` 跑语料，不编译装机就能验证规则改动。改正则时先跑它，30 秒出结果；`RulesRegression` 只能跑编译进代码的那份副本 |
+| `check_rules_consistency.py` | **规则三副本一致性校验**（改规则后必跑，见下）。v7 起额外校验 `dashPattern` / `alnumPattern` 两份码形正则 |
+| `sms-cases.txt` | 官方规则用例集（`ID｜期望码｜短信原文`，期望为 `-` 表示反例）。v7 增至 39 条：033/034 为 GitHub issue #10/#11 的真实短信，036–038 为防止码形放宽引入误判的反例 |
+| `sms-corpus-public.jsonl` | **公开脱敏语料集**（22 条，含 issue #10/#11 正例与 e-mail、订单号反例），供研究与二次开发 |
 
 > 真机验证（识别 → 写入待办全链路）用 `tools/device-probe/probe.py`，见该目录 README。
 

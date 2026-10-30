@@ -23,7 +23,21 @@ public class ExtractorRules {
     public List<String> byWords = new ArrayList<>();
     // v4 码形状：横线簇【必须含至少一个横线】——杜绝裸数字被当成取件码（6折/189/1064）
     // 首段形态：字母-数字（M-2）｜字母+数字（D4）｜纯数字（109）
-    public String dashPatternStr = "(?:[A-Za-z]-\\d{1,6}|[A-Za-z]?\\d{1,6})(?:-[A-Za-z]?\\d{1,6}){1,3}";
+    /**
+     * v7：默认码形正则。
+     *
+     * <p>一段 = 可带 1-2 字母前缀的数字字段（CC3 / M-2 / 1023），也允许纯字母段（a）。
+     * 纯字母段只能出现在中间，且后面必须跟数字段——这样 e-mail、订单号一类的文本
+     * 不会因为「字母-字母」被当成取件码（回归用例 036-038 锁住这一点）。
+     */
+    public static final String DEFAULT_DASH_PATTERN =
+            "(?:[A-Za-z]{1,2}-\\d{1,6}|[A-Za-z]{0,2}\\d{1,6})"
+                    + "(?:-(?:[A-Za-z]{1,2}-\\d{1,6}|[A-Za-z]{0,2}\\d{1,6})){1,3}"
+                    + "|(?:[A-Za-z]{1,2}-\\d{1,6}|[A-Za-z]{0,2}\\d{1,6})"
+                    + "(?:-[A-Za-z]{1,2})"
+                    + "(?:-(?:[A-Za-z]{1,2}-\\d{1,6}|[A-Za-z]{0,2}\\d{1,6})){1,2}";
+
+    public String dashPatternStr = DEFAULT_DASH_PATTERN;
     public String alnumPatternStr = "[A-Za-z]?\\d{3,9}";
     public List<String> placePrefixes = new ArrayList<>();
     public List<String> placeSuffixes = new ArrayList<>();
@@ -64,9 +78,9 @@ public class ExtractorRules {
 
     public static ExtractorRules createDefault() {
         ExtractorRules r = new ExtractorRules();
-        r.version = 6;
+        r.version = 7;
         r.minAppVersionCode = 293;
-        r.description = "内置默认提取规则集 v5（补齐取件凭证叫法变体：提货码/取货号/提货号/收货码/取件密码；严格码形 + 正反双向闸门 + 四层判定 + 排除语义上下文）";
+        r.description = "取件码提取规则集 v7（① 码形放宽：支持双字母前缀 CC3-3214 与中间纯字母段 1023-a-66，修复 GitHub issue #11 / #10 漏抓；② 沿用 v6 的驿站品牌特征词与后瞻引导字；③ 保留严格码形 + 正反双向闸门，订单号/英文邮箱等反例不入库）";
 
         // ===== 快递特征词（Tier0 门禁：短信必须命中其一才可能是取件短信）=====
         r.featureWords.add("驿站"); r.featureWords.add("快递柜"); r.featureWords.add("丰巢");

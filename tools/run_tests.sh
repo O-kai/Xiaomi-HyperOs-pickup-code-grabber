@@ -53,4 +53,30 @@ for T in TierExclusionTest CallerPolicyTest; do
   echo ""
 done
 
+# ===== 规则实验台：直接加载 rules/rules.json 跑语料 =====
+# 这一步校验的是「远端源」那份 JSON——规则改动后它必须自己就能通过，
+# 而不是等同步到 Java 副本之后才发现问题（v7 之前就出过这种漂移）。
+echo "===== RuleLab (rules/rules.json) ====="
+"$JDK/bin/javac.exe" -encoding UTF-8 -nowarn \
+  -classpath "$APPCLS;$SDK" -d "$OUT/testclasses" test/RuleLab.java 2>> "$OUT/javac.log"
+if [ $? -ne 0 ]; then
+  echo "RuleLab javac FAILED (first 15 lines):"
+  tail -15 "$OUT/javac.log"
+  exit 1
+fi
+"$JDK/bin/java.exe" -cp "$CP" RuleLab "$ROOT" 2>&1 | tail -8
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+  echo "RuleLab FAILED — 规则源与语料不一致"
+  exit 1
+fi
+echo ""
+
+echo "===== 规则三副本一致性 ====="
+python test/check_rules_consistency.py 2>&1 | tail -8
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+  echo "三副本一致性 FAILED"
+  exit 1
+fi
+echo ""
+
 echo "===== ALL DONE ====="
