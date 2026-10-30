@@ -1,15 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  v4.0.2：这里刻意【不写】targetCellWidth / targetCellHeight。
+
+  原因（真机定位到的坑）：Android 12+ 会用 targetCell 的格数换算建议尺寸，
+  4x2 格在小米 HyperOS 上等于 640dp × 460dp —— 比手机屏宽（约 400dp）还大，
+  结果 MIUI 的「添加小部件」列表直接不显示本 App（provider 在系统里注册正常，
+  但选择器里查不到），用户根本加不上。
+
+  去掉之后由 minWidth/minHeight 决定默认尺寸，行数随实际分配高度自适应
+  （见 PickupWidgetProvider.onAppWidgetOptionsChanged）。
+-->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/widget_pickup"
     android:previewLayout="@layout/widget_pickup"
     android:previewImage="@drawable/widget_preview"
     android:description="@string/widget_description"
     android:minWidth="250dp"
-    android:minHeight="180dp"
+    android:minHeight="110dp"
     android:minResizeWidth="180dp"
-    android:minResizeHeight="110dp"
-    android:targetCellWidth="4"
-    android:targetCellHeight="2"
+    android:minResizeHeight="70dp"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen" />
