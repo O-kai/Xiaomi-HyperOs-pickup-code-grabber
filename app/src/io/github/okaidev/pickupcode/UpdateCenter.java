@@ -239,18 +239,39 @@ public class UpdateCenter {
         }
     }
 
+    /**
+     * 比较两个版本号（如 3.9.4 与 4.0.0）。
+     *
+     * 每段只取开头连续数字，容忍后缀：此前版本名带 "-internal"，
+     * Integer.parseInt("4-internal") 抛异常被吞掉、永远返回 0，
+     * 结果是「自动检查更新」始终认为本地已是最新。去掉后缀之外再加这层容错。
+     */
     private static int compareVersions(String a, String b) {
         try {
             String[] sa = a.split("\\.");
             String[] sb = b.split("\\.");
             int n = Math.max(sa.length, sb.length);
             for (int i = 0; i < n; i++) {
-                int va = i < sa.length ? Integer.parseInt(sa[i].trim()) : 0;
-                int vb = i < sb.length ? Integer.parseInt(sb[i].trim()) : 0;
+                int va = i < sa.length ? leadingNumber(sa[i]) : 0;
+                int vb = i < sb.length ? leadingNumber(sb[i]) : 0;
                 if (va != vb) return va - vb;
             }
         } catch (Throwable ignored) { }
         return 0;
+    }
+
+    /** 取一段里的开头连续数字（"4-internal" → 4，"rc2" → 2） */
+    private static int leadingNumber(String part) {
+        if (part == null) return 0;
+        String seg = part.trim();
+        int end = 0;
+        while (end < seg.length() && Character.isDigit(seg.charAt(end))) end++;
+        if (end == 0) return 0;
+        try {
+            return Integer.parseInt(seg.substring(0, end));
+        } catch (Throwable ignored) {
+            return 0;
+        }
     }
 
     private static void toast(Context ctx, String s) {

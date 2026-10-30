@@ -462,7 +462,8 @@ public class LauncherActivity extends Activity {
     private String headerSubtitle(int index) {
         switch (index) {
             case 0:
-                return appVersionLabel() + " · LSPosed 模块 · 自动提取取件码写入 " + backendLabel();
+                // 只放版本号：一句之内、不会换行；写入目标等信息由下方卡片承担
+                return appVersionLabel();
             case 1:
                 return "从 App 通知里提取取件码 · 短信通道不受此限制";
             case 2:
@@ -1831,7 +1832,7 @@ public class LauncherActivity extends Activity {
         String counts = r == null ? "—" :
                 r.keywordAnchors.size() + " 组锚点词 / " + r.featureWords.size() + " 特征词 / "
                         + r.negativeKeywords.size() + " 负向词";
-        String msg = "模块版本：" + appVersionLabel() + " (" + appVersionCode() + ")\n"
+        String msg = "模块版本：" + appVersionLabel() + "\n"
                 + "规则集：v" + PickupExtractor.getActiveRulesVersion() + "\n"
                 + "词表规模：" + counts + "\n"
                 + "许可协议：MIT License\n\n"
@@ -2528,7 +2529,7 @@ public class LauncherActivity extends Activity {
                     + "- [ ] 地点或来源识别错误\n\n"
                     + "具体情况说明：\n\n"
                     + "### 3. 运行环境\n"
-                    + "- 模块版本：v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName + "\n"
+                    + "- 模块版本：" + appVersionLabel() + "\n"
                     + "- 规则版本：v" + PickupExtractor.getActiveRulesVersion() + "\n"
                     + "- 当前系统：Android " + android.os.Build.VERSION.RELEASE
                     + " (" + android.os.Build.MANUFACTURER + ")\n";
@@ -2811,12 +2812,15 @@ public class LauncherActivity extends Activity {
         return b;
     }
 
+    /**
+     * 版本显示：V + 构建号（纯数字），例如 V394。
+     *
+     * 之前用 versionName，显示成「v3.9.4-internal」——后缀是内部发布节奏的标记，
+     * 对用户没有意义，还把头部那一行撑成两行。这里统一用构建号：短、唯一、不会换行。
+     */
     private String appVersionLabel() {
-        try {
-            return "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (Throwable t) {
-            return "v?";
-        }
+        int code = appVersionCode();
+        return code > 0 ? "V" + code : "V?";
     }
 
     /**
