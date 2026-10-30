@@ -90,8 +90,15 @@ public class LauncherActivity extends Activity {
     /** 4.0 Stage 2.1：本地库变更监听（前台实时刷新待取件卡） */
     private PickupRepository.ChangeListener pickupListener;
 
-    /** 4.0：界面是否已经建好。首启模式选择 / 跳转简洁模式时不建界面，生命周期回调要跳过视图操作。 */
+    /** 4.0：界面是否已经建好。首启模式选择时不建界面，生命周期回调要跳过视图操作。 */
     private boolean uiReady = false;
+
+    /** 4.0：简洁模式——单页（首页内容 + 反馈），不建另外三个 Tab。 */
+    private boolean simpleMode = false;
+    /** 底栏渐隐遮罩（简洁模式无底栏，需要一起隐藏）。 */
+    private View navScrim;
+    /** 简洁模式右上角的「进阶模式 ›」入口。 */
+    private TextView modeSwitch;
 
     /** 4.0 Stage 2.1：体检结果缓存，避免每次 onResume 都 su（Magisk 会反复弹授权） */
     private static final long HEALTH_CACHE_TTL = 120_000L;
@@ -155,19 +162,15 @@ public class LauncherActivity extends Activity {
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1001);
         }
 
-        // 4.0 双模式：首次启动先让用户选「简洁 / 进阶」，之后按选择分流。
-        // 注意：上面的初始化（规则加载、更新检查、跨进程同步）必须照常执行，
-        // 否则只用简洁模式的用户永远不会触发规则热更与配置同步。
+        // 4.0 双模式：首次启动先让用户选「简洁 / 完整」。
+        // 简洁模式不是另一个 Activity，而是同一套首页组件的单页形态——
+        // 这样规则集、写入目标、写入格式、链路测试只有一份实现，不会两套逻辑漂移。
         String uiMode = UiMode.get(this);
         if (uiMode == null) {
             showModeChooser();
             return;
         }
-        if (UiMode.SIMPLE.equals(uiMode)) {
-            startActivity(new Intent(this, SimpleHomeActivity.class));
-            finish();
-            return;
-        }
+        simpleMode = UiMode.SIMPLE.equals(uiMode);
 
         // 页面骨架：头部（固定）+ 内容区（可滚动，随 Tab 切换）+ 底栏
         LinearLayout page = new LinearLayout(this);
@@ -177,9 +180,19 @@ public class LauncherActivity extends Activity {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setPadding(dp(20), dp(14), dp(20), dp(6));
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
         headerTitle = UiKit.text(this, "取件码助手", 26f, UiKit.INK);
         headerTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        header.addView(headerTitle);
+        titleRow.addView(headerTitle, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        modeSwitch = UiKit.text(this, "进阶模式 ›", 13f, P.accent);
+        modeSwitch.setPadding(dp(12), dp(8), 0, dp(8));
+        modeSwitch.setVisibility(View.GONE);
+        modeSwitch.setOnClickListener(v -> switchToFullMode());
+        titleRow.addView(modeSwitch);
+        header.addView(titleRow);
         headerSub = UiKit.text(this, "", 12.5f, UiKit.INK3);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -203,7 +216,7 @@ public class LauncherActivity extends Activity {
 
         // 底部渐隐遮罩：底栏所在的整段先铺满页面底色（完全不透），再往上柔和过渡到透明——
         // 既保证半透明底栏里不出现卡片文字残影，又保留"内容从底栏下方滚过"的悬浮观感
-        View scrim = new View(this);
+        navScrim = new View(this);
         GradientDrawable scrimBg = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
                 new int[]{ P.bg, P.bg, P.bg & 0x00FFFFFF });
         // 4.0 Stage 2.1：底栏覆盖区必须是【实底】。
@@ -213,11 +226,11 @@ public class LauncherActivity extends Activity {
         //   0.55 → 1 柔和淡出（保留「内容从底栏下滚过」的悬浮感）
         scrimBg.setColors(new int[]{ P.bg, P.bg, P.bg & 0x00FFFFFF },
                 new float[]{ 0f, 0.55f, 1f });
-        scrim.setBackground(scrimBg);
+        navScrim.setBackground(scrimBg);
         FrameLayout.LayoutParams scrimLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(188));
         scrimLp.gravity = Gravity.BOTTOM;
-        contentArea.addView(scrim, scrimLp);
+        contentArea.addView(navScrim, scrimLp);
 
         navHolder = new LinearLayout(this);
         navHolder.setOrientation(LinearLayout.VERTICAL);
@@ -230,13 +243,20 @@ public class LauncherActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(page);
 
-        // 四个 Tab 只构建一次：切换时换子视图，控件引用始终有效（体检刷新等后台回调不会打到废弃视图上）
-        tabViews[0] = buildHomeTab();
-        tabViews[1] = buildAppsTab();
-        tabViews[2] = buildRulesTab();
-        tabViews[3] = buildSettingsTab();
+        // 四个 Tab 只构建一次：切换时换子视图，控件引用始终有效（体检刷新等后台回调不会打到废弃视图上）。
+        // 简洁模式只建首页（含规则集/写入目标/写入格式/链路测试/反馈），不建通知提取与高级规则。
+        tabViews[0] = buildHomeContent(simpleMode);
+        if (!simpleMode) {
+            tabViews[1] = buildAppsTab();
+            tabViews[2] = buildRulesTab();
+            tabViews[3] = buildSettingsTab();
+        } else {
+            modeSwitch.setVisibility(View.VISIBLE);
+            navHolder.setVisibility(View.GONE);
+            if (navScrim != null) navScrim.setVisibility(View.GONE);
+        }
 
-        showTab(currentTab);
+        showTab(0);
         uiReady = true;
         refreshHealth();
         refreshUserRuleCard();
@@ -364,7 +384,7 @@ public class LauncherActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = UiKit.text(this,
-                simple ? "打开即取件" : "保留全部能力", 15.5f, P.navInk);
+                simple ? "一页全包" : "四个页面分区", 15.5f, P.navInk);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -372,8 +392,8 @@ public class LauncherActivity extends Activity {
         card.addView(title, tlp);
 
         TextView desc = UiKit.text(this,
-                simple ? "待取件清单，点码复制、点「已取」完成"
-                        : "规则、通知来源、写入格式与诊断",
+                simple ? "取件信息、官方规则、写入格式、链路测试都在一页"
+                        : "通知提取、高级规则、诊断与外观分开设置",
                 11.5f, P.muteInk);
         desc.setLineSpacing(dp(2), 1f);
         desc.setMinLines(3);
@@ -405,12 +425,7 @@ public class LauncherActivity extends Activity {
 
     private void chooseMode(String mode) {
         UiMode.set(this, mode);
-        if (UiMode.SIMPLE.equals(mode)) {
-            startActivity(new Intent(this, SimpleHomeActivity.class));
-            finish();
-        } else {
-            recreate();
-        }
+        recreate();
     }
 
     @Override
@@ -428,9 +443,10 @@ public class LauncherActivity extends Activity {
         // 4.1：Tab 名「应用」→「来源」（页面内容是"哪些 App 的通知会被读取"，
         // 叫「应用」容易与「写入目标 App」混淆）
         String[] titles = { "取件码助手", "通知提取", "高级规则", "设置" };
-        headerTitle.setText(titles[index]);
-        headerSub.setText(headerSubtitle(index));
+        headerTitle.setText(simpleMode ? "取件码助手" : titles[index]);
+        headerSub.setText(headerSubtitle(simpleMode ? 0 : index));
 
+        if (simpleMode) return;
         navHolder.removeAllViews();
         LinearLayout bar = UiKit.tabbar(this, P, UiKit.navBlur(this), index, this::showTab);
         navHolder.addView(bar, UiKit.tabbarLp(this));
@@ -477,7 +493,18 @@ public class LauncherActivity extends Activity {
     // ================================================================
 
     private View buildHomeTab() {
+        return buildHomeContent(false);
+    }
+
+    /**
+     * 首页内容。simple=true 时追加「反馈与关于」卡片，并去掉底栏预留空间。
+     */
+    private View buildHomeContent(boolean simple) {
         ScrollView sv = scrollPage();
+        if (simple) {
+            // 简洁模式没有底栏，底部不需要 148dp 的遮挡留白
+            sv.setPadding(dp(18), dp(4), dp(18), dp(28));
+        }
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box);
@@ -516,7 +543,8 @@ public class LauncherActivity extends Activity {
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         hcLp.setMargins(dp(15), 0, 0, 0);
         heroCard.addView(heroCol, hcLp);
-        box.addView(heroCard);
+        // 与「待取件」卡之间留 12dp，和下面几张卡的间距一致
+        box.addView(heroCard, UiKit.cardLp(this, 12));
 
         // 体检清单（仅异常时显示）
         checklistCard = UiKit.card(this, P);
@@ -617,7 +645,31 @@ public class LauncherActivity extends Activity {
         ctCard.addView(chainTestBtn);
         box.addView(ctCard, UiKit.cardLp(this, 12));
 
+        if (simple) {
+            // 简洁模式：进阶模式入口 + 反馈渠道。
+            // 高级规则、通知来源在简洁模式里不出现，但仍保留在进阶模式，数据不受影响。
+            LinearLayout more = UiKit.card(this, P);
+            more.addView(toolRow(R.drawable.ic_grid, "进阶模式",
+                    "通知提取、高级规则、外观与诊断", v -> switchToFullMode()));
+            box.addView(more, UiKit.cardLp(this, 12));
+
+            box.addView(UiKit.groupLabel(this, P, "反馈与关于"));
+            LinearLayout fb = UiKit.card(this, P);
+            fb.addView(toolRow(R.drawable.ic_github, "提交问题到 GitHub",
+                    "漏抓、写入失败都可以带上诊断信息反馈", v -> openGithubIssueManual()));
+            fb.addView(UiKit.divider(this, P));
+            fb.addView(toolRow(R.drawable.ic_phone, "加入开发者 QQ 群",
+                    "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
+            box.addView(fb, UiKit.cardLp(this, 0));
+        }
+
         return sv;
+    }
+
+    /** 简洁模式 → 进阶模式：同一 Activity 重建，数据与当前 Tab 都不受影响。 */
+    private void switchToFullMode() {
+        UiMode.set(this, UiMode.ADVANCED);
+        recreate();
     }
 
     private View statCard(String label, String value, String hint) {
@@ -1316,16 +1368,16 @@ public class LauncherActivity extends Activity {
         // 4.0：界面模式切换（简洁 / 进阶），放在基础设置第一位
         TextView modeValue = UiKit.value(this, P, "进阶");
         LinearLayout modeRow = UiKit.row(this, P, R.drawable.ic_grid, "界面模式",
-                "简洁只看待取件；进阶保留规则、来源与诊断", modeValue);
+                "简洁：一页包含规则与写入格式；进阶：四个页面分区", modeValue);
         modeRow.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
                 .setTitle("切换到简洁模式")
-                .setMessage("简洁模式只保留待取件清单：点码复制、点「已取」完成。\n\n"
-                        + "规则、通知来源、写入格式、诊断等能力仍保留在进阶模式，"
-                        + "随时可以从简洁模式右上角切回来。")
+                .setMessage("简洁模式是一页：取件信息、官方规则、写入目标、写入格式、"
+                        + "一键链路测试都在首页，不出现通知来源与高级规则。\n\n"
+                        + "进阶模式保留四个页面：首页、通知提取、高级规则、设置。\n\n"
+                        + "两种模式数据共享，随时可以在简洁模式右上角切回进阶模式。")
                 .setPositiveButton("切换到简洁模式", (d, w) -> {
                     UiMode.set(this, UiMode.SIMPLE);
-                    startActivity(new Intent(this, SimpleHomeActivity.class));
-                    finish();
+                    recreate();
                 })
                 .setNegativeButton("取消", null)
                 .show());
@@ -2242,9 +2294,8 @@ public class LauncherActivity extends Activity {
             heroSub.setTextColor(P.heroWarnSubInk);
         } else if (allOk) {
             heroTitle.setText("一切正常 · 已激活");
-            heroSub.setText(appVersionLabel() + " · LSPosed 已注入 · 六项体检全部通过\n"
-                    + "规则集 v" + PickupExtractor.getActiveRulesVersion()
-                    + " · 写入目标：" + backendLabel());
+            // 不再重复版本号、规则集版本、写入目标——这些都在下面的卡片里能看到
+            heroSub.setText("LSPosed 已注入 · 6 项体检全部通过");
             heroIcon.setImageResource(R.drawable.ic_check);
             heroCard.setBackground(UiKit.bg(P.hero, this, 18));
             heroIcon.setColorFilter(P.heroInk, android.graphics.PorterDuff.Mode.SRC_IN);
@@ -2252,9 +2303,7 @@ public class LauncherActivity extends Activity {
             heroSub.setTextColor(P.heroSubInk);
         } else {
             heroTitle.setText(failed + " 项待处理");
-            heroSub.setText("体检 " + (6 - failed) + "/6 通过 · 点此查看六项清单\n"
-                    + "规则集 v" + PickupExtractor.getActiveRulesVersion()
-                    + " · 写入目标：" + backendLabel());
+            heroSub.setText("体检 " + (6 - failed) + "/6 通过 · 点此查看六项清单");
             heroIcon.setImageResource(R.drawable.ic_alert);
             heroCard.setBackground(UiKit.bg(P.heroWarn, this, 18));
             heroIcon.setColorFilter(P.heroWarnInk, android.graphics.PorterDuff.Mode.SRC_IN);

@@ -76,12 +76,6 @@
             android:exported="false"
             android:theme="@style/AppTheme.NoActionBar" />
 
-        <!-- 4.0 简洁模式首页（与进阶模式共享数据，不对外暴露） -->
-        <activity
-            android:name=".SimpleHomeActivity"
-            android:exported="false"
-            android:theme="@style/AppTheme.NoActionBar" />
-
         <!-- 4.0 小组件外观设置（字号 / 地点 / 条数） -->
         <activity
             android:name=".WidgetSettingsActivity"
