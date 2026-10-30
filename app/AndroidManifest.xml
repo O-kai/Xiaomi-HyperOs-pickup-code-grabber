@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- v2.5.1：唯一联网行为 = 检查更新（3 天一次，GitHub Releases API），无其他网络访问 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 取件提醒：开机后重注册每日闹钟（AlarmManager 的闹钟不跨重启） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- v2.7.0：包可见性声明（Android 11+），保证后端探测能准确找到各 ROM 的目标 App -->
     <queries>
@@ -114,6 +116,25 @@
             android:exported="false"
             android:theme="@style/AppTheme.NoActionBar"
             android:label="用户自定义规则" />
+
+        <!-- 取件提醒：每日闹钟（仅本 App 可触发，外部无法伪造） -->
+        <receiver
+            android:name=".ReminderReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="io.github.okaidev.pickupcode.action.REMINDER" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 开机后重排提醒（系统广播，唯一必须 exported 的接收器） -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- 一键链路测试（v3.0.0）：主界面按钮进入，验证「识别→写入」全链路 -->
         <activity

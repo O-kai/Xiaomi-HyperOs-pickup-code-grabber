@@ -123,7 +123,9 @@ public class LauncherActivity extends Activity {
     private EditText blEdit;
 
     // ==================== 设置 ====================
-    private UiKit.Switch notiSw, sdwSw, blurSw, netSw;
+    private UiKit.Switch notiSw, sdwSw, blurSw, netSw, reminderSw;
+    /** 取件提醒行（时间变化后要刷新副标题） */
+    private LinearLayout reminderRow;
     private TextView notiScopeHintView;
     private LinearLayout sdwRow;
     private TextView tplValueView, tplPreviewText;
@@ -1450,8 +1452,30 @@ public class LauncherActivity extends Activity {
         perCard.addView(toolRow(R.drawable.ic_notebook, "疑似漏抓错题本",
                 "当前 " + missed + " 条 · 一键脱敏复制上报", v -> showMissedSmsDialog()));
         perCard.addView(UiKit.divider(this, P));
+        reminderSw = new UiKit.Switch(this, P, Reminder.isEnabled(this));
+        reminderSw.setOnToggle(on -> {
+            Reminder.setEnabled(this, on);
+            Toast.makeText(this, on
+                    ? "已开启取件提醒，每天 " + Reminder.timeLabel(this) + " 检查一次"
+                    : "已关闭取件提醒", Toast.LENGTH_SHORT).show();
+            refreshReminderRow();
+        });
+        reminderRow = UiKit.row(this, P, R.drawable.ic_bell, "取件提醒",
+                Reminder.isEnabled(this)
+                        ? "每天 " + Reminder.timeLabel(this) + " 提醒还有多少件没取"
+                        : "已关闭 · 点此设置每天的提醒时间",
+                reminderSw);
+        reminderRow.setOnClickListener(v -> pickReminderTime());
+        perCard.addView(reminderRow);
+        perCard.addView(UiKit.divider(this, P));
         perCard.addView(toolRow(R.drawable.ic_search, "排查问题向导",
                 "未注入 → root → 作用域 → 通知 → sqlite3 → 笔记库", v -> runTroubleshoot()));
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(toolRow(R.drawable.ic_file, "sqlite3 自检与修复",
+                "检查写入用的 sqlite3 是否真的可用，坏了自动重装并可回滚", v -> repairSqlite3Now()));
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(toolRow(R.drawable.ic_upload, "复制 JSON 诊断报告",
+                "机器可读格式，反馈时贴到 Issue 代码块更方便", v -> exportDiagJson()));
         // 4.2：「语言」项已移除——目前只有中文，该行永远显示「跟随系统」且无实际功能。
         // 将来真要做多语言时再加，届时需要同步做字符串外置与文案适配。
         box.addView(perCard, UiKit.cardLp(this, 0f));
@@ -2595,6 +2619,130 @@ public class LauncherActivity extends Activity {
                 runOnUiThread(() -> Toast.makeText(this,
                         "报告生成失败：" + t.getMessage(), Toast.LENGTH_LONG).show());
             }
+        }).start();
+    }
+
+    /** 取件提醒：点开设置面板（时间 + 立即测试一次） */
+    private void pickReminderTime() {
+        String msg = (Reminder.isEnabled(this) ? "已开启：每天 " + Reminder.timeLabel(this)
+                : "已关闭") + "\n到点后会检查本地取件库，"
+                + "还有没取的件才提醒，没有就保持安静。";
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("取件提醒")
+                .setMessage(msg)
+                .setPositiveButton("选择时间", (d, w) -> showReminderTimePicker())
+                .setNeutralButton("立即测试一次", (d, w) -> testReminderNow())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 时间选择器 */
+    private void showReminderTimePicker() {
+        android.app.TimePickerDialog dlg = new android.app.TimePickerDialog(this,
+                (view, hourOfDay, minute) -> {
+                    Reminder.setTime(this, hourOfDay, minute);
+                    refreshReminderRow();
+                    Toast.makeText(this, "提醒时间已设为每天 " + Reminder.timeLabel(this),
+                            Toast.LENGTH_SHORT).show();
+                }, Reminder.hour(this), Reminder.minute(this), android.text.format.DateFormat.is24HourFormat(this));
+        dlg.show();
+    }
+
+    /** 立即触发一次提醒：用来确认通知渠道与权限都正常 */
+    private void testReminderNow() {
+        // Room 不允许主线程查询，必须放后台
+        new Thread(() -> {
+            final int pending = Reminder.fireNow(this);
+            runOnUiThread(() -> Toast.makeText(this, pending > 0
+                    ? "已发送提醒通知（当前 " + pending + " 件待取）\n如果没有看到通知，请检查通知权限"
+                    : "当前没有待取件，提醒按设计保持安静\n（可以先取一条快递再试）",
+                    Toast.LENGTH_LONG).show());
+        }).start();
+    }
+
+    /** 刷新取件提醒行的副标题与开关 */
+    private void refreshReminderRow() {
+        if (reminderSw != null) reminderSw.setChecked(Reminder.isEnabled(this));
+        if (reminderRow == null) return;
+        try {
+            LinearLayout col = (LinearLayout) reminderRow.getChildAt(1);
+            if (col != null && col.getChildCount() >= 2) {
+                TextView sub = (TextView) col.getChildAt(1);
+                if (sub != null) {
+                    sub.setText(Reminder.isEnabled(this)
+                            ? "每天 " + Reminder.timeLabel(this) + " 提醒还有多少件没取"
+                            : "已关闭 · 点此设置每天的提醒时间");
+                }
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    /** sqlite3 深度自检 + 自动修复（坏掉自动重装，仍不行则回滚） */
+    private void repairSqlite3Now() {
+        Toast.makeText(this, "正在自检 sqlite3…（约 5-15 秒）", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String res;
+            try {
+                res = Repair.repairSqlite3(this);
+            } catch (Throwable t) {
+                res = "自检异常：" + t.getMessage();
+            }
+            final String r2 = res;
+            android.util.Log.i("PICKUPDEBUG", "SQLITE SELFCHECK: " + r2);
+            runOnUiThread(() -> {
+                Toast.makeText(this, r2, Toast.LENGTH_LONG).show();
+                refreshHealth(true);
+            });
+        }).start();
+    }
+
+    /** 生成 JSON 版诊断报告并复制到剪贴板 */
+    private void exportDiagJson() {
+        Toast.makeText(this, "正在生成 JSON 诊断…（含体检与日志，约 5-15 秒）", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String json;
+            try {
+                json = Diagnostics.collectReportJson(this);
+            } catch (Throwable t) {
+                json = "{\"error\":\"" + t.getMessage() + "\"}";
+            }
+            final String j = json;
+            android.util.Log.i("PICKUPDEBUG", "DIAG JSON bytes=" + j.length()
+                    + " head=" + j.substring(0, Math.min(120, j.length())));
+            // 同时存一份文件：反馈时可以直接把文件拖进 Issue
+            String saved = "";
+            try {
+                java.io.File dir = getExternalFilesDir(null);
+                if (dir != null) {
+                    java.io.File d = new java.io.File(dir, "diagnostics");
+                    d.mkdirs();
+                    String ts = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.CHINA)
+                            .format(new java.util.Date());
+                    java.io.File out = new java.io.File(d, "pickup-diag-" + ts + ".json");
+                    java.io.Writer os = new java.io.OutputStreamWriter(
+                            new java.io.FileOutputStream(out), "UTF-8");
+                    try {
+                        os.write(j);
+                    } finally {
+                        os.close();
+                    }
+                    saved = out.getAbsolutePath();
+                }
+            } catch (Throwable ignored) { }
+            final String savedPath = saved;
+            runOnUiThread(() -> {
+                try {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(ClipData.newPlainText("pickup-diag-json", j));
+                    String extra = savedPath.isEmpty() ? ""
+                            : "\n已保存：" + savedPath;
+                    Toast.makeText(this,
+                            "JSON 诊断报告已复制（约 " + (j.length() / 1024) + " KB）" + extra
+                                    + "\n粘贴到 GitHub Issue 的代码块里即可", Toast.LENGTH_LONG).show();
+                } catch (Throwable t) {
+                    Toast.makeText(this, "复制失败：" + t.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            });
         }).start();
     }
 

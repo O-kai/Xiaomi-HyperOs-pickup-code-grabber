@@ -101,6 +101,144 @@ public class Repair {
         return "部署完成但验证未通过：" + clip(ver + " " + err, 160);
     }
 
+    // ================================================================
+    //  sqlite3 深度自检与自动修复
+    // ================================================================
+
+    /**
+     * sqlite3 自检结果。
+     *
+     * <p>体检里的「sqlite3 部署」只看文件在不在；文件在但动态库缺失、
+     * 二进制损坏、无法真正打开数据库的情况，原来体检是发现不了的——
+     * 表现是「写入待办一直失败」，但用户看不到原因。
+     */
+    public static class SqliteStatus {
+        /** 文件已部署 */
+        public boolean installed;
+        /** 动态库目录非空 */
+        public boolean libsOk;
+        /** --version 能跑出 SQLite 3.x */
+        public boolean runnable;
+        /** 能真正建表-写入-查询 */
+        public boolean dbWorks;
+        /** sqlite3 版本串 */
+        public String version = "";
+        /** 失败原因（人话） */
+        public String detail = "";
+
+        public boolean ok() {
+            return installed && runnable && dbWorks;
+        }
+    }
+
+    /** 深度自检：文件 → 动态库 → 可执行 → 真正读写一个库 */
+    public static SqliteStatus checkSqlite3Deep(Context ctx) {
+        SqliteStatus st = new SqliteStatus();
+
+        String[] r = Diagnostics.suExecPublic(
+                "ls -l " + SQLITE + " 2>&1; echo " + Diagnostics.PROBE_MARK, 15);
+        if (!Diagnostics.suRan(r)) {
+            st.detail = "root 命令没跑起来：" + clip(Diagnostics.suErr(r), 120);
+            return st;
+        }
+        String all = Diagnostics.suStdout(r);
+        // 判据顺序：文件不存在时 ls 的报错里也带着 sqlite3 这个路径，
+        // 必须先判「No such file」，否则会把「没部署」误报成「已部署」。
+        st.installed = !all.contains("No such file") && !all.contains("Not a directory")
+                && all.contains("sqlite3");
+        if (!st.installed) {
+            st.detail = SQLITE + " 不存在";
+            return st;
+        }
+
+        String[] l = Diagnostics.suExecPublic(
+                "ls " + LIBS + " 2>/dev/null | wc -l; echo " + Diagnostics.PROBE_MARK, 15);
+        String libCount = Diagnostics.suRan(l) ? Diagnostics.suStdout(l).trim() : "0";
+        st.libsOk = !"0".equals(libCount) && !"".equals(libCount);
+
+        String[] v = Diagnostics.suExecPublic(
+                "LD_LIBRARY_PATH=" + LIBS + " " + SQLITE + " --version 2>&1; echo "
+                        + Diagnostics.PROBE_MARK, 15);
+        st.version = (Diagnostics.suRan(v) ? Diagnostics.suStdout(v) : "").trim();
+        st.runnable = st.version.contains("3.");
+        if (!st.runnable) {
+            st.detail = "二进制无法执行：" + clip(st.version, 100);
+            return st;
+        }
+
+        // 功能验证：建表 → 写入 → 查询 → 删除
+        //
+        // SQL 必须走「文件重定向」而不是内联：
+        // suExec 会把命令里的双引号换成单引号（cmd.replace("\"", "'")），
+        // 内联 SQL 会被 shell 当成字符串字面量，执行必然失败——
+        // 这也是本类 runSqlFile() 存在的同一个原因。
+        String db = "/data/local/tmp/pickup_selftest.db";
+        String sqlPath = null;
+        try {
+            File sf = new File(ctx.getCacheDir(), "pickup_selftest.sql");
+            writeText(sf, "create table if not exists t(a);\n"
+                    + "insert into t values(1);\n"
+                    + "select count(*) from t;\n");
+            sqlPath = sf.getAbsolutePath();
+        } catch (Throwable ignored) { }
+        if (sqlPath == null) {
+            st.detail = "无法写入自检 SQL 文件";
+            return st;
+        }
+        String[] t = Diagnostics.suExecPublic(
+                "rm -f " + db + "; LD_LIBRARY_PATH=" + LIBS + " " + SQLITE + " " + db
+                        + " < " + sqlPath + " 2>&1; rm -f " + db
+                        + "; echo " + Diagnostics.PROBE_MARK, 20);
+        String tout = Diagnostics.suRan(t) ? Diagnostics.suStdout(t) : "";
+        // 期望输出：1（表里一行）。sqlite3 会把 count(*) 的结果打在 stdout。
+        st.dbWorks = tout.contains("1");
+        if (!st.dbWorks) {
+            st.detail = "无法读写数据库：" + clip(tout, 100);
+        } else if (!st.libsOk) {
+            st.detail = "动态库目录为空或缺失（" + LIBS + "）";
+        }
+        return st;
+    }
+
+    /**
+     * 自检 + 自动修复。
+     *
+     * <p>坏掉时先把当前二进制备份成 sqlite3.bak 再重新部署；
+     * 部署后仍不通过就把备份改回去——宁可保持原状，也不要留一个更坏的环境。
+     */
+    public static String repairSqlite3(Context ctx) {
+        SqliteStatus before = checkSqlite3Deep(ctx);
+        if (before.ok()) {
+            return "sqlite3 自检通过：" + clip(before.version, 60);
+        }
+        String backup = SQLITE + ".bak";
+        Diagnostics.suExecPublic(
+                "cp -f " + SQLITE + " " + backup + " 2>/dev/null; echo " + Diagnostics.PROBE_MARK, 15);
+        String deploy = deploySqlite3(ctx);
+        SqliteStatus after = checkSqlite3Deep(ctx);
+        if (after.ok()) {
+            return "已修复并通过自检：" + clip(after.version, 60)
+                    + "（原因为：" + clip(before.detail, 80) + "）";
+        }
+        // 回滚
+        Diagnostics.suExecPublic(
+                "cp -f " + backup + " " + SQLITE + " 2>/dev/null; echo " + Diagnostics.PROBE_MARK, 15);
+        return "修复失败，已回滚到原文件。\n部署输出：" + clip(deploy, 90)
+                + "\n自检原因：" + clip(after.detail, 90);
+    }
+
+    /** 写文本文件（UTF-8），供自检 SQL 用 */
+    private static void writeText(File f, String text) throws Exception {
+        File parent = f.getParentFile();
+        if (parent != null) parent.mkdirs();
+        java.io.OutputStream os = new java.io.FileOutputStream(f);
+        try {
+            os.write(text.getBytes("UTF-8"));
+        } finally {
+            try { os.close(); } catch (Throwable ignored) { }
+        }
+    }
+
     private static void copyAsset(AssetManager am, String assetPath, File out) throws Exception {
         InputStream is = null;
         OutputStream os = null;

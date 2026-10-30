@@ -9,6 +9,9 @@ import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Log;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
@@ -161,7 +164,8 @@ public class Diagnostics {
     }
 
     /** su 没跑起来时的摘要（此时 suExecPublic 给的是最后一次尝试，典型就是 "sh: su: not found"） */
-    private static String suErr(String[] r) {
+    /** su 的 stderr（Repair 的自检要用来给出失败原因） */
+    public static String suErr(String[] r) {
         if (r == null) return "(无返回值)";
         String e = (nz(r[1]) + " " + nz(r[2])).trim();
         if (e.isEmpty()) e = "(无 stderr)";
@@ -350,6 +354,14 @@ public class Diagnostics {
 
     /** 一步生成完整诊断报告（脱敏后纯文本） */
     public static String collectReport(Context ctx) {
+        return collectReport(ctx, null);
+    }
+
+    /**
+     * @param health 已算好的体检结果；传 null 则现场再跑一遍。
+     *        JSON 报告会先把体检结果算一次再传进来，避免两次 su 体检把等待时间翻倍。
+     */
+    public static String collectReport(Context ctx, List<Check> health) {
         String ver = "unknown";
         try {
             android.content.pm.PackageInfo pi = ctx.getPackageManager()
@@ -402,7 +414,7 @@ public class Diagnostics {
 
         sb.append("---- 部署体检 ----\n");
         try {
-            for (Check c : healthCheck(ctx)) {
+            for (Check c : (health != null ? health : healthCheck(ctx))) {
                 sb.append(c.ok ? "[✓] " : "[✗] ").append(c.title).append(": ").append(c.detail).append("\n");
             }
         } catch (Throwable t) {
@@ -665,6 +677,98 @@ public class Diagnostics {
      *   顺序有讲究：先手机号/身份证，再取件码。反过来的话「取件码 13812345678」会被
      *   取件码规则先吃掉一段数字，剩下的残骸再也匹配不上手机号规则。
      */
+    /**
+     * 机器可读的诊断报告（JSON）。
+     *
+     * <p>与 collectReport() 的纯文本报告并存：
+     * 文本给人看，JSON 给 issue 自动化与二次排查用（可按字段检索、可被脚本消费）。
+     *
+     * <p>隐私：所有字符串都过一遍 sanitize()；短信正文不落库、日志里也只剩长度与码，
+     * 这里再做一层兜底。文本报告原文一并放进 "text" 字段，方便一次性贴到 issue。
+     */
+    public static String collectReportJson(Context ctx) {
+        JSONObject root = new JSONObject();
+        try {
+            root.put("schema", 1);
+            root.put("generatedAt",
+                    new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.CHINA).format(new Date()));
+
+            JSONObject app = new JSONObject();
+            try {
+                android.content.pm.PackageInfo pi = ctx.getPackageManager()
+                        .getPackageInfo(ctx.getPackageName(), 0);
+                app.put("versionName", pi.versionName);
+                app.put("versionCode", pi.versionCode);
+            } catch (Throwable ignored) { }
+            try {
+                app.put("rulesVersion", PickupExtractor.getActiveRulesVersion());
+            } catch (Throwable ignored) { }
+            root.put("app", app);
+
+            JSONObject dev = new JSONObject();
+            dev.put("manufacturer", Build.MANUFACTURER);
+            dev.put("model", Build.MODEL);
+            dev.put("device", Build.DEVICE);
+            dev.put("androidRelease", Build.VERSION.RELEASE);
+            dev.put("sdkInt", Build.VERSION.SDK_INT);
+            dev.put("build", Build.DISPLAY);
+            putIf(dev, "miOs", prop("ro.mi.os.version.name"));
+            putIf(dev, "miui", prop("ro.miui.ui.version.name"));
+            putIf(dev, "colorOs", prop("ro.build.version.oplusRom"));
+            putIf(dev, "magisk", prop("magisk.version"));
+            root.put("device", dev);
+
+            JSONObject be = new JSONObject();
+            try {
+                be.put("backend", NotesBackend.detect(ctx));
+                be.put("targetApp", NotesBackend.targetAppName(ctx));
+            } catch (Throwable ignored) { }
+            root.put("backend", be);
+
+            // 体检只跑一次，文本报告复用同一份结果
+            List<Check> health = null;
+            JSONArray arr = new JSONArray();
+            try {
+                health = healthCheck(ctx);
+                for (Check c : health) {
+                    JSONObject o = new JSONObject();
+                    o.put("title", c.title);
+                    o.put("ok", c.ok);
+                    o.put("detail", sanitize(c.detail));
+                    arr.put(o);
+                }
+            } catch (Throwable t) {
+                JSONObject o = new JSONObject();
+                o.put("title", "体检");
+                o.put("ok", false);
+                o.put("detail", "体检异常：" + t.getMessage());
+                arr.put(o);
+            }
+            root.put("health", arr);
+
+            try {
+                root.put("text", sanitize(collectReport(ctx, health)));
+            } catch (Throwable t) {
+                root.put("text", "文本报告生成失败：" + t.getMessage());
+            }
+            return root.toString(2);
+        } catch (Throwable t) {
+            try {
+                JSONObject err = new JSONObject();
+                err.put("error", String.valueOf(t.getMessage()));
+                return err.toString(2);
+            } catch (Throwable ignored) {
+                return "{\"error\":\"unknown\"}";
+            }
+        }
+    }
+
+    private static void putIf(JSONObject o, String k, String v) {
+        if (v != null && !v.isEmpty()) {
+            try { o.put(k, v); } catch (Throwable ignored) { }
+        }
+    }
+
     public static String sanitize(String s) {
         if (s == null) return "";
         s = P_PHONE.matcher(s).replaceAll(PHONE_MASK);
