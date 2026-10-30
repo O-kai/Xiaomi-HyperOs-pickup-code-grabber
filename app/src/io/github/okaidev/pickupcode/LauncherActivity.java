@@ -98,6 +98,13 @@ public class LauncherActivity extends Activity {
     private boolean simpleMode = false;
     /** 底栏渐隐遮罩（简洁模式无底栏，需要一起隐藏）。 */
     private View navScrim;
+    /**
+     * 底栏渐隐遮罩的高度（dp）。
+     *
+     * <p>它同时是「内容底部要留多少空白」的基准：内容底部留白必须 ≥ 遮罩高度，
+     * 否则最后一张卡片滚到底时仍然在遮罩下面（被底栏压住、也点不到）。
+     */
+    private static final int NAV_SCRIM_DP = 188;
     /** 简洁模式右上角的「进阶模式 ›」入口。 */
     private TextView modeSwitch;
 
@@ -239,7 +246,7 @@ public class LauncherActivity extends Activity {
                 new float[]{ 0f, 0.55f, 1f });
         navScrim.setBackground(scrimBg);
         FrameLayout.LayoutParams scrimLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(188));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(NAV_SCRIM_DP));
         scrimLp.gravity = Gravity.BOTTOM;
         contentArea.addView(navScrim, scrimLp);
 
@@ -497,7 +504,11 @@ public class LauncherActivity extends Activity {
         sv.setFillViewport(true);
         sv.setClipToPadding(false);
         // 底部留出底栏高度 + 呼吸空间，保证最后一张卡能完整滚到遮罩上方
-        sv.setPadding(dp(18), dp(4), dp(18), bottomSafePadding(148));
+        // 底部预留必须【不小于】底栏渐隐遮罩的高度（NAV_SCRIM_DP）。
+        // 之前这里写死 148dp，而遮罩是 188dp——于是最后一张卡片（首页的「一键链路测试」）
+        // 滚到底时仍然压在遮罩下面，看起来像被底栏吞掉一半，也点不到。
+        // 内容越长（待取件卡片 + 写入格式编辑器都展开）越容易撞上。
+        sv.setPadding(dp(18), dp(4), dp(18), bottomSafePadding(NAV_SCRIM_DP));
         return sv;
     }
 

@@ -46,7 +46,7 @@ public class DonateActivity extends Activity {
         TextView title = new TextView(this);
         title.setText("打赏作者");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
-        title.setTextColor(Color.parseColor("#1A1A1A"));
+        title.setTextColor(UiKit.INK);
         title.setTypeface(null, Typeface.BOLD);
         root.addView(title);
 
@@ -55,7 +55,7 @@ public class DonateActivity extends Activity {
                 + "支付宝 / 微信扫码皆可，金额随意，心意最重要。\n"
                 + "打赏纯属自愿，不影响任何功能。");
         desc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        desc.setTextColor(Color.parseColor("#666666"));
+        desc.setTextColor(UiKit.INK2);
         desc.setLineSpacing(dp(3), 1.0f);
         desc.setPadding(0, dp(10), 0, dp(12));
         root.addView(desc);
@@ -72,7 +72,7 @@ public class DonateActivity extends Activity {
         TextView hint = new TextView(this);
         hint.setText("长按二维码可保存到相册，或点下方按钮保存到 Download 目录");
         hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        hint.setTextColor(Color.parseColor("#999999"));
+        hint.setTextColor(UiKit.INK3);
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(0, dp(10), 0, 0);
         root.addView(hint);
@@ -92,7 +92,7 @@ public class DonateActivity extends Activity {
         TextView save = new TextView(this);
         save.setText("保存收款码到本地（Download 目录）");
         save.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        save.setTextColor(Color.WHITE);
+        save.setTextColor(UiKit.inkOn(UiKit.palette(this).accent));
         save.setBackgroundColor(UiKit.palette(this).accent);
         save.setPadding(dp(16), dp(14), dp(16), dp(14));
         save.setGravity(Gravity.CENTER);
@@ -117,7 +117,7 @@ public class DonateActivity extends Activity {
         TextView tag = new TextView(this);
         tag.setText(label);
         tag.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        tag.setTextColor(Color.parseColor("#1A1A1A"));
+        tag.setTextColor(UiKit.INK);
         tag.setTypeface(null, android.graphics.Typeface.BOLD);
         tag.setPadding(0, 0, 0, dp(8));
         card.addView(tag);
@@ -134,10 +134,10 @@ public class DonateActivity extends Activity {
             if (bmp != null) {
                 img.setImageBitmap(bmp);
             } else {
-                img.setBackgroundColor(Color.parseColor("#E0E0E0"));
+                img.setBackgroundColor(UiKit.palette(this).cardSoft);
             }
         } catch (Throwable t) {
-            img.setBackgroundColor(Color.parseColor("#E0E0E0"));
+            img.setBackgroundColor(UiKit.palette(this).cardSoft);
         }
         card.addView(img);
         return card;
@@ -165,7 +165,7 @@ public class DonateActivity extends Activity {
         TextView err = new TextView(this);
         err.setText("" + msg);
         err.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        err.setTextColor(Color.parseColor("#CC3300"));
+        err.setTextColor(UiKit.DANGER);
         err.setPadding(0, dp(8), 0, dp(8));
         return err;
     }

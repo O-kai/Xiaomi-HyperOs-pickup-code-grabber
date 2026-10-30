@@ -59,7 +59,7 @@
 | 项 | 值 |
 |---|---|
 | APK | `artifacts/pickup-code-grabber-4.0.0-release.apk`（5,953,824 字节） |
-| SHA-256 | `2d2bddfd82de438304a0ebcb0d3a7d62194921b058a9a73c888f7cbd49f393d7` |
+| SHA-256 | `adff4c3973da57a8879168e03738fde112367e1ea5eb23d83a48f70cd7645e0a` |
 | versionCode / versionName | 400 / 4.0.0 |
 | 证书 | `CN=PickupCodeGrabber, OU=Personal, O=PickupCodeGrabber, C=CN` |
 | 证书 SHA-256 | `fba0e7cc3fae670fc846d99c77a36c130045d4eb8ab28a2a52066551e8b78d8b` |

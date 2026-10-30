@@ -399,7 +399,7 @@ public class UserRulesActivity extends Activity {
         final TextView senderHint = new TextView(this);
         senderHint.setText(UserRules.modeHint(mode[0]));
         senderHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
-        senderHint.setTextColor(Color.parseColor("#2E7D32"));
+        senderHint.setTextColor(UiKit.OK);
         senderHint.setPadding(dp(4), 0, dp(4), 0);
 
         final EditText senderEt = new EditText(this);
@@ -411,9 +411,9 @@ public class UserRulesActivity extends Activity {
         final TextView modeBtn = new TextView(this);
         modeBtn.setText("② 发送方范围：" + UserRules.modeLabel(mode[0]));
         modeBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        modeBtn.setTextColor(Color.parseColor("#1A1A1A"));
+        modeBtn.setTextColor(UiKit.INK);
         modeBtn.setPadding(dp(8), dp(10), dp(8), dp(6));
-        modeBtn.setBackgroundColor(Color.parseColor("#F0F4FF"));
+        modeBtn.setBackgroundColor(P.chipBg);
         final String[] modes = {UserRules.MODE_ANY, UserRules.MODE_EXACT,
                 UserRules.MODE_PREFIX, UserRules.MODE_CONTAINS};
         modeBtn.setOnClickListener(v -> {
@@ -441,7 +441,7 @@ public class UserRulesActivity extends Activity {
         prioTip.setText("号码专属规则会自动优先于全局规则生效（同一条短信命中多条时，"
                 + "精确 > 前缀 > 包含 > 全局）。");
         prioTip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
-        prioTip.setTextColor(Color.parseColor("#888888"));
+        prioTip.setTextColor(UiKit.INK3);
         prioTip.setPadding(dp(4), dp(4), dp(4), 0);
         box.addView(prioTip);
 
@@ -463,7 +463,7 @@ public class UserRulesActivity extends Activity {
         TextView placeGroupLabel = new TextView(this);
         placeGroupLabel.setText("⑧ 地点取第几个捕获组");
         placeGroupLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        placeGroupLabel.setTextColor(Color.parseColor("#1A1A1A"));
+        placeGroupLabel.setTextColor(UiKit.INK);
         placeGroupLabel.setPadding(0, dp(8), 0, 0);
         box.addView(placeGroupLabel);
 
@@ -499,7 +499,7 @@ public class UserRulesActivity extends Activity {
         TextView tcTitle = new TextView(this);
         tcTitle.setText("测试样本（必填，必须自测通过才能保存）");
         tcTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        tcTitle.setTextColor(Color.parseColor("#1A1A1A"));
+        tcTitle.setTextColor(UiKit.INK);
         tcTitle.setTypeface(null, android.graphics.Typeface.BOLD);
         tcTitle.setPadding(0, dp(12), 0, dp(4));
         tcBox.addView(tcTitle);
@@ -507,19 +507,23 @@ public class UserRulesActivity extends Activity {
         final EditText tcSms = new EditText(this);
         tcSms.setHint("粘贴一条真实短信原文");
         tcSms.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tcSms.setTextColor(UiKit.INK);
+        tcSms.setHintTextColor(UiKit.INK3);
         tcSms.setMinLines(2);
         tcSms.setMaxLines(5);
         tcSms.setGravity(Gravity.TOP | Gravity.START);
         tcSms.setPadding(dp(10), dp(8), dp(10), dp(8));
-        tcSms.setBackground(roundRect("#FFFFFF"));
+        tcSms.setBackground(roundRect(P.card));
         tcBox.addView(tcSms);
 
         final EditText tcExpect = new EditText(this);
         tcExpect.setHint("这条短信应该提取到的取件码（多个码用 ; 分隔）");
         tcExpect.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tcExpect.setTextColor(UiKit.INK);
+        tcExpect.setHintTextColor(UiKit.INK3);
         tcExpect.setSingleLine(true);
         tcExpect.setPadding(dp(10), dp(8), dp(10), dp(8));
-        tcExpect.setBackground(roundRect("#FFFFFF"));
+        tcExpect.setBackground(roundRect(P.card));
         LinearLayout.LayoutParams tcExpLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         tcExpLp.setMargins(0, dp(6), 0, 0);
@@ -633,7 +637,7 @@ public class UserRulesActivity extends Activity {
         TextView l = new TextView(this);
         l.setText(label);
         l.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        l.setTextColor(Color.parseColor("#1A1A1A"));
+        l.setTextColor(UiKit.INK);
         l.setPadding(0, dp(8), 0, 0);
         box.addView(l);
         EditText e = new EditText(this);

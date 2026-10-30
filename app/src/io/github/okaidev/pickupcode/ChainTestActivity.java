@@ -82,7 +82,7 @@ public class ChainTestActivity extends Activity {
         TextView title = new TextView(this);
         title.setText("一键链路测试");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        title.setTextColor(Color.parseColor("#1A1A1A"));
+        title.setTextColor(UiKit.INK);
         title.setTypeface(null, Typeface.BOLD);
         root.addView(title);
 
@@ -90,7 +90,7 @@ public class ChainTestActivity extends Activity {
         sub.setText("验证「短信进来 → 识别 → 写入待办」整条链路是否正常\n"
                 + "不消耗短信 · 不产生费用 · 测试记录可随时删除");
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        sub.setTextColor(Color.parseColor("#888888"));
+        sub.setTextColor(UiKit.INK3);
         sub.setLineSpacing(dp(3), 1.0f);
         sub.setPadding(0, dp(6), 0, dp(14));
         root.addView(sub);
@@ -127,7 +127,7 @@ public class ChainTestActivity extends Activity {
         TextView step = new TextView(this);
         step.setText("第 1 步 / 共 3 步：输入要测试的短信");
         step.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        step.setTextColor(Color.parseColor("#333333"));
+        step.setTextColor(UiKit.INK2);
         step.setTypeface(null, Typeface.BOLD);
         step.setPadding(0, dp(16), 0, dp(6));
         root.addView(step);
@@ -139,15 +139,15 @@ public class ChainTestActivity extends Activity {
         TextView senderLabel = new TextView(this);
         senderLabel.setText("发送方（可选，留空 = 不限来源）");
         senderLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        senderLabel.setTextColor(Color.parseColor("#333333"));
+        senderLabel.setTextColor(UiKit.INK2);
         senderLabel.setTypeface(null, Typeface.BOLD);
         senderLabel.setPadding(0, dp(4), 0, dp(4));
         root.addView(senderLabel);
 
         senderInput = new EditText(this);
         senderInput.setHint("1069888877 或 通知:com.cainiao.wireless（可留空，留空=不限来源）");
-        senderInput.setTextColor(Color.parseColor("#333333"));
-        senderInput.setHintTextColor(Color.parseColor("#AAAAAA"));
+        senderInput.setTextColor(UiKit.INK);
+        senderInput.setHintTextColor(UiKit.INK3);
         senderInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         senderInput.setSingleLine(true);
         senderInput.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
@@ -164,15 +164,15 @@ public class ChainTestActivity extends Activity {
         senderTip.setText("填了发送方，第 2 步解析与第 3 步写入都会用同一个号码，\n"
                 + "号码专属规则（精确/前缀/包含）才有可能匹配上。");
         senderTip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
-        senderTip.setTextColor(Color.parseColor("#999999"));
+        senderTip.setTextColor(UiKit.INK3);
         senderTip.setLineSpacing(dp(3), 1.0f);
         senderTip.setPadding(0, 0, 0, dp(8));
         root.addView(senderTip);
 
         input = new EditText(this);
         input.setHint("在此粘贴或输入短信的完整内容");
-        input.setTextColor(Color.parseColor("#333333"));
-        input.setHintTextColor(Color.parseColor("#AAAAAA"));
+        input.setTextColor(UiKit.INK);
+        input.setHintTextColor(UiKit.INK3);
         input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         input.setGravity(Gravity.TOP | Gravity.START);
         input.setMinLines(5);
@@ -193,7 +193,7 @@ public class ChainTestActivity extends Activity {
                 + "注：号码专属规则（精确/前缀/包含匹配）必须在上方填「发送方」才能验证，\n"
                 + "留空＝不限来源时这类规则永远不会命中。");
         tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        tip.setTextColor(Color.parseColor("#999999"));
+        tip.setTextColor(UiKit.INK3);
         tip.setLineSpacing(dp(3), 1.0f);
         tip.setPadding(0, 0, 0, dp(10));
         root.addView(tip);
@@ -284,7 +284,7 @@ public class ChainTestActivity extends Activity {
                 + "这正是「用户自定义规则」该出手的场景。\n"
                 + "也可以把这条短信上报给作者，下一版规则就能适配。");
         note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        note.setTextColor(Color.parseColor("#666666"));
+        note.setTextColor(UiKit.INK2);
         note.setLineSpacing(dp(3), 1.0f);
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
@@ -315,14 +315,14 @@ public class ChainTestActivity extends Activity {
         TextView kv = new TextView(this);
         kv.setText(k);
         kv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        kv.setTextColor(Color.parseColor("#888888"));
+        kv.setTextColor(UiKit.INK3);
         kv.setPadding(0, 0, dp(10), 0);
         row.addView(kv, new LinearLayout.LayoutParams(dp(72),
                 LinearLayout.LayoutParams.WRAP_CONTENT));
         TextView vv = new TextView(this);
         vv.setText(v);
         vv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        vv.setTextColor(Color.parseColor("#1A1A1A"));
+        vv.setTextColor(UiKit.INK);
         row.addView(vv);
         card.addView(row);
     }
@@ -437,7 +437,7 @@ public class ChainTestActivity extends Activity {
         TextView body = new TextView(this);
         body.setText(msg);
         body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        body.setTextColor(Color.parseColor("#444444"));
+        body.setTextColor(UiKit.INK2);
         body.setLineSpacing(dp(4), 1.0f);
         page.addView(body, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f));
