@@ -51,6 +51,7 @@
 | 错题本默认关闭 | PASS |
 | 真机浸泡（45 轮） | PASS：0 崩溃、0 ANR、RSS 75750→75817 KB（无泄漏） |
 | 规则集 v8 生效 | PASS（`loaded custom rules v8`，首页显示「官方规则集 v8」） |
+| 大字体 1.3× / 1.5× | PASS（设置页与取件记录页文字全可读、底部卡片不被底栏遮挡） |
 | 规则热更完整性校验 | 逻辑 PASS；**本机网络不可达**（两个镜像都连不上），如实提示「网络不可用」 |
 
 ### 发布产物
@@ -58,7 +59,7 @@
 | 项 | 值 |
 |---|---|
 | APK | `artifacts/pickup-code-grabber-4.0.0-release.apk`（5,953,824 字节） |
-| SHA-256 | `7e1ec600a2903c9b683f9ce3e5e5768c94314f592277f463e8b00be7db265db7` |
+| SHA-256 | `2d2bddfd82de438304a0ebcb0d3a7d62194921b058a9a73c888f7cbd49f393d7` |
 | versionCode / versionName | 400 / 4.0.0 |
 | 证书 | `CN=PickupCodeGrabber, OU=Personal, O=PickupCodeGrabber, C=CN` |
 | 证书 SHA-256 | `fba0e7cc3fae670fc846d99c77a36c130045d4eb8ab28a2a52066551e8b78d8b` |

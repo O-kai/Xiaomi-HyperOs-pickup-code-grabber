@@ -472,6 +472,12 @@ public final class UiKit {
             LinearLayout acc = new LinearLayout(ctx);
             acc.setOrientation(LinearLayout.HORIZONTAL);
             acc.setGravity(Gravity.CENTER_VERTICAL);
+            // 与左侧文字留 8dp：大字体下副标题会换行，第一行会长到贴住开关/箭头，
+            // 顶在一起看着像被压住了。留一点空隙，文字才读得舒服。
+            LinearLayout.LayoutParams accLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            accLp.setMargins(dp(ctx, 8), 0, 0, 0);
+            acc.setLayoutParams(accLp);
             acc.addView(accessory);
             r.addView(acc);
         }
