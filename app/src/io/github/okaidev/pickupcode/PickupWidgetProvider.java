@@ -116,6 +116,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
 
         int rows = rowsFor(context, widgetId);
         boolean showPlace = WidgetPrefs.showPlace(context);
+        boolean hideCode = WidgetPrefs.hideCode(context);
         float scale = WidgetPrefs.fontScale(context);
         int total = snap == null ? 0 : snap.total;
         java.util.List<PickupRecord> items = snap == null ? null : snap.items;
@@ -138,15 +139,17 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             PickupRecord record = items.get(i);
             shown++;
             rv.setViewVisibility(ROW_IDS[i], View.VISIBLE);
-            rv.setTextViewText(CODE_IDS[i], record.code);
+            // 隐私模式：不显示取件码，也不显示地点——组件上只剩件数，
+            // 想看码得点进 App。
+            rv.setTextViewText(CODE_IDS[i], hideCode ? "" : record.code);
             rv.setTextViewTextSize(CODE_IDS[i], TypedValue.COMPLEX_UNIT_SP, 17f * scale);
 
             // 关闭地点时不能 GONE：这一列是带 weight 的占位视图，
             // 一旦隐藏，右侧 ✓ 会贴到取件码旁边、右边留一大块空白。
             rv.setViewVisibility(PLACE_IDS[i], View.VISIBLE);
-            rv.setTextViewText(PLACE_IDS[i], showPlace
-                    ? (record.place == null || record.place.trim().isEmpty() ? "—" : record.place)
-                    : "");
+            rv.setTextViewText(PLACE_IDS[i], (!showPlace || hideCode)
+                    ? ""
+                    : (record.place == null || record.place.trim().isEmpty() ? "—" : record.place));
             rv.setTextViewTextSize(PLACE_IDS[i], TypedValue.COMPLEX_UNIT_SP, 11f * scale);
 
             PendingIntent copy = action(context, record.id, ACTION_COPY, 1);

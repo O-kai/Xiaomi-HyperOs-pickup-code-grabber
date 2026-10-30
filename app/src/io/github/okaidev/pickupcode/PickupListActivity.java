@@ -5,12 +5,14 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -22,43 +24,82 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 4.0 本地取件列表：待取件 + 最近记录。
- * 第一阶段先做只读/复制/标记完成；历史归档、筛选、导出在后续阶段补。
+ * 4.0 本地取件记录页：待取件 + 历史，支持筛选、搜索与数据管理。
+ *
+ * <p>这一页是「本地库」的入口页：简洁模式没有设置页，记录的保留期、
+ * 导出导入、清空都在这里的「管理」面板里（与进阶模式设置页共用实现）。
+ *
+ * <p>配色全部走 UiKit.palette，跟随浅色/深色主题；此前这一页是写死浅色的，
+ * 深色模式下会出现白底浅字、根本看不清。
  */
 public class PickupListActivity extends Activity {
 
+    /** 筛选条件：null = 全部 */
+    private static final String[] FILTERS = {
+            null,
+            PickupRecord.STATUS_PENDING,
+            PickupRecord.STATUS_PICKED_UP,
+    };
+    private static final String[] FILTER_LABELS = { "全部", "待取", "已取" };
+
+    private UiKit.Palette p;
     private LinearLayout listBox;
-    private TextView emptyView;
+    private LinearLayout filterRow;
+    private EditText searchBox;
+    private TextView countView;
+
+    private int filterIndex = 0;
+    private String keyword = "";
+
+    private final RecordManager records = new RecordManager(this);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // v4.0：先定主题再 setContentView，否则会先按浅色建界面
         UiKit.applyTheme(this);
         super.onCreate(savedInstanceState);
+        p = UiKit.palette(this);
+
+        records.setOnChanged(this::refresh);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(UiKit.palette(this).bg);
+        root.setBackgroundColor(p.bg);
 
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(20), dp(14), dp(20), dp(10));
+        root.addView(buildHeader());
 
-        TextView back = text("‹", 30, Color.rgb(74, 111, 165));
-        back.setPadding(0, 0, dp(14), dp(4));
-        back.setOnClickListener(v -> finish());
-        header.addView(back);
+        // 筛选 + 搜索
+        LinearLayout toolbar = new LinearLayout(this);
+        toolbar.setOrientation(LinearLayout.VERTICAL);
+        toolbar.setPadding(dp(16), dp(4), dp(16), dp(8));
 
-        TextView title = text("取件记录", 22, Color.rgb(26, 26, 26));
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        header.addView(title, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        filterRow = new LinearLayout(this);
+        filterRow.setOrientation(LinearLayout.HORIZONTAL);
+        filterRow.setGravity(Gravity.CENTER_VERTICAL);
+        toolbar.addView(filterRow);
 
-        TextView addWidget = text("添加到桌面", 12, Color.rgb(74, 111, 165));
-        addWidget.setPadding(dp(10), dp(6), 0, dp(6));
-        addWidget.setOnClickListener(v -> requestPinWidget());
-        header.addView(addWidget);
-        root.addView(header);
+        searchBox = new EditText(this);
+        searchBox.setTextSize(13.5f);
+        searchBox.setTextColor(UiKit.INK);
+        searchBox.setHintTextColor(UiKit.INK3);
+        searchBox.setSingleLine(true);
+        searchBox.setHint("搜索取件码 / 来源 / 地点");
+        searchBox.setBackground(UiKit.bg(p.cardSoft, this, 12, p.line, 1f));
+        searchBox.setPadding(dp(12), dp(9), dp(12), dp(9));
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.setMargins(0, dp(10), 0, 0);
+        searchBox.setLayoutParams(slp);
+        searchBox.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void afterTextChanged(Editable s) {
+                keyword = s.toString().trim();
+                refresh();
+            }
+        });
+        toolbar.addView(searchBox);
+        root.addView(toolbar);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -72,9 +113,60 @@ public class PickupListActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
-        emptyView = text("暂无取件记录\n收到短信后会自动出现", 14, Color.rgb(120, 120, 120));
-        emptyView.setGravity(Gravity.CENTER);
-        emptyView.setPadding(0, dp(80), 0, 0);
+        rebuildFilters();
+    }
+
+    private View buildHeader() {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(20), dp(14), dp(16), dp(10));
+
+        TextView back = UiKit.text(this, "‹", 30, p.accentInk);
+        back.setPadding(0, 0, dp(14), dp(4));
+        back.setOnClickListener(v -> finish());
+        header.addView(back);
+
+        TextView title = UiKit.text(this, "取件记录", 22, UiKit.INK);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        header.addView(title, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        countView = UiKit.text(this, "", 12, UiKit.INK3);
+        header.addView(countView);
+
+        TextView manage = UiKit.text(this, "管理", 13, p.accentInk);
+        manage.setPadding(dp(12), dp(8), 0, dp(8));
+        manage.setOnClickListener(v -> records.showManageDialog());
+        header.addView(manage);
+
+        return header;
+    }
+
+    /** 重建筛选分段（全部 / 待取 / 已取） */
+    private void rebuildFilters() {
+        filterRow.removeAllViews();
+        for (int i = 0; i < FILTER_LABELS.length; i++) {
+            final int idx = i;
+            boolean on = i == filterIndex;
+            TextView seg = UiKit.text(this, FILTER_LABELS[i], 13.5f,
+                    on ? p.onAccent : p.accentInk);
+            seg.setGravity(Gravity.CENTER);
+            seg.setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
+            seg.setPadding(0, dp(9), 0, dp(9));
+            seg.setBackground(UiKit.bg(on ? p.accent : p.chipBg, this, 11));
+            seg.setOnClickListener(v -> {
+                if (filterIndex == idx) return;
+                filterIndex = idx;
+                rebuildFilters();
+                refresh();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            lp.setMargins(idx == 0 ? 0 : dp(8), 0, 0, 0);
+            seg.setLayoutParams(lp);
+            filterRow.addView(seg);
+        }
     }
 
     /** 4.0 Stage 2.1：本地库变更时列表也要实时刷新（小组件/通知动作可能改状态） */
@@ -95,38 +187,47 @@ public class PickupListActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        p = UiKit.palette(this);
         refresh();
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        records.onActivityResult(requestCode, resultCode, data);
+    }
+
     private void refresh() {
-        PickupRepository.get(this).recentAsync(100, this::render);
+        PickupRepository.get(this).queryAsync(FILTERS[filterIndex], keyword, 300, this::render);
     }
 
-    /** 4.0：小组件添加入口，具体流程见 {@link WidgetPin}。 */
-    private void requestPinWidget() {
-        WidgetPin.prompt(this);
-    }
-
-    private void render(List<PickupRecord> records) {
+    private void render(List<PickupRecord> list) {
         if (isFinishing() || isDestroyed()) return;
         listBox.removeAllViews();
-        if (records == null || records.isEmpty()) {
-            listBox.addView(emptyView);
+        if (countView != null) {
+            countView.setText(list == null ? "" : list.size() + " 条");
+        }
+        if (list == null || list.isEmpty()) {
+            listBox.addView(emptyView());
             return;
         }
-        for (PickupRecord record : records) {
+        for (PickupRecord record : list) {
             listBox.addView(card(record));
         }
     }
 
+    private View emptyView() {
+        TextView v = UiKit.text(this,
+                keyword.isEmpty() ? "暂无取件记录\n收到短信后会自动出现" : "没有匹配的记录",
+                14, UiKit.INK3);
+        v.setGravity(Gravity.CENTER);
+        v.setPadding(0, dp(80), 0, 0);
+        return v;
+    }
+
     private View card(PickupRecord record) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout card = UiKit.card(this, p);
         card.setPadding(dp(16), dp(14), dp(16), dp(12));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.WHITE);
-        bg.setCornerRadius(dp(16));
-        card.setBackground(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, 0, 0, dp(10));
@@ -136,21 +237,31 @@ public class PickupListActivity extends Activity {
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView code = text(record.code, 22, record.isPending()
-                ? Color.rgb(26, 26, 26) : Color.rgb(150, 150, 150));
+        TextView code = UiKit.text(this, record.code, 21,
+                record.isPending() ? UiKit.INK : UiKit.INK3);
         code.setTypeface(Typeface.create("monospace", Typeface.BOLD));
-        top.addView(code, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        top.addView(code, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView state = text(record.isPending() ? "待取" : "已取", 12,
-                record.isPending() ? Color.rgb(74, 111, 165) : Color.rgb(62, 142, 94));
-        top.addView(state);
+        // 超过三天还没取的件多半已经过期了——提示一下，但绝不自动删
+        if (record.isPending()
+                && Retention.isProbablyExpired(record.receivedAt, System.currentTimeMillis())) {
+            top.addView(UiKit.badgeWarn(this, "可能已过期"));
+        }
+
+        TextView state = UiKit.text(this, record.isPending() ? "待取" : "已取", 12,
+                record.isPending() ? p.accentInk : UiKit.OK);
+        LinearLayout.LayoutParams stp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        stp.setMargins(dp(8), 0, 0, 0);
+        top.addView(state, stp);
         card.addView(top);
 
         String meta = (empty(record.source) ? "—" : record.source)
                 + " · " + (empty(record.place) ? "—" : record.place)
                 + " · " + format(record.receivedAt);
-        TextView metaView = text(meta, 12, Color.rgb(110, 110, 110));
-        metaView.setPadding(0, dp(4), 0, dp(8));
+        TextView metaView = UiKit.text(this, meta, 12, UiKit.INK3);
+        metaView.setPadding(0, dp(4), 0, dp(10));
         card.addView(metaView);
 
         LinearLayout actions = new LinearLayout(this);
@@ -173,12 +284,9 @@ public class PickupListActivity extends Activity {
     }
 
     private TextView action(String label) {
-        TextView v = text(label, 13, Color.rgb(74, 111, 165));
-        v.setPadding(dp(14), dp(6), dp(14), dp(6));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.rgb(232, 238, 246));
-        bg.setCornerRadius(dp(10));
-        v.setBackground(bg);
+        TextView v = UiKit.text(this, label, 13, p.accentInk);
+        v.setPadding(dp(14), dp(8), dp(14), dp(8));
+        v.setBackground(UiKit.bg(p.chipBg, this, 10));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.setMargins(dp(8), 0, 0, 0);
@@ -222,14 +330,6 @@ public class PickupListActivity extends Activity {
         } catch (Throwable t) {
             return "";
         }
-    }
-
-    private TextView text(String s, float sp, int color) {
-        TextView v = new TextView(this);
-        v.setText(s);
-        v.setTextSize(sp);
-        v.setTextColor(color);
-        return v;
     }
 
     private int dp(int v) {

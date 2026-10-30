@@ -23,7 +23,43 @@ public class MissedSmsStore {
     private static final String TAG = "PICKUPDEBUG";
     private static final String PREFS = "dedup";
     private static final String KEY_MISSED_LIST = "missed_sms_samples";
+    private static final String KEY_MISSED_ENABLED = "missed_sms_enabled";
     private static final int MAX_COUNT = 30;
+
+    /**
+     * 样本过期时长：30 天。
+     *
+     * <p>错题本存的是短信正文片段，属于敏感数据。不设过期时间的话，
+     * 它会一直躺在本机——所以超过 30 天的样本在读取时自动剔除。
+     */
+    private static final long EXPIRE_MS = 30L * 24 * 60 * 60 * 1000;
+
+    /**
+     * 错题本默认是否开启。
+     *
+     * <p>v4.0 收口：原先是<b>默认开启</b>的——也就是说用户没做任何选择，
+     * 模块就在后台悄悄保存他收到的疑似漏抓短信正文。这与本项目
+     * 「默认不存短信正文」的隐私取舍自相矛盾，所以改成默认关闭，
+     * 需要用户在「反馈与支持 → 疑似漏抓错题本」里显式打开。
+     */
+    public static boolean isEnabled(Context ctx) {
+        if (ctx == null) return false;
+        try {
+            return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getBoolean(KEY_MISSED_ENABLED, false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void setEnabled(Context ctx, boolean on) {
+        if (ctx == null) return;
+        try {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit().putBoolean(KEY_MISSED_ENABLED, on).apply();
+        } catch (Throwable ignored) {
+        }
+    }
 
     public static class Sample {
         public long timestamp;
@@ -37,9 +73,10 @@ public class MissedSmsStore {
         }
     }
 
-    /** 记录疑似漏抓短信（去重 + 容量淘汰） */
+    /** 记录疑似漏抓短信（去重 + 容量淘汰）。错题本关闭时直接忽略。 */
     public static synchronized void record(Context ctx, String sender, String body) {
         if (ctx == null || body == null || body.trim().isEmpty()) return;
+        if (!isEnabled(ctx)) return;
         try {
             SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             List<Sample> list = loadSamples(sp);
@@ -65,7 +102,7 @@ public class MissedSmsStore {
         }
     }
 
-    /** 读取所有样本清单 */
+    /** 读取所有样本清单（自动剔除过期样本） */
     public static synchronized List<Sample> getAll(Context ctx) {
         if (ctx == null) return new ArrayList<>();
         SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -110,9 +147,21 @@ public class MissedSmsStore {
         if (jsonStr == null || jsonStr.trim().isEmpty()) return list;
         try {
             JSONArray arr = new JSONArray(jsonStr);
+            long now = System.currentTimeMillis();
+            boolean dropped = false;
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
-                list.add(new Sample(o.optLong("ts"), o.optString("sender"), o.optString("body")));
+                long ts = o.optLong("ts");
+                // 过期样本直接剔除：错题本存的是短信正文片段，不该一直躺在本机
+                if (ts > 0 && now - ts > EXPIRE_MS) {
+                    dropped = true;
+                    continue;
+                }
+                list.add(new Sample(ts, o.optString("sender"), o.optString("body")));
+            }
+            if (dropped) {
+                // 顺手把过期条目从存储里也清掉，避免残留
+                saveSamples(sp, list);
             }
         } catch (Throwable ignored) { }
         return list;

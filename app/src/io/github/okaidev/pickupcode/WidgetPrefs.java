@@ -19,6 +19,7 @@ public final class WidgetPrefs {
     private static final String KEY_FONT = "font_scale";
     private static final String KEY_SHOW_PLACE = "show_place";
     private static final String KEY_MAX_ROWS = "max_rows";
+    private static final String KEY_HIDE_CODE = "hide_code";
 
     private WidgetPrefs() {
     }
@@ -64,5 +65,20 @@ public final class WidgetPrefs {
 
     public static void setMaxRows(Context ctx, int rows) {
         prefs(ctx).edit().putInt(KEY_MAX_ROWS, Math.max(2, Math.min(5, rows))).apply();
+    }
+
+    /**
+     * 是否隐藏取件码（只显示件数）。
+     *
+     * <p>设计稿第四节要求提供这个开关：桌面上摆着组件时，别人一瞥就能看到
+     * 取件码，等于把凭据摆在明面上。打开后组件只显示「N 个」，
+     * 点组件进 App 才看得到码。默认显示（不改变原有行为）。
+     */
+    public static boolean hideCode(Context ctx) {
+        return prefs(ctx).getBoolean(KEY_HIDE_CODE, false);
+    }
+
+    public static void setHideCode(Context ctx, boolean on) {
+        prefs(ctx).edit().putBoolean(KEY_HIDE_CODE, on).apply();
     }
 }

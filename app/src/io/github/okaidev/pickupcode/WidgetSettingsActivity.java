@@ -24,6 +24,7 @@ public class WidgetSettingsActivity extends Activity {
     private TextView previewCode;
     private TextView previewPlace;
     private UiKit.Switch placeSwitch;
+    private UiKit.Switch hideSwitch;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -122,6 +123,17 @@ public class WidgetSettingsActivity extends Activity {
         LinearLayout row = UiKit.row(this, P, R.drawable.ic_target, "显示取件地点",
                 "关掉后只显示大号取件码，更清爽", placeSwitch);
         card.addView(row);
+        card.addView(UiKit.divider(this, P));
+        // 4.0 收口：设计稿第四节要求的隐私开关。
+        // 桌面上摆着组件时，别人一瞥就能看到取件码，等于把凭据摆在明面上。
+        hideSwitch = new UiKit.Switch(this, P, WidgetPrefs.hideCode(this));
+        hideSwitch.setOnToggle(on -> {
+            WidgetPrefs.setHideCode(this, on);
+            applyToWidget();
+            refreshPreview();
+        });
+        card.addView(UiKit.row(this, P, R.drawable.ic_shield, "隐藏取件码",
+                "只显示件数；想看码得点进 App", hideSwitch));
         return card;
     }
 
@@ -258,7 +270,12 @@ public class WidgetSettingsActivity extends Activity {
         previewCode.setTextSize(17f * scale);
         previewPlace.setTextSize(11f * scale);
         // 用 INVISIBLE 而不是 GONE：保留权重占位，勾选按钮才会留在最右侧
-        previewPlace.setVisibility(WidgetPrefs.showPlace(this) ? View.VISIBLE : View.INVISIBLE);
+        boolean showPlace = WidgetPrefs.showPlace(this);
+        previewPlace.setVisibility(showPlace ? View.VISIBLE : View.INVISIBLE);
+        // 隐私模式：预览里也要把码和地点藏掉，否则预览与实际桌面不一致
+        boolean hideCode = WidgetPrefs.hideCode(this);
+        previewCode.setText(hideCode ? "" : "12-3-4567");
+        previewPlace.setText(hideCode ? "" : "菜鸟驿站 · 1 号柜");
     }
 
     private void applyToWidget() {

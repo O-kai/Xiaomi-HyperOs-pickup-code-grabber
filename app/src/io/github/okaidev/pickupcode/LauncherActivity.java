@@ -126,6 +126,12 @@ public class LauncherActivity extends Activity {
     private UiKit.Switch notiSw, sdwSw, blurSw, netSw, reminderSw;
     /** 取件提醒行（时间变化后要刷新副标题） */
     private LinearLayout reminderRow;
+    /** 「外观」行（主题/配色变化后要刷新副标题） */
+    private LinearLayout appearanceRow;
+    /** 「检查更新」行（自动检查开关变化后要刷新副标题） */
+    private LinearLayout updateRow;
+    /** 本地记录管理（保留期 / 导出导入 / 清理），与取件记录页共用实现 */
+    private final RecordManager recordManager = new RecordManager(this);
     private TextView notiScopeHintView;
     private LinearLayout sdwRow;
     private TextView tplValueView, tplPreviewText;
@@ -596,17 +602,16 @@ public class LauncherActivity extends Activity {
         // 顺序：状态卡 → 官方规则集 → 取件码写入目标 → 写入格式 → 一键链路测试
 
         // 官方规则集（4.3：移到状态卡正下方）
-        ExtractorRules hr = PickupExtractor.getActiveRules();
-        String hrCounts = hr == null ? "" :
-                hr.keywordAnchors.size() + " 组锚点词 · " + hr.featureWords.size() + " 特征词 · "
-                        + hr.negativeKeywords.size() + " 负向词";
+        // v4.0 收口：副标题原先是「N 组锚点词 · N 特征词 · N 负向词」——
+        // 那是给维护者看的词表规模，对使用者没有意义，还把这一行撑得很挤。
+        // 改成说明这行可点（点一下检查最新规则），徽标负责显示结果。
         LinearLayout ruleCard = UiKit.card(this, P);
         // v4.5：「已是最新」徽标改为可点击，点一下手动拉取最新规则。
         // 频率限制 8 秒一次（见 checkRulesManually），避免连点造成无谓请求。
         ruleBadgeView = UiKit.badgeAccent(this, P, "已是最新");
         LinearLayout ruleRow = UiKit.row(this, P, R.drawable.ic_link,
-                "官方规则集 v" + PickupExtractor.getActiveRulesVersion(), hrCounts,
-                ruleBadgeView);
+                "官方规则集 v" + PickupExtractor.getActiveRulesVersion(),
+                "点击检查最新规则", ruleBadgeView);
         ruleRow.setOnClickListener(v -> checkRulesManually());
         ruleCard.addView(ruleRow);
         box.addView(ruleCard, UiKit.cardLp(this, 12));
@@ -632,7 +637,7 @@ public class LauncherActivity extends Activity {
         LinearLayout tplCard = UiKit.card(this, P);
         tplValueView = UiKit.value(this, P, modeLabel(currentMode));
         LinearLayout tplRow = UiKit.row(this, P, R.drawable.ic_template, "写入格式",
-                "极简 / 完整 / 自定义占位符", tplValueView);
+                "待办里写什么内容", tplValueView);
         tplRow.setOnClickListener(v -> toggleTplEditor());
         tplCard.addView(tplRow);
 
@@ -656,17 +661,17 @@ public class LauncherActivity extends Activity {
             // 高级规则、通知来源在简洁模式里不出现，但仍保留在进阶模式，数据不受影响。
             LinearLayout more = UiKit.card(this, P);
             more.addView(toolRow(R.drawable.ic_grid, "进阶模式",
-                    "通知提取、高级规则、外观与诊断", v -> switchToFullMode()));
+                    "更多规则、来源与设置", v -> switchToFullMode()));
             box.addView(more, UiKit.cardLp(this, 12));
 
-            box.addView(UiKit.groupLabel(this, P, "反馈与关于"));
+            // v4.0 收口：原先这里是「提交问题到 GitHub」+「加入开发者 QQ 群」两行，
+            // 与进阶模式的设置重复（同一个去处摆两次）。现在收成一个入口，
+            // 弹窗内容与进阶模式「反馈与支持」完全一致。
             LinearLayout fb = UiKit.card(this, P);
-            fb.addView(toolRow(R.drawable.ic_github, "提交问题到 GitHub",
-                    "漏抓、写入失败都可以带上诊断信息反馈", v -> openGithubIssueManual()));
-            fb.addView(UiKit.divider(this, P));
-            fb.addView(toolRow(R.drawable.ic_phone, "加入开发者 QQ 群",
-                    "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
-            box.addView(fb, UiKit.cardLp(this, 0));
+            fb.addView(toolRow(R.drawable.ic_chat, "反馈与支持",
+                    "诊断报告 · 错题本 · GitHub · QQ 群 · 酷安",
+                    v -> showFeedbackSupportDialog()));
+            box.addView(fb, UiKit.cardLp(this, 12));
         }
 
         return sv;
@@ -1366,8 +1371,16 @@ public class LauncherActivity extends Activity {
         box.addView(sdwCard, UiKit.cardLp(this, 0f));
         sdwCard.setVisibility(sdwRow.getVisibility());
 
-        // v4.5：分组改名「外观与更新」→「基础设置」，并按用户指定顺序排列：
-        //   QQ群 → 自动检查更新 → 检查更新 → 外观 → 模糊效果
+        // v4.5：「外观与更新」→「基础设置」。
+        //
+        // v4.0 收口：这一版把入口做了合并，理由是「设置里同一个去处出现多次」
+        // 会让人以为有好几件事要做。合并后：
+        //   · 外观 + 主题       → 一个「外观」入口（弹窗里分两段）
+        //   · 自动检查 + 手动查 → 一个「检查更新」（右侧开关 + 点行立即查）
+        //   · QQ群 / GitHub / 诊断报告 / 错题本 / sqlite3 自检
+        //                       → 一个「反馈与支持」入口（弹窗里列全部渠道）
+        //   · 项目仓库 + GitHub 反馈 + 更新日志 → 一个「项目主页」
+        // 设置页行数从 21 降到 13，功能一项没少。
         box.addView(UiKit.groupLabel(this, P, "基础设置"));
         LinearLayout perCard = UiKit.card(this, P);
 
@@ -1390,53 +1403,19 @@ public class LauncherActivity extends Activity {
         perCard.addView(modeRow);
         perCard.addView(UiKit.divider(this, P));
 
-        // 4.0：桌面小组件外观设置
-        TextView widgetValue = UiKit.value(this, P, "字号 · 条数");
-        LinearLayout widgetRow = UiKit.row(this, P, R.drawable.ic_home, "桌面小组件",
-                "字号、是否显示地点、最多条数", widgetValue);
-        widgetRow.setOnClickListener(v ->
-                startActivity(new Intent(this, WidgetSettingsActivity.class)));
-        perCard.addView(widgetRow);
+        // 4.0：桌面小组件外观设置（改为二级页入口；右侧不再重复报「字号 · 条数」）
+        perCard.addView(toolRow(R.drawable.ic_home, "桌面小组件",
+                "字号、是否显示地点、最多条数",
+                v -> startActivity(new Intent(this, WidgetSettingsActivity.class))));
+
+        // 4.0：外观（主题 + 配色合并成一个入口）
         perCard.addView(UiKit.divider(this, P));
+        appearanceRow = UiKit.row(this, P, R.drawable.ic_palette, "外观",
+                appearanceLabel(), UiKit.chevron(this, P));
+        appearanceRow.setOnClickListener(v -> showAppearanceDialog());
+        perCard.addView(appearanceRow);
 
-        // ① 加入开发者 QQ 群（提到第一位）
-        perCard.addView(toolRow(R.drawable.ic_phone, "加入开发者 QQ 群",
-                "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
-
-        // ② 自动检查更新
-        perCard.addView(UiKit.divider(this, P));
-        netSw = new UiKit.Switch(this, P, NetPolicy.autoNetAllowed(this));
-        netSw.setOnToggle(on -> {
-            NetPolicy.setAutoNetAllowed(this, on);
-            Toast.makeText(this, on
-                    ? "已开启自动联网（3 天一次静默检查软件与规则更新）"
-                    : "已进入纯离线模式 ✓\n自动联网已停止；核心功能不受影响，仍可手动检查更新",
-                    Toast.LENGTH_LONG).show();
-        });
-        perCard.addView(UiKit.row(this, P, R.drawable.ic_refresh, "自动检查更新",
-                "启动时检查软件与规则（3 天最多一次）· 关闭后完全离线", netSw));
-
-        // ③ 检查更新
-        perCard.addView(UiKit.divider(this, P));
-        perCard.addView(toolRow(R.drawable.ic_download, "检查更新", "软件 + 规则一次查完",
-                v -> checkUpdateNow()));
-
-        // ④ 外观
-        perCard.addView(UiKit.divider(this, P));
-        LinearLayout appeRow = UiKit.row(this, P, R.drawable.ic_palette, "外观",
-                "模块界面配色（四套可选）", UiKit.value(this, P, P.name));
-        appeRow.setOnClickListener(v -> showPalettePicker());
-        perCard.addView(appeRow);
-
-        // ④·2 主题（浅色 / 深色）
-        perCard.addView(UiKit.divider(this, P));
-        LinearLayout themeRow = UiKit.row(this, P, R.drawable.ic_blur, "主题",
-                "界面配色：跟随系统 / 浅色 / 深色",
-                UiKit.value(this, P, UiKit.themeModeLabel(this)));
-        themeRow.setOnClickListener(v -> showThemePicker());
-        perCard.addView(themeRow);
-
-        // ⑤ 模糊效果
+        // 4.0：模糊效果
         perCard.addView(UiKit.divider(this, P));
         blurSw = new UiKit.Switch(this, P, UiKit.navBlur(this));
         blurSw.setOnToggle(on -> {
@@ -1447,13 +1426,8 @@ public class LauncherActivity extends Activity {
         });
         perCard.addView(UiKit.row(this, P, R.drawable.ic_blur, "模糊效果",
                 "底栏半透明（85%）；关闭则使用纯实底", blurSw));
-        // ⑥ 排查两项并入基础设置（v4.6：用户要求把「排查」两条合并到这里，
-        // 并删掉「导出诊断报告」——那个只在排查之后才需要，不该常驻）
-        perCard.addView(UiKit.divider(this, P));
-        int missed = 0;
-        try { missed = MissedSmsStore.getAll(this).size(); } catch (Throwable ignored) { }
-        perCard.addView(toolRow(R.drawable.ic_notebook, "疑似漏抓错题本",
-                "当前 " + missed + " 条 · 一键脱敏复制上报", v -> showMissedSmsDialog()));
+
+        // 4.0：取件提醒
         perCard.addView(UiKit.divider(this, P));
         reminderSw = new UiKit.Switch(this, P, Reminder.isEnabled(this));
         reminderSw.setOnToggle(on -> {
@@ -1470,51 +1444,99 @@ public class LauncherActivity extends Activity {
                 reminderSw);
         reminderRow.setOnClickListener(v -> pickReminderTime());
         perCard.addView(reminderRow);
+
+        // 4.0：检查更新（自动开关与手动检查合并为一行）
         perCard.addView(UiKit.divider(this, P));
-        perCard.addView(toolRow(R.drawable.ic_download, "导入历史取件记录",
-                "从小米笔记把老的取件待办读回本地库", v -> importHistoryNow()));
-        perCard.addView(UiKit.divider(this, P));
-        perCard.addView(toolRow(R.drawable.ic_search, "排查问题向导",
-                "未注入 → root → 作用域 → 通知 → sqlite3 → 笔记库", v -> runTroubleshoot()));
-        perCard.addView(UiKit.divider(this, P));
-        perCard.addView(toolRow(R.drawable.ic_file, "sqlite3 自检与修复",
-                "检查写入用的 sqlite3 是否真的可用，坏了自动重装并可回滚", v -> repairSqlite3Now()));
-        perCard.addView(UiKit.divider(this, P));
-        perCard.addView(toolRow(R.drawable.ic_upload, "复制 JSON 诊断报告",
-                "机器可读格式，反馈时贴到 Issue 代码块更方便", v -> exportDiagJson()));
-        // 4.2：「语言」项已移除——目前只有中文，该行永远显示「跟随系统」且无实际功能。
-        // 将来真要做多语言时再加，届时需要同步做字符串外置与文案适配。
+        netSw = new UiKit.Switch(this, P, NetPolicy.autoNetAllowed(this));
+        netSw.setOnToggle(on -> {
+            NetPolicy.setAutoNetAllowed(this, on);
+            Toast.makeText(this, on
+                    ? "已开启自动联网（3 天一次静默检查软件与规则更新）"
+                    : "已进入纯离线模式 ✓\n自动联网已停止；核心功能不受影响，仍可手动检查更新",
+                    Toast.LENGTH_LONG).show();
+            refreshUpdateRow();
+        });
+        updateRow = UiKit.row(this, P, R.drawable.ic_refresh, "检查更新",
+                updateLabel(), netSw);
+        updateRow.setOnClickListener(v -> checkUpdateNow());
+        perCard.addView(updateRow);
+
         box.addView(perCard, UiKit.cardLp(this, 0f));
 
-        // v4.5：帮助与关于大幅精简。原来 7 项里有 4 项都要跳 GitHub/独立页，
-        // 堆在一起很乱。现按用户指定顺序，并把多个 GitHub 入口合并：
-        //  关于模块 → 打赏作者 → 用户协议 → 项目仓库 → GitHub 反馈
-        //  → 项目版本信息 → 更新日志
-        // 其中「项目仓库」与「GitHub 反馈」保留两项（一个是主页、一个是 Issues，
-        // 用途不同），但都收在 GitHub 语境下，不再与本地功能混排。
-        box.addView(UiKit.groupLabel(this, P, "帮助与关于"));
+        // ==================== 本地记录 ====================
+        // 4.0 收口新增：本地库是 4.0 的事实源，记录的保留期、导出导入、
+        // 清理归到一组；「取件记录」页里的「管理」按钮打开的是同一套实现。
+        box.addView(UiKit.groupLabel(this, P, "本地记录"));
+        LinearLayout recCard = UiKit.card(this, P);
+        recCard.addView(toolRow(R.drawable.ic_notebook, "记录保留期",
+                retentionLabel(), v -> recordManager.showRetentionPicker()));
+        recCard.addView(UiKit.divider(this, P));
+        recCard.addView(toolRow(R.drawable.ic_download, "导出与导入",
+                "导出 JSON / CSV，或从文件导入",
+                v -> recordManager.showManageDialog()));
+        recCard.addView(UiKit.divider(this, P));
+        recCard.addView(toolRow(R.drawable.ic_upload, "导入历史取件记录",
+                "从小米笔记把老的取件待办读回本地库", v -> importHistoryNow()));
+        box.addView(recCard, UiKit.cardLp(this, 0f));
+
+        // ==================== 排查与反馈 ====================
+        // v4.0 收口：原先这一堆散在「基础设置」里——排查向导、sqlite3 自检、
+        // 诊断报告、错题本、QQ 群、GitHub 反馈，一共 6 行，且大半要跳浏览器。
+        // 现在收成两行：排查向导（主入口，出问题时用）与反馈与支持（其余渠道）。
+        box.addView(UiKit.groupLabel(this, P, "排查与反馈"));
+        LinearLayout fixCard = UiKit.card(this, P);
+        fixCard.addView(toolRow(R.drawable.ic_search, "排查问题向导",
+                "未注入 → root → 作用域 → 通知 → sqlite3 → 笔记库",
+                v -> runTroubleshoot()));
+        fixCard.addView(UiKit.divider(this, P));
+        fixCard.addView(toolRow(R.drawable.ic_chat, "反馈与支持",
+                "诊断报告 · 错题本 · sqlite3 自检 · GitHub · QQ 群 · 酷安",
+                v -> showFeedbackSupportDialog()));
+        box.addView(fixCard, UiKit.cardLp(this, 0f));
+
+        // ==================== 关于 ====================
+        // v4.0 收口：原来的「帮助与关于」有 6 行，其中 3 行都是跳 GitHub
+        // （项目仓库 / GitHub 反馈 / 更新日志），另有「用户协议」这一行，
+        // 而协议在「关于模块」弹窗里已经有一份完整版。现在合成 3 行。
+        box.addView(UiKit.groupLabel(this, P, "关于"));
         LinearLayout aboutCard = UiKit.card(this, P);
         aboutCard.addView(toolRow(R.drawable.ic_info, "关于模块",
                 appVersionLabel() + " · 作者 欧锴（O-kai）", v -> showAboutDialog()));
         aboutCard.addView(UiKit.divider(this, P));
+        aboutCard.addView(toolRow(R.drawable.ic_github, "项目主页",
+                "GitHub · 仓库、更新日志与 Issue", v -> openUrl(REPO_URL)));
+        aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_heart, "打赏作者", "纯自愿，不影响任何功能",
                 v -> startActivity(new Intent(this, DonateActivity.class))));
-        aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_file, "用户协议", "MIT License · 隐私说明",
-                v -> showAgreementDialog()));
-        aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_github, "项目仓库", "GitHub · 欢迎 Star",
-                v -> openUrl(REPO_URL)));
-        aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_chat, "GitHub 反馈",
-                "Issues · 建议附上诊断报告", v -> openUrl(ISSUES_URL)));
-        // v4.7：「项目版本信息」已改为首页标题/V4.0 小字的隐藏入口（设置里没有使用场景）
-        aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_doc, "更新日志", "查看模块的更新日志",
-                v -> openUrl(CHANGELOG_URL)));
         box.addView(aboutCard, UiKit.cardLp(this, 0f));
 
         return sv;
+    }
+
+    /** 「外观」行的副标题：主题 + 当前配色 */
+    private String appearanceLabel() {
+        return UiKit.themeModeLabel(this) + " · " + P.name;
+    }
+
+    /** 「检查更新」行的副标题：说明自动检查状态，点行立即检查 */
+    private String updateLabel() {
+        return NetPolicy.autoNetAllowed(this)
+                ? "自动检查已开启（3 天一次）· 点此立即检查"
+                : "自动检查已关闭 · 点此手动检查一次";
+    }
+
+    private void refreshUpdateRow() {
+        if (updateRow == null) return;
+        LinearLayout col = (LinearLayout) updateRow.getChildAt(1);
+        if (col == null || col.getChildCount() < 2) return;
+        TextView sub = (TextView) col.getChildAt(1);
+        if (sub != null) sub.setText(updateLabel());
+    }
+
+    /** 「记录保留期」行的副标题 */
+    private String retentionLabel() {
+        return "当前：" + Retention.label(PickupRepository.retentionDays(this))
+                + " · 只清理已取件的记录";
     }
 
     /** v4.3：使用说明弹窗（原先是页面底部一大段裸露文字） */
@@ -1823,29 +1845,113 @@ public class LauncherActivity extends Activity {
                 .replace("{place}", place).replace("{time}", time);
     }
 
-    /** 主题选择：跟随系统 / 浅色 / 深色。切换后立即重建界面。 */
-    private void showThemePicker() {
-        CharSequence[] items = new CharSequence[]{
-                "跟随系统", "浅色", "深色"
-        };
-        int checked = UiKit.themeMode(this);
-        UiKit.chooser(this, P, R.drawable.ic_blur, "主题 · 选择外观", items, checked, w -> {
+    /**
+     * 外观面板：主题（跟随系统 / 浅色 / 深色）与配色（四套）合并到一个弹窗。
+     *
+     * <p>v4.0 收口：原先这是设置里两个独立入口（「外观」「主题」），
+     * 两者都是"改界面长什么样"，分开摆会让人以为是两件事。
+     */
+    private void showAppearanceDialog() {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        wrap.addView(UiKit.text(this, "主题", 12.5f, UiKit.INK3));
+        String[] themes = {"跟随系统", "浅色", "深色"};
+        int themeChecked = UiKit.themeMode(this);
+        wrap.addView(segmentRow(themes, themeChecked, w -> {
             UiKit.setThemeMode(this, w);
             rebuildUi();
-        });
-    }
+        }));
 
-    private void showPalettePicker() {
-        CharSequence[] items = new CharSequence[UiKit.ALL.length];
-        int checked = 0;
+        wrap.addView(UiKit.spacer(this, 16));
+        wrap.addView(UiKit.text(this, "配色", 12.5f, UiKit.INK3));
+        String[] palettes = new String[UiKit.ALL.length];
+        int paletteChecked = 0;
         for (int i = 0; i < UiKit.ALL.length; i++) {
-            items[i] = UiKit.ALL[i].name + (UiKit.ALL[i].id.equals(P.id) ? "（当前）" : "");
-            if (UiKit.ALL[i].id.equals(P.id)) checked = i;
+            palettes[i] = UiKit.ALL[i].name;
+            if (UiKit.ALL[i].id.equals(P.id)) paletteChecked = i;
         }
-        UiKit.chooser(this, P, R.drawable.ic_palette, "外观 · 选择配色", items, checked, w -> {
+        final int pc = paletteChecked;
+        wrap.addView(segmentRow(palettes, pc, w -> {
             UiKit.setPalette(this, UiKit.ALL[w]);
             rebuildUi();
-        });
+        }));
+
+        UiKit.dialog(this, P, R.drawable.ic_palette, "外观", null, wrap, 0);
+    }
+
+    /** 一排分段按钮 */
+    private LinearLayout segmentRow(String[] labels, int checked,
+                                    java.util.function.IntConsumer onPick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        for (int i = 0; i < labels.length; i++) {
+            final int idx = i;
+            boolean on = i == checked;
+            TextView seg = UiKit.text(this, labels[i], 13.5f, on ? P.onAccent : P.accentInk);
+            seg.setGravity(Gravity.CENTER);
+            seg.setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
+            seg.setPadding(0, dp(10), 0, dp(10));
+            seg.setBackground(UiKit.bg(on ? P.accent : P.chipBg, this, 12));
+            seg.setOnClickListener(v -> {
+                if (onPick != null) onPick.accept(idx);
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.setMargins(i == 0 ? 0 : dp(8), 0, 0, 0);
+            seg.setLayoutParams(lp);
+            row.addView(seg);
+        }
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.setMargins(0, dp(8), 0, 0);
+        row.setLayoutParams(rlp);
+        return row;
+    }
+
+    /**
+     * 反馈与支持：把所有"要跳出去"的去处收在一处。
+     *
+     * <p>v4.0 收口：诊断报告、错题本、sqlite3 自检、GitHub、QQ 群、酷安
+     * 原先是 6 个散落入口（设置里 4 个 + 简洁模式 2 个），现在统一到这里。
+     */
+    private void showFeedbackSupportDialog() {
+        int missed = 0;
+        try { missed = MissedSmsStore.getAll(this).size(); } catch (Throwable ignored) { }
+
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        addSupportRow(wrap, R.drawable.ic_file, "复制 JSON 诊断报告",
+                "机器可读格式，贴到 Issue 代码块更方便", v -> exportDiagJson());
+        wrap.addView(UiKit.divider(this, P));
+        addSupportRow(wrap, R.drawable.ic_notebook, "疑似漏抓错题本",
+                "当前 " + missed + " 条 · 一键脱敏复制上报", v -> showMissedSmsDialog());
+        wrap.addView(UiKit.divider(this, P));
+        addSupportRow(wrap, R.drawable.ic_refresh, "sqlite3 自检与修复",
+                "检查写入用的 sqlite3 是否真的可用，坏了自动重装并可回滚",
+                v -> repairSqlite3Now());
+        wrap.addView(UiKit.divider(this, P));
+        addSupportRow(wrap, R.drawable.ic_github, "GitHub Issues",
+                "反馈漏抓、写入失败等问题", v -> openUrl(ISSUES_URL));
+        wrap.addView(UiKit.divider(this, P));
+        addSupportRow(wrap, R.drawable.ic_phone, "开发者 QQ 群",
+                "901543676 · 进群备注「取件码助手」", v -> copyQqGroup());
+        wrap.addView(UiKit.divider(this, P));
+        addSupportRow(wrap, R.drawable.ic_chat, "酷安发布帖",
+                "在酷安帖子下留言", v -> openUrl(COOLAPK_URL));
+
+        UiKit.dialog(this, P, R.drawable.ic_chat, "反馈与支持",
+                "遇到问题时，可以带上「复制 JSON 诊断报告」的内容一起反馈，作者能少走弯路。",
+                wrap, 0);
+    }
+
+    private void addSupportRow(LinearLayout parent, int iconRes, String title, String sub,
+                               View.OnClickListener cb) {
+        LinearLayout r = UiKit.row(this, P, iconRes, title, sub, UiKit.chevron(this, P));
+        r.setOnClickListener(cb);
+        parent.addView(r);
     }
 
     // ================================================================
@@ -1923,10 +2029,10 @@ public class LauncherActivity extends Activity {
                         + "3. Seven2023Six — 界面布局重构\n"
                         + "   四 Tab 结构、UiKit 设计系统、矢量图标体系\n\n"
                         + "LSPosed 模块仓库已上架，酷安同步更新\n"
-                        + "遇到问题欢迎附「导出诊断报告」反馈", null,
+                        + "遇到问题欢迎附「复制 JSON 诊断报告」反馈", null,
                 UiKit.primary("知道了", null),
-                UiKit.ghost("GitHub", () -> openUrl(REPO_URL)),
-                UiKit.ghost("酷安帖子", () -> openUrl(COOLAPK_URL)));
+                UiKit.ghost("用户协议", this::showAgreementDialog),
+                UiKit.ghost("更新日志", () -> openUrl(CHANGELOG_URL)));
     }
 
     // ================================================================
@@ -2513,6 +2619,13 @@ public class LauncherActivity extends Activity {
         super.onStop();
     }
 
+    /** 4.0：导出/导入走系统文件选择器，结果交给 RecordManager 处理 */
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        recordManager.onActivityResult(requestCode, resultCode, data);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -2531,21 +2644,51 @@ public class LauncherActivity extends Activity {
     /** v2.8.0：疑似漏抓错题本（菜单入口 → 现在挂在「规则 → 工具」） */
     private void showMissedSmsDialog() {
         List<MissedSmsStore.Sample> list = MissedSmsStore.getAll(this);
+        boolean enabled = MissedSmsStore.isEnabled(this);
+
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        // v4.0 收口：错题本默认关闭（P0-10「错题本默认关闭」）。
+        // 这里给出显式开关，用户想用再打开。
+        UiKit.Switch sw = new UiKit.Switch(this, P, enabled);
+        sw.setOnToggle(on -> {
+            MissedSmsStore.setEnabled(this, on);
+            Toast.makeText(this, on
+                    ? "已开启：疑似漏抓的短信会被记在本机（30 天后自动过期）"
+                    : "已关闭：不再记录任何短信正文片段",
+                    Toast.LENGTH_LONG).show();
+        });
+        LinearLayout swRow = UiKit.row(this, P, R.drawable.ic_notebook, "记录疑似漏抓短信",
+                "开启后会把未识别成功的短信片段存到本机；30 天后自动过期", sw);
+        wrap.addView(swRow);
+        wrap.addView(UiKit.spacer(this, 12));
+
         if (list.isEmpty()) {
-            UiKit.dialog(this, P, R.drawable.ic_notebook, "疑似漏抓错题本",
-                    "当前错题本为空 ✓\n\n当系统收到含有快递特征词但未能提取出取件码的短信时，"
-                            + "会自动记录在此处，供您一键脱敏上报排查。", null,
+            TextView empty = UiKit.text(this,
+                    enabled
+                            ? "当前错题本为空。\n系统收到含快递特征词但没能提取出取件码的短信时，会记在这里供一键脱敏上报。"
+                            : "错题本未启用，且当前为空。\n打开上面的开关后，系统收到「有快递特征词但没识别出取件码」的短信会记在这里。",
+                    12.5f, UiKit.INK3);
+            empty.setLineSpacing(dp(3), 1.15f);
+            wrap.addView(empty);
+            UiKit.dialog(this, P, R.drawable.ic_notebook, "疑似漏抓错题本", null, wrap, 0,
                     UiKit.primary("知道了", null),
                     UiKit.ghost("手动上报", this::openGithubIssueManual));
             return;
         }
+
         StringBuilder sb = new StringBuilder();
         sb.append("本地共捕获 ").append(list.size()).append(" 条疑似漏抓短信：\n\n");
         for (int i = 0; i < list.size(); i++) {
             sb.append(i + 1).append(". ").append(MissedSmsStore.sanitize(list.get(i).body)).append("\n\n");
         }
+        TextView body = UiKit.text(this, sb.toString().trim(), 12.5f, UiKit.INK2);
+        body.setLineSpacing(dp(3), 1.15f);
+        wrap.addView(body);
+
         UiKit.dialog(this, P, R.drawable.ic_notebook, "疑似漏抓错题本（" + list.size() + " 条）",
-                sb.toString().trim(), null,
+                null, wrap, 0,
                 UiKit.primary("复制上报文本", () -> {
                     String report = MissedSmsStore.formatReport(list);
                     try {

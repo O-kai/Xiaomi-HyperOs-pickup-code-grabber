@@ -105,8 +105,28 @@ tasks.register('generateRules') {
         def assetFile = rulesGenAssetsDir.get().file('rules/rules.json').asFile
         assetFile.getParentFile().mkdirs()
         assetFile.setText(raw, 'UTF-8')
+
+        // 规则完整性摘要：随 APK 内置一份，用来校验「同版本号的规则集」有没有被替换。
+        // 远端热更时 UpdateCenter 会做双镜像一致性校验，这里给的是「本地这份」的锚。
+        def shaFile = rulesGenAssetsDir.get().file('rules/rules.sha256').asFile
+        shaFile.getParentFile().mkdirs()
+        shaFile.setText(digestSha256(raw) + '  rules.json\n', 'UTF-8')
+
         logger.lifecycle("generateRules: rules.json v${parsed.version} -> GeneratedRules.java + assets")
     }
+}
+
+/**
+ * 规则的 SHA-256 摘要（纯 Gradle 实现，不依赖外部命令）。
+ *
+ * <p>为什么要算这个：热更规则是从 CDN 拉的，CDN 被劫持或内容损坏时，
+ * 一份被改坏的规则可能让提取引擎失效、甚至把错误内容当取件码写进待办。
+ * 有了摘要，App 至少能验证「拉到的东西和预期一致」。
+ */
+def digestSha256(String text) {
+    def md = java.security.MessageDigest.getInstance('SHA-256')
+    def bytes = md.digest(text.getBytes('UTF-8'))
+    return bytes.collect { String.format('%02x', it & 0xff) }.join('')
 }
 
 android {

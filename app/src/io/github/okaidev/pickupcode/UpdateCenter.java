@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.util.Log;
 import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
@@ -53,6 +54,12 @@ public class UpdateCenter {
             "https://api.github.com/repos/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases/latest";
     private static final String RELEASES_URL =
             "https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases";
+
+    /** 规则集的两个互相独立的镜像：内容必须一致，否则拒绝更新 */
+    private static final String MIRROR_A =
+            "https://cdn.jsdelivr.net/gh/O-kai/Xiaomi-HyperOs-pickup-code-grabber@main/rules/rules.json";
+    private static final String MIRROR_B =
+            "https://raw.githubusercontent.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/main/rules/rules.json";
 
     /**
      * 自动检查（懒加载）：受「允许联网」总开关约束，各自 3 天一次。
@@ -107,7 +114,7 @@ public class UpdateCenter {
             }
 
             // ② 规则集（软件即使有新版本也照拉——温和版：用户可以选择不升级软件）
-            final int[] rulesResult = {0}; // 0=未查 1=已更新 2=已是最新 3=网络失败
+            final int[] rulesResult = {0}; // 0=未查 1=已更新 2=已是最新 3=网络失败 4=完整性未通过
             if (checkRules) {
                 rulesResult[0] = fetchRules(ctx);
             }
@@ -115,7 +122,9 @@ public class UpdateCenter {
             final String latestVer = latest;
             final int rr = rulesResult[0];
             // v3.1.0：拿到结果才记时间戳（详见 stampOnSuccess 注释）
-            stampOnSuccess(ctx, checkApp, latestVer != null, checkRules, rr != 3 && rr != 0);
+            // v4.0：只有「已更新 / 已是最新」才算拿到可用结果；
+            // 网络失败与完整性校验失败都不记，下次仍可重试。
+            stampOnSuccess(ctx, checkApp, latestVer != null, checkRules, rr == 1 || rr == 2);
             act.runOnUiThread(() -> {
                 String cur = currentVersion(ctx);
                 boolean hasNewApp = latestVer != null && compareVersions(latestVer, cur) > 0;
@@ -144,6 +153,9 @@ public class UpdateCenter {
                                 + "，规则集已是最新（v" + PickupExtractor.getActiveRulesVersion() + "）");
                     } else if (rr == 3) {
                         toast(ctx, "网络不可用，未获取到最新规则");
+                    } else if (rr == 4) {
+                        toast(ctx, "规则集完整性校验未通过，已拒绝更新\n"
+                                + "两个镜像内容不一致，可能是网络被劫持或文件已损坏");
                     }
                 } else if (force && !hasNewApp && latestVer == null) {
                     toast(ctx, "检查失败：网络不可用或 GitHub 未响应，稍后再试");
@@ -173,24 +185,43 @@ public class UpdateCenter {
      * v4.5：拉取最新规则集。改为 public，供首页「官方规则集」徽标点击时直接调用
      * （原先只在内部 run() 里用，用户无法单独触发规则更新）。
      *
-     * @return 0=未查 1=已更新 2=已是最新 3=网络失败
+     * <p>v4.0 收口：加了完整性校验。两个互相独立的镜像必须给出完全一致的
+     * 内容；同版本号的规则必须与 APK 内置的摘要一致。任何一项对不上就
+     * <b>拒绝应用</b>并明确告知用户——一份被改坏的规则可能让提取引擎
+     * 把错误内容当成取件码写进待办。
+     *
+     * @return 0=未查 1=已更新 2=已是最新 3=网络失败 4=完整性校验未通过（已拒绝）
      */
     public static int fetchRules(Context ctx) {
-        String fetched = null;
-        for (String u : new String[]{
-                "https://cdn.jsdelivr.net/gh/O-kai/Xiaomi-HyperOs-pickup-code-grabber@main/rules/rules.json",
-                "https://raw.githubusercontent.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/main/rules/rules.json"}) {
+        String fromA = fetchFrom(MIRROR_A);
+        String fromB = fetchFrom(MIRROR_B);
+
+        int fetchedVersion = -1;
+        String probe = fromA != null ? fromA : fromB;
+        if (probe != null) {
             try {
-                HttpURLConnection c = (HttpURLConnection) new URL(u).openConnection();
-                c.setConnectTimeout(8000);
-                c.setReadTimeout(10000);
-                c.setRequestProperty("User-Agent", "PickupCode-UpdateCenter");
-                if (c.getResponseCode() == 200) {
-                    fetched = readAll(c.getInputStream());
-                    if (fetched != null && !fetched.trim().isEmpty()) break;
-                }
-            } catch (Throwable ignored) { }
+                fetchedVersion = ExtractorRules.fromJson(probe).version;
+            } catch (Throwable ignored) {
+                fetchedVersion = -1;
+            }
         }
+
+        int integrity = RuleIntegrity.verify(fromA, fromB, bundledRulesHash(ctx),
+                fetchedVersion, PickupExtractor.getActiveRulesVersion());
+        if (integrity == RuleIntegrity.NO_CONTENT) return 3;
+        if (integrity == RuleIntegrity.MIRROR_MISMATCH) {
+            Log.w(TAG, "RULES INTEGRITY: two mirrors disagree, update refused");
+            return 4;
+        }
+        if (integrity == RuleIntegrity.BUNDLED_MISMATCH) {
+            Log.w(TAG, "RULES INTEGRITY: same version but different hash, update refused");
+            return 4;
+        }
+        if (integrity == RuleIntegrity.SINGLE_SOURCE) {
+            Log.w(TAG, "RULES INTEGRITY: only one mirror reachable, cross-check skipped");
+        }
+
+        String fetched = fromA != null ? fromA : fromB;
         if (fetched == null) return 3;
         try {
             ExtractorRules cand = ExtractorRules.fromJson(fetched);
@@ -201,7 +232,7 @@ public class UpdateCenter {
                 appVer = Integer.MAX_VALUE;
             }
             if (cand.minAppVersionCode > appVer) return 2; // 不兼容，静默跳过
-            if (cand.version > PickupExtractor.getActiveRulesVersion()) {
+            if (RuleIntegrity.isNewer(cand.version, PickupExtractor.getActiveRulesVersion())) {
                 if (PickupExtractor.applyNewRules(ctx, fetched)) {
                     try { ProcessSync.push(ctx); } catch (Throwable ignored) { }
                     return 1;
@@ -210,6 +241,39 @@ public class UpdateCenter {
             return 2;
         } catch (Throwable t) {
             return 3;
+        }
+    }
+
+    /** 从单个镜像拉一份文本（失败返回 null） */
+    private static String fetchFrom(String url) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(10000);
+            c.setRequestProperty("User-Agent", "PickupCode-UpdateCenter");
+            if (c.getResponseCode() == 200) {
+                String text = readAll(c.getInputStream());
+                if (text != null && !text.trim().isEmpty()) return text;
+            }
+        } catch (Throwable ignored) { }
+        return null;
+    }
+
+    /** APK 内置规则文件的摘要（构建期生成，用于同版本锚定） */
+    private static String bundledRulesHash(Context ctx) {
+        try {
+            InputStream in = ctx.getAssets().open("rules/rules.sha256");
+            if (in == null) return null;
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buf = new byte[1024];
+            int n;
+            while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+            in.close();
+            String hash = RuleIntegrity.parseHashFile(
+                    new String(bos.toByteArray(), StandardCharsets.UTF_8));
+            return hash.isEmpty() ? null : hash;
+        } catch (Throwable t) {
+            return null;
         }
     }
 

@@ -58,4 +58,42 @@ public interface PickupDao {
 
     @Query("DELETE FROM pickup_records WHERE id = :id")
     void delete(long id);
+
+    // ================================================================
+    //  4.0 收口：搜索 / 筛选 / 保留期清理
+    // ================================================================
+
+    /**
+     * 按状态与关键字查询。
+     *
+     * <p>status 传 null 表示不限状态；kw 传 null 或空串表示不按关键字过滤。
+     * 关键字同时匹配码 / 来源 / 地点。
+     */
+    @Query("SELECT * FROM pickup_records WHERE is_test = 0 "
+            + "AND (:status IS NULL OR status = :status) "
+            + "AND (:kw IS NULL OR :kw = '' "
+            + "  OR code LIKE '%' || :kw || '%' "
+            + "  OR COALESCE(source, '') LIKE '%' || :kw || '%' "
+            + "  OR COALESCE(place, '') LIKE '%' || :kw || '%') "
+            + "ORDER BY received_at DESC LIMIT :limit")
+    List<PickupRecord> query(String status, String kw, int limit);
+
+    /**
+     * 删除保留期外的「已取件」记录。
+     *
+     * <p>只删已取件的：待取件是要去取的东西，删了等于把用户的快递弄丢。
+     */
+    @Query("DELETE FROM pickup_records WHERE status = 'PICKED_UP' "
+            + "AND COALESCE(picked_at, last_seen_at, received_at) < :cutoff")
+    int deletePickedBefore(long cutoff);
+
+    /** 清空全部记录（含待取件，仅在用户明确二次确认后调用） */
+    @Query("DELETE FROM pickup_records")
+    int deleteAll();
+
+    @Query("SELECT COUNT(*) FROM pickup_records WHERE is_test = 0")
+    int countAll();
+
+    @Query("SELECT COUNT(*) FROM pickup_records WHERE status = 'PICKED_UP' AND is_test = 0")
+    int countPicked();
 }

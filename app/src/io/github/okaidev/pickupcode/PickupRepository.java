@@ -7,6 +7,7 @@ import android.util.Log;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -334,6 +335,193 @@ public final class PickupRepository {
                 Log.w(TAG, "delete failed: " + t);
             }
         });
+    }
+
+    // ================================================================
+    //  4.0 收口：搜索 / 筛选 / 保留期 / 导出导入
+    // ================================================================
+
+    /**
+     * 按状态与关键字查询（status 传 null = 不限；kw 传 null/空 = 不过滤）。
+     */
+    public void queryAsync(String status, String kw, int limit,
+                           Callback<List<PickupRecord>> callback) {
+        io.execute(() -> {
+            List<PickupRecord> result;
+            try {
+                String st = (status == null || status.isEmpty()) ? null : status;
+                String key = (kw == null || kw.trim().isEmpty()) ? null : kw.trim();
+                result = dao.query(st, key, Math.max(1, limit));
+            } catch (Throwable t) {
+                Log.w(TAG, "query failed: " + t);
+                result = Collections.emptyList();
+            }
+            final List<PickupRecord> finalResult = result;
+            main.post(() -> callback.onResult(finalResult));
+        });
+    }
+
+    /**
+     * 按保留期清理：只删「已取件」且超过保留期的记录。
+     *
+     * @param days 保留天数；0 = 永久保留，不删任何东西
+     * @return 实际删除条数
+     */
+    public int purgeExpiredSync(int days) {
+        long cutoff = Retention.cutoffBefore(days, System.currentTimeMillis());
+        if (cutoff <= 0) return 0;
+        try {
+            int n = dao.deletePickedBefore(cutoff);
+            if (n > 0) {
+                Log.i(TAG, "LOCAL DB: purged " + n + " records older than " + days + "d");
+                PickupWidgetProvider.refreshAsync(appContext);
+                notifyChanged();
+            }
+            return n;
+        } catch (Throwable t) {
+            Log.w(TAG, "purge failed: " + t);
+            return 0;
+        }
+    }
+
+    public void purgeExpiredAsync(int days, Callback<Integer> callback) {
+        io.execute(() -> {
+            final int n = purgeExpiredSync(days);
+            main.post(() -> callback.onResult(n));
+        });
+    }
+
+    /** 清空全部记录（用户明确二次确认后才允许调用） */
+    public int clearAllSync() {
+        try {
+            int n = dao.deleteAll();
+            Log.i(TAG, "LOCAL DB: cleared " + n + " records");
+            PickupWidgetProvider.refreshAsync(appContext);
+            notifyChanged();
+            return n;
+        } catch (Throwable t) {
+            Log.w(TAG, "clearAll failed: " + t);
+            return 0;
+        }
+    }
+
+    public void clearAllAsync(Callback<Integer> callback) {
+        io.execute(() -> {
+            final int n = clearAllSync();
+            main.post(() -> callback.onResult(n));
+        });
+    }
+
+    public int countAllSync() {
+        try {
+            return dao.countAll();
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** 导出用：拿全部记录并转成可导出的行 */
+    public void exportRowsAsync(Callback<List<PickupRow>> callback) {
+        io.execute(() -> {
+            List<PickupRow> rows = new ArrayList<>();
+            try {
+                List<PickupRecord> all = dao.query(null, null, 20000);
+                for (PickupRecord r : all) rows.add(PickupRow.of(r));
+            } catch (Throwable t) {
+                Log.w(TAG, "export rows failed: " + t);
+            }
+            final List<PickupRow> finalRows = rows;
+            main.post(() -> callback.onResult(finalRows));
+        });
+    }
+
+    /** 导入结果 */
+    public static class ImportResult {
+        /** 新插入的条数 */
+        public int inserted;
+        /** 因为已存在而跳过的条数 */
+        public int duplicated;
+        /** 出错原因（成功时为空） */
+        public String error = "";
+    }
+
+    /**
+     * 导入外部记录。
+     *
+     * <p>去重规则：本地已有同码的记录 → 跳过（不覆盖用户已有的状态）。
+     * 已取件状态会一并带进来，这样从旧设备导出的历史不会变成"待取"。
+     */
+    public ImportResult importRowsSync(List<PickupRow> rows) {
+        ImportResult res = new ImportResult();
+        if (rows == null || rows.isEmpty()) return res;
+        long now = System.currentTimeMillis();
+        for (PickupRow row : rows) {
+            try {
+                if (row == null || row.code == null || row.code.trim().isEmpty()) continue;
+                String code = row.code.trim();
+                if (dao.findAnyByCode(code) != null) {
+                    res.duplicated++;
+                    continue;
+                }
+                PickupRecord r = new PickupRecord();
+                r.code = code;
+                r.source = emptyToUnknown(row.source);
+                r.place = emptyToUnknown(row.place);
+                r.receivedAt = row.receivedAt > 0 ? row.receivedAt : now;
+                r.createdAt = now;
+                r.lastSeenAt = now;
+                boolean picked = PickupRecord.STATUS_PICKED_UP.equals(row.status);
+                r.status = picked ? PickupRecord.STATUS_PICKED_UP : PickupRecord.STATUS_PENDING;
+                r.pickedAt = picked ? (row.pickedAt > 0 ? row.pickedAt : r.receivedAt) : 0L;
+                r.eventHash = "import:" + sha256(code + "\u0000" + r.receivedAt);
+                r.syncState = "NONE";
+                r.isTest = 0;
+                r.backend = NotesBackend.detect(appContext);
+                if (dao.insert(r) > 0) res.inserted++;
+                else res.duplicated++;
+            } catch (Throwable t) {
+                Log.w(TAG, "import row failed: " + t);
+            }
+        }
+        if (res.inserted > 0) {
+            PickupWidgetProvider.refreshAsync(appContext);
+            notifyChanged();
+        }
+        return res;
+    }
+
+    public void importRowsAsync(List<PickupRow> rows, Callback<ImportResult> callback) {
+        io.execute(() -> {
+            final ImportResult res = importRowsSync(rows);
+            main.post(() -> callback.onResult(res));
+        });
+    }
+
+    // ------------------------------------------------------------
+    //  本地库偏好（保留期等）
+    // ------------------------------------------------------------
+
+    private static final String PREFS_DATA = "pickup_data";
+    private static final String KEY_RETENTION_DAYS = "retention_days";
+
+    /** 保留期（天），0 = 永久保留 */
+    public static int retentionDays(Context ctx) {
+        try {
+            return Retention.sanitize(ctx.getApplicationContext()
+                    .getSharedPreferences(PREFS_DATA, Context.MODE_PRIVATE)
+                    .getInt(KEY_RETENTION_DAYS, Retention.DEFAULT_DAYS));
+        } catch (Throwable t) {
+            return Retention.DEFAULT_DAYS;
+        }
+    }
+
+    public static void setRetentionDays(Context ctx, int days) {
+        try {
+            ctx.getApplicationContext()
+                    .getSharedPreferences(PREFS_DATA, Context.MODE_PRIVATE)
+                    .edit().putInt(KEY_RETENTION_DAYS, Retention.sanitize(days)).apply();
+        } catch (Throwable ignored) {
+        }
     }
 
     private static String emptyToUnknown(String s) {

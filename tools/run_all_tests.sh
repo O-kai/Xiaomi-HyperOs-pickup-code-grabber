@@ -49,6 +49,16 @@ mkdir -p "$OUT/testclasses" "$OUT/src"
 FAILED=0
 SUMMARY=""
 
+# org.json 必须排在 android.jar 前面：android.jar 里的 org.json 只是空壳
+# （调用即抛 Stub!），真实现放在 test/libs 里，供导出/导入的格式逻辑离线验证。
+# 这个 jar 只用于离线测试，不会打进 APK。
+JSONJAR="$WINROOT/test/libs/org.json.jar"
+if [ -f "$JSONJAR" ]; then
+  CP="$OUT/testclasses;$APPCLS;$JSONJAR;$SDK"
+else
+  CP="$OUT/testclasses;$APPCLS;$SDK"
+fi
+
 run_java() {
   # run_java <class> [args...]
   local cls="$1"; shift
@@ -56,7 +66,7 @@ run_java() {
   # stdout.encoding=UTF-8：Windows 默认 GBK，否则中文断言名在日志里是乱码，
   # grep 也可能把输出当二进制丢掉。
   out=$("$JDK/bin/java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 \
-        -cp "$OUT/testclasses;$APPCLS;$SDK" "$cls" "$@" 2>&1)
+        -cp "$CP" "$cls" "$@" 2>&1)
   local code=$?
   echo "$out" | tail -6
   local last
@@ -76,10 +86,10 @@ echo "=============================================="
 echo ""
 echo "===== javac：测试源码 ====="
 "$JDK/bin/javac.exe" -encoding UTF-8 -nowarn \
-  -classpath "$APPCLS;$SDK" -d "$OUT/testclasses" \
+  -classpath "$CP" -d "$OUT/testclasses" \
   test/FullReg.java test/ChannelParity.java test/PkgInputTest.java \
   test/TierExclusionTest.java test/CallerPolicyTest.java \
-  test/UserRulesTest.java test/FeatureTest.java 2> "$OUT/javac.log"
+  test/UserRulesTest.java test/FeatureTest.java test/DataTest.java 2> "$OUT/javac.log"
 if [ $? -ne 0 ]; then
   echo "javac FAILED:"
   head -30 "$OUT/javac.log"
@@ -159,6 +169,9 @@ done
 
 echo "----- FeatureTest -----"
 run_java "FeatureTest"
+
+echo "----- DataTest -----"
+run_java "DataTest"
 
 echo ""
 echo "===== 规则单源一致性 ====="
