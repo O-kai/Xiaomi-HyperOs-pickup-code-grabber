@@ -72,31 +72,36 @@ public class WidgetTest {
                 WidgetPrefs.rowsForHeight(800, 333, MAX) > 2,
                 String.valueOf(WidgetPrefs.rowsForHeight(800, 333, MAX)));
 
-        // v4.0.2 第三轮：行高改成按权重均分，行数算法同步改了。
+        // v4.0.2 第六轮：行高固定 40dp，不再按权重均分。
         //
-        // 核心性质：算出来的行数 × 实际行高（可用高度 / 行数）必须【填满可用高度】，
-        // 且单行高度落在 [40, 79]dp 这个可读区间内——这是用户反馈
-        // 「3 排格子只显示 4 行、下面一堆空着」的根治点。
+        // 用户原话：「正常的每条内容显示就应该占据它正常的空间，然后一个一个排下来」
+        // 「我待取的件只有两件，但是我把尺寸调得比较大，那就让它下面空白着就行了。
+        //   这是合理的，没有必要把它全部填满」
+        //
+        // 核心性质：
+        //   · 行高恒为 40dp（内容多少都不变）
+        //   · 行数 = 可用高度 / 40，且剩余不足一行（否则说明少算了一行）
+        //   · 剩余空间留在列表底部——留白是合理的，不该把行拉高去填满
         for (int h = 120; h <= 900; h += 20) {
             int avail = h - 24 - 28;          // 去掉上下 padding 与标题行
             if (avail <= 0) continue;
             int rows = WidgetPrefs.rowsForHeight(h, 333, MAX);
             if (rows <= 0) { rows = 1; }
-            int rowDp = avail / rows;
-            if (rowDp < WidgetPrefs.ROW_MIN_DP || rowDp > WidgetPrefs.ROW_MAX_DP) {
-                check("行高应落在可读区间 [" + WidgetPrefs.ROW_MIN_DP + ", "
-                        + WidgetPrefs.ROW_MAX_DP + "]（h=" + h + "dp）", false,
-                        "rows=" + rows + " rowH=" + rowDp + "dp");
+            int used = rows * WidgetPrefs.ROW_MIN_DP;
+            if (used > avail) {
+                check("显示的行不能超出可用高度（h=" + h + "dp）", false,
+                        "rows=" + rows + " used=" + used + " avail=" + avail + "dp");
                 break;
             }
-            // 填满：实际行高 × 行数 ≥ 可用高度 - 一行（余量不足一行就不该再少算）
-            if (avail - rowDp * rows >= WidgetPrefs.ROW_MIN_DP) {
-                check("行数应填满可用高度（h=" + h + "dp）", false,
-                        "rows=" + rows + " rowH=" + rowDp + "dp avail=" + avail + "dp");
+            // 只有在还没撞到布局行数上限时才要求「取满」——
+            // 超过上限是布局只有 12 行造成的，不是算法少算了。
+            if (rows < MAX && avail - used >= WidgetPrefs.ROW_MIN_DP) {
+                check("行数应取满（少算一行就是浪费空间，h=" + h + "dp）", false,
+                        "rows=" + rows + " used=" + used + " avail=" + avail + "dp");
                 break;
             }
         }
-        check("行高始终落在可读区间且填满可用高度", true, "");
+        check("行高固定 40dp、行数取满、剩余留白不拉伸", true, "");
 
         // 行数随高度单调不减（拉高组件不会反而变少行）
         int prev = 0;

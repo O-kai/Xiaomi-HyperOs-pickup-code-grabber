@@ -2,13 +2,13 @@
 <!--
   桌面小组件布局（v4.0.2 第三轮重做）。
 
-  核心变化：行高改为【按权重自适应】。
-  · 每行 layout_height="0dp" + layout_weight="1"，列表容器也用 weight 撑满，
-    于是「行数 × 行高」恒等于可用高度——组件里有多少空间就填多少，
-    不会再出现「下面一堆空着」。
-  · 行数由代码按每行至少 40dp 算出，保证文字永远不会被裁；
-    实际行高落在 40–79dp 之间，既填满又可读。
-  · 放不下的整行 GONE，不做半行截断——半行会被误读成完整的一条。
+  每一行都是【固定 40dp】，一个一个往下排。
+  · 行不参与权重均分——所以内容少的时候，行不会被拉高去填满组件，
+    多出来的空间留在列表底部（空白是合理的）。
+  · 列表容器用 weight 撑满剩余高度；由于它内部没有带 weight 的可见子项，
+    LinearLayout 不会去压缩那些固定高度的行。
+  · 行数由代码按「每行 40dp」算出：组件更高就多显示几行，
+    放不下的整行 GONE——绝不做半行截断（半个取件码会被误读成完整的一条）。
 
   另外：
   · 去掉底部「查看全部」：点顶部标题即可跳转，两处入口重复反而让人犹豫；
@@ -75,8 +75,7 @@
         <LinearLayout
             android:id="@+id/widget_row_1"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -114,8 +113,7 @@
         <LinearLayout
             android:id="@+id/widget_row_2"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -153,8 +151,7 @@
         <LinearLayout
             android:id="@+id/widget_row_3"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -192,8 +189,7 @@
         <LinearLayout
             android:id="@+id/widget_row_4"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -231,8 +227,7 @@
         <LinearLayout
             android:id="@+id/widget_row_5"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -270,8 +265,7 @@
         <LinearLayout
             android:id="@+id/widget_row_6"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -310,8 +304,7 @@
         <LinearLayout
             android:id="@+id/widget_row_7"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -350,8 +343,7 @@
         <LinearLayout
             android:id="@+id/widget_row_8"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -390,8 +382,7 @@
         <LinearLayout
             android:id="@+id/widget_row_9"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -430,8 +421,7 @@
         <LinearLayout
             android:id="@+id/widget_row_10"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -470,8 +460,7 @@
         <LinearLayout
             android:id="@+id/widget_row_11"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -510,8 +499,7 @@
         <LinearLayout
             android:id="@+id/widget_row_12"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="40dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">

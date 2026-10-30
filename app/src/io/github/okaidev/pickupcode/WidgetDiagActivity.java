@@ -186,8 +186,9 @@ public class WidgetDiagActivity extends Activity {
 
         // 说明
         TextView note = UiKit.text(this,
-                "预览里的行高是按权重均分的——组件越高，行越多、行高越接近 40dp，"
-                        + "且内容填满整个组件，不会再留一块空白。",
+                "每一行固定 40dp，一个一个往下排：内容少时下面留白，不会把行拉高；"
+                        + "组件更高时则多显示几行。放不下的整行直接不显示，"
+                        + "不会只显示半个取件码。",
                 12f, P.muteInk);
         note.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(

@@ -125,15 +125,17 @@ public final class WidgetPrefs {
         // 上下 padding 各 12dp = 24dp；标题行约 28dp（18sp 文字 + 一点余量）
         int avail = heightDp - 24 - 28;
         if (avail <= 0) return 1;                          // 极小高度：至少留一行
-        int byMin = avail / ROW_MIN_DP;                    // 行高 ≥ 40dp 时最多几行
-        int byMax = (avail + ROW_MAX_DP - 1) / ROW_MAX_DP; // 行高 ≤ 79dp 时至少几行
-        int rows = Math.max(byMax, byMin);                 // 取大者：填满优先
+        // 每行固定 40dp，能放下几行就是几行。
+        // 剩下的零头留在列表底部——空白是合理的，
+        // 不该把行拉高去填满（用户原话：「明明没几个件要取的，
+        // 我把尺寸调大了，你就把它全部填满，这种效果显得太低端了」）。
+        int rows = avail / ROW_MIN_DP;
         rows = Math.min(rows, Math.max(1, maxRows));
         if (widthDp > 0 && widthDp < 150) rows = Math.min(rows, 3);
         return Math.max(1, rows);
     }
 
-    /** 单行最小可读高度（dp） */
+    /** 单行高度（dp）——固定值，内容多少都不变 */
     public static final int ROW_MIN_DP = 40;
     /** 单行最大高度（dp）——超过这个值一行内容会显得松散 */
     public static final int ROW_MAX_DP = 79;

@@ -236,15 +236,14 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         return build(ctx, -1, snap == null ? sampleSnapshot() : snap, Collections.emptyList());
     }
 
-    /** 自检用的示例快照（3 条待取 + 1 条已取） */
+    /** 自检用的示例快照（2 条待取 + 1 条已取，故意少于行数，好看出空行的效果） */
     private static PickupRepository.PendingSnapshot sampleSnapshot() {
         long now = System.currentTimeMillis();
         java.util.List<PickupRecord> items = new java.util.ArrayList<>();
         items.add(sample(1, "12-3-4567", "菜鸟驿站", "江南绿城西门", now - 60000, true));
         items.add(sample(2, "58-2-9041", "顺丰速运", "望江路驿站", now - 120000, true));
-        items.add(sample(3, "93-6-8899", "京东物流", "幸福小区菜鸟柜", now - 180000, true));
-        items.add(sample(4, "09-8-7654", "中通快递", "锦绣路 18 号", now - 240000, false));
-        return new PickupRepository.PendingSnapshot(items, 4, 3, true);
+        items.add(sample(3, "09-8-7654", "中通快递", "锦绣路 18 号", now - 240000, false));
+        return new PickupRepository.PendingSnapshot(items, 3, 2, true);
     }
 
     private static PickupRecord sample(long id, String code, String source, String place,
@@ -339,6 +338,11 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         for (int i = 0; i < MAX_ROWS; i++) {
             boolean has = !empty && i < rows && items != null && i < items.size();
             if (!has) {
+                // 放不下的整行直接不显示；内容不够时下面的空白是合理的。
+                //
+                // 不做半行截断——半个取件码会被误读成完整的一条。
+                // 也不做「空行占位」：行高固定 40dp 之后，
+                // 列表容器内部自然就会在内容下面留白，不需要额外的空行。
                 rv.setViewVisibility(ROW_IDS[i], View.GONE);
                 continue;
             }
@@ -453,11 +457,11 @@ public class PickupWidgetProvider extends AppWidgetProvider {
     /**
      * 组件的尺寸与行数。
      *
-     * <p>v4.0.2 第三轮：行高改成按权重均分后，【实际行高】=
-     * 可用高度 / 行数，必须算出来给补位动画用（位移量按真实行高走，
-     * 否则动画会错位）。所以这里一次把高度、宽度、行数、行高都算好。
+     * <p>v4.0.2：行高改成【固定 40dp】，不再按权重均分。
+     * 所以补位动画的位移量也回到固定值——按实际行高算才不会错位，
+     * 而实际行高就是 40dp。
      *
-     * @return {行数, 组件高度dp, 实际行高dp}
+     * @return {行数, 组件高度dp, 行高dp}
      */
     private static int[] widgetMetrics(Context context, int widgetId) {
         int heightDp = 0;
@@ -472,10 +476,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             Log.w(TAG, "widget options failed: " + t);
         }
         int rows = WidgetPrefs.rowsForHeight(heightDp, widthDp, MAX_ROWS);
-        // 可用高度（去掉上下 padding 与标题行）与实际行高
-        int availDp = heightDp - 24 - 28;
-        if (availDp < 1) availDp = 1;
-        int rowDp = availDp / Math.max(1, rows);
+        int rowDp = WidgetPrefs.ROW_MIN_DP;
         Log.i(TAG, "WIDGET size: h=" + heightDp + "dp w=" + widthDp
                 + "dp -> rows=" + rows + " rowH=" + rowDp + "dp");
         return new int[]{rows, heightDp, rowDp};

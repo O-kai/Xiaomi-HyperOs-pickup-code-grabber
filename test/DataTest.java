@@ -73,11 +73,30 @@ public class DataTest {
         check("说明文案：每个选项都有说明",
                 Retention.labelWithHint(30).length() > Retention.label(30).length(), "");
 
-        // 过期提示：3 天以内不算过期，超过才算
-        check("2 天内不算过期", !Retention.isProbablyExpired(now - 2 * day, now), "");
-        check("刚超过 3 天算过期", Retention.isProbablyExpired(now - 3 * day - 1, now), "");
-        check("时间戳为 0 不算过期", !Retention.isProbablyExpired(0, now), "");
-        check("未来时间不算过期", !Retention.isProbablyExpired(now + day, now), "");
+        // 滞留提示：v4.0.2 从「3 天才算过期」改成「超过一天就标滞留天数」。
+        // 用户反馈「单纯写『可能』已失效概念太模糊」——
+        // 于是改成把「滞留了几天」这个事实直接写出来。
+        long hour = 3600_000L;
+        check("24 小时内不算滞留", !Retention.isProbablyExpired(now - 23 * hour, now), "");
+        check("超过 24 小时算滞留", Retention.isProbablyExpired(now - 25 * hour, now), "");
+        check("时间戳为 0 不算滞留", !Retention.isProbablyExpired(0, now), "");
+        check("未来时间不算滞留", !Retention.isProbablyExpired(now + day, now), "");
+
+        // 滞留天数：向下取整（25 小时算 1 天、49 小时算 2 天）
+        check("不足一天 staleDays=0", Retention.staleDays(now - 23 * hour, now) == 0, "");
+        check("25 小时 staleDays=1", Retention.staleDays(now - 25 * hour, now) == 1, "");
+        check("49 小时 staleDays=2", Retention.staleDays(now - 49 * hour, now) == 2, "");
+        check("staleDays 时间戳为 0 时为 0", Retention.staleDays(0, now) == 0, "");
+
+        // 标签文案：一天之内不标，最多到「滞留 7 天」，超过写「7 天以上」
+        check("0 天不显示标签", Retention.staleBadge(0).isEmpty(), Retention.staleBadge(0));
+        check("1 天", "滞留 1 天".equals(Retention.staleBadge(1)), Retention.staleBadge(1));
+        check("2 天", "滞留 2 天".equals(Retention.staleBadge(2)), Retention.staleBadge(2));
+        check("6 天", "滞留 6 天".equals(Retention.staleBadge(6)), Retention.staleBadge(6));
+        check("7 天封顶", "滞留 7 天".equals(Retention.staleBadge(7)), Retention.staleBadge(7));
+        check("8 天写以上", "滞留 7 天以上".equals(Retention.staleBadge(8)), Retention.staleBadge(8));
+        check("30 天也写以上", "滞留 7 天以上".equals(Retention.staleBadge(30)), Retention.staleBadge(30));
+        check("负数不显示标签", Retention.staleBadge(-1).isEmpty(), Retention.staleBadge(-1));
 
         check("daysSince 向下取整", Retention.daysSince(now - 5 * day - 100, now) == 5, "");
         check("daysSince 不为负", Retention.daysSince(now + day, now) == 0, "");

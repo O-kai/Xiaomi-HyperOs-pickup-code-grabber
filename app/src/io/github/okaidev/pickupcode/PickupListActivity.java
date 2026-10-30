@@ -211,17 +211,16 @@ public class PickupListActivity extends Activity {
             listBox.addView(emptyView());
             return;
         }
-        // v4.0.2 第三轮：把「可能已失效」的含义讲清楚。
+        // v4.0.2 第五轮：滞留提示的含义。
         //
-        // 用户反馈「我都不知道这是什么情况，为什么会有这样的场景」。
-        // 这个标记的判据是「收到超过 3 天还没取」——取件码通常只有几天有效期，
-        // 驿站多半已经清理了，所以提醒一下用户去处理。
+        // 判据是「收到超过一天还没取」——标上具体滞留天数，
+        // 让用户一眼判断还值不值得跑一趟。
         // 它只是提醒，绝不自动删（说不定用户过两天才去取）。
         int staleCount = 0;
         long now = System.currentTimeMillis();
         for (PickupRecord r : list) {
             if (r != null && r.isPending()
-                    && Retention.isProbablyExpired(r.receivedAt, now)) staleCount++;
+                    && Retention.staleDays(r.receivedAt, now) > 0) staleCount++;
         }
         if (staleCount > 0) {
             listBox.addView(staleHint(staleCount),
@@ -235,7 +234,7 @@ public class PickupListActivity extends Activity {
     }
 
     /**
-     * 「可能已失效」是什么意思——用一句话讲清楚。
+     * 滞留提示是什么意思——用一句话讲清楚。
      *
      * <p>只负责【创建】这个 View，不自己 addView——
      * 由调用方添加。（v4.0.2 第四轮修掉的闪退：
@@ -245,7 +244,7 @@ public class PickupListActivity extends Activity {
      */
     private View staleHint(int count) {
         TextView v = UiKit.text(this,
-                "其中 " + count + " 条收到已超过 3 天还没取，标为「可能已失效」："
+                "标了「滞留 N 天」的，是收到已经超过一天还没去取的件："
                         + "取件码一般只有几天有效期，驿站多半已清理。\n"
                         + "这只是提醒，不会自动删除——过两天才去取也还算数。",
                 12f, UiKit.INK3);
@@ -315,14 +314,21 @@ public class PickupListActivity extends Activity {
         top.addView(code, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        // v4.0.2 第三轮：文案改成「可能已失效」。
+        // v4.0.2 第五轮：滞留提示改成写具体天数。
         //
-        // 原文案「可能已过期」有歧义——用户看到会以为「这条记录过期了」，
-        // 其实是「取件码多半已经失效了」（驿站清理）。
-        // 判定不变：收到超过 3 天还没取。只提醒，绝不自动删。
-        if (pending
-                && Retention.isProbablyExpired(record.receivedAt, System.currentTimeMillis())) {
-            top.addView(UiKit.badgeWarn(this, "可能已失效"));
+        // 用户原话：「收到信息 24 小时之内的取件码：不要展示内容。
+        // 超过 24 小时的取件码：写具体的滞留日期，就显示『滞留1天』、『滞留2天』等等
+        // 这个样式，然后最多显示到『滞留7天』。如果超过7天的东西，就写『滞留7天以上』」
+        // 以及「单纯写『可能』已失效，对于用户来说概念太模糊了」。
+        //
+        // 所以：一天之内的新记录不标任何东西；超过一天就写明滞留了几天。
+        // 提醒而不删除——说不定用户过两天才去取。
+        if (pending) {
+            int staleDays = Retention.staleDays(record.receivedAt, System.currentTimeMillis());
+            String badge = Retention.staleBadge(staleDays);
+            if (!badge.isEmpty()) {
+                top.addView(UiKit.badgeWarn(this, badge));
+            }
         }
 
         TextView state = UiKit.text(this, pending ? "待取" : "已取", 12,
