@@ -47,11 +47,12 @@ public class LauncherActivity extends Activity {
     private static final String ISSUES_URL = REPO_URL + "/issues";
     private static final String COOLAPK_URL = "https://www.coolapk.com/feed/73558591";
     private static final String CHANGELOG_URL = REPO_URL + "/blob/main/CHANGELOG.md";
-    /** 黑名单默认关键词（恢复默认时回填用） */
-    private static final String BLACKLIST_DEFAULT = "12306,验证码,余额,充值,账单,银行,优惠券,退订";
+    /** 黑名单默认关键词（恢复默认时回填用；唯一来源在 TodoWriter） */
+    private static final String BLACKLIST_DEFAULT = TodoWriter.DEFAULT_BLACKLIST;
     /** 来源识别覆盖的快递公司数（菜鸟 / 丰巢 / 京东 / 顺丰 / 中通 / 圆通 / 韵达 / 申通 / 邮政） */
     private static final int IDENTIFY_SOURCES = 9;
-    private static final String TPL_DEFAULT = "取件码 {code}｜{source}｜{place}｜{time}";
+    /** 默认待办模板（唯一来源在 TodoWriter，避免两处各抄一份） */
+    private static final String TPL_DEFAULT = TodoWriter.TPL_DEFAULT;
     /** 缺作用域时的统一提示文案（Toast 与开关态共用一份，避免两处说法不一致） */
     private static final String NOTI_SCOPE_TOAST =
             "开关虽已打开，但 LSPosed 作用域没勾「Android 系统（android）」，\n"
@@ -830,19 +831,13 @@ public class LauncherActivity extends Activity {
         sv.addView(box);
 
         // v4.7：末尾补「添加/移除后需重启手机」，并加粗（用户要求）
+        // v4.0 收口：「需要重启」这件事原本在开头说一遍、末尾又说一遍，
+        // 合并到末尾那条提示里说一次就够——同一件事说两遍只会让人以为是两件事。
         String introText =
                 "下方 App 收到含取件码的通知时，会被自动读取并写入待办。\n"
                         + "短信通道不受此限制：任何号码的取件短信都会识别。\n"
-                        + "识别规则与短信通道共用一套规则集。\n";
-        String boldTail = "添加或移除来源后，需要重启手机才会生效。";
-        android.text.SpannableString introSp = new android.text.SpannableString(
-                introText + boldTail);
-        introSp.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),
-                introText.length(), introSp.length(),
-                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        introSp.setSpan(new android.text.style.ForegroundColorSpan(UiKit.INK2),
-                introText.length(), introSp.length(),
-                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        + "识别规则与短信通道共用一套规则集。";
+        android.text.SpannableString introSp = new android.text.SpannableString(introText);
         // UiKit.text(...) 只接受 String，会把 Span 压成纯文本，必须自己 new TextView
         TextView intro = new TextView(this);
         intro.setText(introSp);
@@ -944,7 +939,9 @@ public class LauncherActivity extends Activity {
         // 表现为「点了没反应、根本点不开」。弹窗不受滚动与父容器影响，最可靠。
         addBox.setOnClickListener(v -> showCustomSourceDialog());
 
-        TextView scopeNote = UiKit.text(this, "需在 LSPosed 作用域勾选「Android 系统」并重启后生效",
+        // v4.0 收口：把「需要重启」的两处说法合成一条提示（见上方注释）。
+        TextView scopeNote = UiKit.text(this,
+                "需在 LSPosed 作用域勾选「Android 系统」；添加或移除来源后，重启手机才会生效",
                 12.5f, P.heroSubInk);
         scopeNote.setBackground(UiKit.bg(P.accentTint, this, 12));
         scopeNote.setPadding(dp(13), dp(11), dp(13), dp(11));

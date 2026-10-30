@@ -46,10 +46,28 @@ public class TodoWriter {
 
     public static String getLastDedupHits() { return lastDedupHits; }
 
+    /**
+     * 黑名单默认关键词（唯一来源）。
+     *
+     * <p>v4.0 收口：这段词表原先在四个地方各抄一份——写入判断、跨进程快照、
+     * 系统进程兜底、界面上的「恢复默认」。抄四份的代价是改了一处另三处不跟着改，
+     * 于是「界面里显示的默认」和「真正生效的默认」可能对不上。
+     */
+    public static final String DEFAULT_BLACKLIST = "12306,验证码,余额,充值,账单,银行,优惠券,退订";
+
     /** 模板模式：0=极简（仅取件码） 1=完整（默认） 2=自定义模板 */
     public static final int MODE_MIN = 0;
     public static final int MODE_FULL = 1;
     public static final int MODE_CUSTOM = 2;
+
+    /**
+     * 自定义模板的默认内容（也是「完整」模式的实际写法）。
+     *
+     * <p>v4.0 收口：这段字符串原先在三个地方各抄一份（写入默认值、
+     * 空模板兜底、界面里的模板编辑初值）。抄三份的代价是改了一处
+     * 另两处不会跟着改——正是本项目在规则集上踩过的坑，这里不再重复。
+     */
+    public static final String TPL_DEFAULT = "取件码 {code}｜{source}｜{place}｜{time}";
 
     /** 入口：模块进程收到短信事件后处理一条短信 */
     public static List<String> handle(Context ctx, String sender, String body) {
@@ -88,7 +106,7 @@ public class TodoWriter {
         synchronized (DEDUP_LOCK) {
         Set<String> seen = new LinkedHashSet<>(prefs.getStringSet("seen", new LinkedHashSet<>()));
         int mode = prefs.getInt("todo_mode", MODE_FULL);
-        String customTpl = prefs.getString("todo_custom", "取件码 {code}｜{source}｜{place}｜{time}");
+        String customTpl = prefs.getString("todo_custom", TPL_DEFAULT);
         for (String code : codes) {
             String fingerprint = code + "|" + place;
             if (seen.contains(fingerprint)) {
@@ -158,7 +176,7 @@ public class TodoWriter {
             case MODE_MIN:
                 return code;
             case MODE_CUSTOM:
-                String tpl = customTpl == null || customTpl.isEmpty() ? "取件码 {code}｜{source}｜{place}｜{time}" : customTpl;
+                String tpl = customTpl == null || customTpl.isEmpty() ? TPL_DEFAULT : customTpl;
                 return tpl.replace("{code}", code)
                         .replace("{source}", source)
                         .replace("{place}", place)
@@ -173,7 +191,7 @@ public class TodoWriter {
     public static boolean isBlacklisted(Context ctx, String body) {
         if (body == null || body.isEmpty()) return false;
         String list = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString("blacklist", "12306,验证码,余额,充值,账单,银行,优惠券,退订");
+                .getString("blacklist", DEFAULT_BLACKLIST);
         if (list == null || list.isEmpty()) return false;
         for (String kw : list.split("[,，、;；\\s]+")) {
             if (kw.isEmpty()) continue;

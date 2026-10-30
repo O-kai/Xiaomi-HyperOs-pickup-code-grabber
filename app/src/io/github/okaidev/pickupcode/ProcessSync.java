@@ -41,9 +41,8 @@ public class ProcessSync {
     private static final String SYNC_DIR = "/data/local/tmp/pickup_sqlite";
     private static final String SYNC_FILE = SYNC_DIR + "/app_state.json";
 
-    /** 黑名单默认值（App 偏好读不到时的兜底，与 SystemDirectWriter.DEFAULT_BLACKLIST 一致） */
-    public static final String DEFAULT_BLACKLIST =
-            "12306,验证码,余额,充值,账单,银行,优惠券,退订";
+    /** 黑名单默认值（App 偏好读不到时的兜底；唯一来源在 TodoWriter） */
+    public static final String DEFAULT_BLACKLIST = TodoWriter.DEFAULT_BLACKLIST;
 
     /** 系统进程侧只读快照 */
     public static class State {

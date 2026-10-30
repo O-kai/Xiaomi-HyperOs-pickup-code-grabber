@@ -45,10 +45,9 @@ public class SystemDirectWriter {
     /** 开关探测缓存（每进程一次；探测要跑 su，避免每条短信都开销） */
     private static volatile Boolean enabledCache = null;
 
-    /** 黑名单默认词（无模块 App 偏好可用时按此过滤） */
-    private static final String[] DEFAULT_BLACKLIST = {
-            "12306", "验证码", "余额", "充值", "账单", "银行", "优惠券", "退订"
-    };
+    /** 黑名单默认词（无模块 App 偏好可用时按此过滤；唯一来源在 TodoWriter） */
+    private static final String[] DEFAULT_BLACKLIST =
+            TodoWriter.DEFAULT_BLACKLIST.split("[,，、;；\\s]+");
 
     /** 单进程节流：同指纹 10 秒内只直写一次（防多 Hook 点并发刷写） */
     private static volatile String lastFingerprint = "";

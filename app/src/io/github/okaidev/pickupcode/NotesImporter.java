@@ -9,7 +9,6 @@ import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
 
 /**
  * 历史取件记录导入（4.0.x）
@@ -32,15 +31,8 @@ public final class NotesImporter {
 
     private static final String TAG = "PICKUPDEBUG";
     private static final String SEP = "|PICKUPROW|";
-    /** 文本里取【】里的驿站名 */
-    private static final Pattern P_BRACKET = Pattern.compile("【([^】]{1,20})】");
-    /**
-     * 模块自己写进小米笔记的待办格式：取件码 X｜来源｜地点｜时间
-     * （全角/半角竖线都兼容）。这类记录带不了更多上下文，
-     * 但来源与地点是现成的，比从正文里猜更准。
-     */
-    private static final Pattern P_OWN_FORMAT =
-            Pattern.compile("取件码\\s*[^｜|]*[｜|]\\s*([^｜|]*)\\s*[｜|]\\s*([^｜|]*)");
+    // 注：待办文本的解析规则已抽到 NotesFormat（可离线单测），
+    // 这里不再保留第二份正则——两份正则迟早会漂移。
 
     public static class Result {
         /** 扫描到的待办条数 */
