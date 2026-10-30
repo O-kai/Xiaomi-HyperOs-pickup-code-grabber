@@ -24,21 +24,18 @@ public class ExtractorRules {
     // v4 码形状：横线簇【必须含至少一个横线】——杜绝裸数字被当成取件码（6折/189/1064）
     // 首段形态：字母-数字（M-2）｜字母+数字（D4）｜纯数字（109）
     /**
-     * v7：默认码形正则。
+     * 默认码形正则（v4.0 起由构建脚本从 rules/rules.json 生成）。
      *
      * <p>一段 = 可带 1-2 字母前缀的数字字段（CC3 / M-2 / 1023），也允许纯字母段（a）。
      * 纯字母段只能出现在中间，且后面必须跟数字段——这样 e-mail、订单号一类的文本
      * 不会因为「字母-字母」被当成取件码（回归用例 036-038 锁住这一点）。
      */
-    public static final String DEFAULT_DASH_PATTERN =
-            "(?:[A-Za-z]{1,2}-\\d{1,6}|[A-Za-z]{0,2}\\d{1,6})"
-                    + "(?:-(?:[A-Za-z]{1,2}-\\d{1,6}|[A-Za-z]{0,2}\\d{1,6})){1,3}"
-                    + "|(?:[A-Za-z]{1,2}-\\d{1,6}|[A-Za-z]{0,2}\\d{1,6})"
-                    + "(?:-[A-Za-z]{1,2})"
-                    + "(?:-(?:[A-Za-z]{1,2}-\\d{1,6}|[A-Za-z]{0,2}\\d{1,6})){1,2}";
+    public static final String DEFAULT_DASH_PATTERN = GeneratedRules.DASH_PATTERN;
+    /** 默认「字母+数字」码形（无横线簇时的兜底），同样来自 rules/rules.json。 */
+    public static final String DEFAULT_ALNUM_PATTERN = GeneratedRules.ALNUM_PATTERN;
 
     public String dashPatternStr = DEFAULT_DASH_PATTERN;
-    public String alnumPatternStr = "[A-Za-z]?\\d{3,9}";
+    public String alnumPatternStr = DEFAULT_ALNUM_PATTERN;
     public List<String> placePrefixes = new ArrayList<>();
     public List<String> placeSuffixes = new ArrayList<>();
     /**
@@ -76,93 +73,48 @@ public class ExtractorRules {
     /** v4：「码…到/至…取」夹取型（地点+动作双确认） */
     public transient Pattern patternCodeToTake;
 
+    /**
+     * 内置默认规则集。
+     *
+     * <p>v4.0 起：默认规则的唯一事实源是 <code>rules/rules.json</code>，
+     * 构建时由 <code>generateRules</code> 任务生成 <code>GeneratedRules</code>。
+     * 本类不再手工维护词表副本——之前手工写死的 createDefault() 是三副本中最容易漏改的一处，
+     * 漏改后系统进程（system_server / telephony）会一直跑旧规则，而界面完全看不出异常。
+     *
+     * <p>这里不经过 JSON 解析：JVM 单元测试用的 android.jar 里 org.json 只是空壳，
+     * 内置默认走 JSON 会让离线回归直接失效。
+     */
     public static ExtractorRules createDefault() {
         ExtractorRules r = new ExtractorRules();
-        r.version = 7;
-        r.minAppVersionCode = 293;
-        r.description = "取件码提取规则集 v7（① 码形放宽：支持双字母前缀 CC3-3214 与中间纯字母段 1023-a-66，修复 GitHub issue #11 / #10 漏抓；② 沿用 v6 的驿站品牌特征词与后瞻引导字；③ 保留严格码形 + 正反双向闸门，订单号/英文邮箱等反例不入库）";
-
-        // ===== 快递特征词（Tier0 门禁：短信必须命中其一才可能是取件短信）=====
-        r.featureWords.add("驿站"); r.featureWords.add("快递柜"); r.featureWords.add("丰巢");
-        r.featureWords.add("菜鸟"); r.featureWords.add("包裹"); r.featureWords.add("取件");
-        r.featureWords.add("取货"); r.featureWords.add("自提"); r.featureWords.add("到站");
-        r.featureWords.add("送达"); r.featureWords.add("兔喜");
-        r.featureWords.add("妈妈驿站"); r.featureWords.add("中邮"); r.featureWords.add("熊猫快收");
-        r.featureWords.add("收发室"); r.featureWords.add("快递"); r.featureWords.add("代收");
-        r.featureWords.add("欢猫驿站");
-        // v6：新增驿站品牌（【驿小哥】「顺丰速运驿收发」这类写法此前特征词全不命中，
-        // 导致 TierD 窗口内特征词得分 0、总分只有 3 而卡在阈值 4 之下）
-        r.featureWords.add("驿收发"); r.featureWords.add("驿小哥"); r.featureWords.add("快宝");
-        r.featureWords.add("小兵驿站"); r.featureWords.add("邻里驿站");
-        // 注：「已到」已从特征词移除——它会误命中「已到账/已到您账户」等营销短信
-
-        // ===== 取件动作词（TierD 弱兜底评分用）=====
-        r.actionWords.add("领取"); r.actionWords.add("取出"); r.actionWords.add("凭");
-        r.actionWords.add("取件"); r.actionWords.add("取货"); r.actionWords.add("及时");
-        r.actionWords.add("尽快"); r.actionWords.add("速取"); r.actionWords.add("凭码");
-        r.actionWords.add("出示");
-
-        // ===== TierA 强锚点（关键词后紧跟码，最高置信）=====
-        r.keywordAnchors.add("取件码"); r.keywordAnchors.add("取货码"); r.keywordAnchors.add("提货码");
-        r.keywordAnchors.add("提取码"); r.keywordAnchors.add("自提码"); r.keywordAnchors.add("凭码");
-        r.keywordAnchors.add("动态取件码"); r.keywordAnchors.add("取件号"); r.keywordAnchors.add("凭取件码");
-        // v5：补齐取件凭证叫法变体——不同驿站/柜机厂商对"码"的叫法不统一
-        // （实测：【递管家】用「提货码」、部分柜机用「取货号/提货号/收货码/取件密码」）
-        r.keywordAnchors.add("取货号"); r.keywordAnchors.add("提货号");
-        r.keywordAnchors.add("收货码"); r.keywordAnchors.add("取件密码");
-
-        // ===== TierB 凭/出示 + 码 =====
-        r.byWords.add("凭"); r.byWords.add("出示");
-        r.byLookaheadWords.add("到"); r.byLookaheadWords.add("至"); r.byLookaheadWords.add("去");
-        r.byLookaheadWords.add("取"); r.byLookaheadWords.add("领"); r.byLookaheadWords.add("票");
-        // v6：「凭4-3-5120免费取」——码后紧跟「免」字，原词表不含则整条 TierB 不命中。
-        // 补常见引导字，覆盖「凭码免费取/可领/即取/自取/请取」等句式
-        r.byLookaheadWords.add("免"); r.byLookaheadWords.add("可"); r.byLookaheadWords.add("即");
-        r.byLookaheadWords.add("立"); r.byLookaheadWords.add("自"); r.byLookaheadWords.add("请");
-        r.byLookaheadWords.add("务");
-
-        // ===== 地点 =====
-        r.placePrefixes.add("已到站[，,包到至\\s]*"); r.placePrefixes.add("已到达");
-        r.placePrefixes.add("到达"); r.placePrefixes.add("已到"); r.placePrefixes.add("到");
-        r.placePrefixes.add("在"); r.placePrefixes.add("至");
-
-        r.placeSuffixes.add("店"); r.placeSuffixes.add("站"); r.placeSuffixes.add("柜");
-        r.placeSuffixes.add("点"); r.placeSuffixes.add("自提"); r.placeSuffixes.add("快递");
-        r.placeSuffixes.add("门面房"); r.placeSuffixes.add("小平房"); r.placeSuffixes.add("中心");
-        r.placeSuffixes.add("驿站"); r.placeSuffixes.add("服务"); r.placeSuffixes.add("广场");
-        r.placeSuffixes.add("速递"); r.placeSuffixes.add("格口"); r.placeSuffixes.add("门店");
-
-        // ===== 强负向词（仅在无强锚点时一票否决）=====
-        r.negativeKeywords.add("卡券"); r.negativeKeywords.add("话费券"); r.negativeKeywords.add("红包");
-        r.negativeKeywords.add("积分"); r.negativeKeywords.add("商城"); r.negativeKeywords.add("兑换");
-        r.negativeKeywords.add("充值"); r.negativeKeywords.add("话费"); r.negativeKeywords.add("流量");
-        r.negativeKeywords.add("账户"); r.negativeKeywords.add("余额"); r.negativeKeywords.add("验证码");
-        r.negativeKeywords.add("银行"); r.negativeKeywords.add("信用卡"); r.negativeKeywords.add("贷款");
-        r.negativeKeywords.add("骑手"); r.negativeKeywords.add("外卖"); r.negativeKeywords.add("闪购");
-        r.negativeKeywords.add("免单"); r.negativeKeywords.add("客服"); r.negativeKeywords.add("退订");
-        r.negativeKeywords.add("实验室"); r.negativeKeywords.add("激光共聚焦"); r.negativeKeywords.add("生物");
-        r.negativeKeywords.add("已超"); r.negativeKeywords.add("滞留");
-        r.negativeKeywords.add("损坏"); r.negativeKeywords.add("延期"); r.negativeKeywords.add("保管费");
-
-        // ===== 数字排除：尾缀（量词/单位/时间）=====
-        r.excludeTailWords.add("号"); r.excludeTailWords.add("栋"); r.excludeTailWords.add("楼");
-        r.excludeTailWords.add("室"); r.excludeTailWords.add("层"); r.excludeTailWords.add("格");
-        r.excludeTailWords.add("元"); r.excludeTailWords.add("折"); r.excludeTailWords.add("天");
-        r.excludeTailWords.add("小时"); r.excludeTailWords.add("分钟"); r.excludeTailWords.add("秒");
-        r.excludeTailWords.add("岁"); r.excludeTailWords.add("次"); r.excludeTailWords.add("个");
-        r.excludeTailWords.add("件"); r.excludeTailWords.add("单"); r.excludeTailWords.add("米");
-        r.excludeTailWords.add("折券");
-
-        // ===== 数字排除：前缀（修饰语/单号类）=====
-        r.excludeHeadWords.add("超"); r.excludeHeadWords.add("满"); r.excludeHeadWords.add("过");
-        r.excludeHeadWords.add("低至"); r.excludeHeadWords.add("高达"); r.excludeHeadWords.add("第");
-        r.excludeHeadWords.add("共"); r.excludeHeadWords.add("计"); r.excludeHeadWords.add("约");
-        r.excludeHeadWords.add("近"); r.excludeHeadWords.add("余"); r.excludeHeadWords.add("剩");
-        r.excludeHeadWords.add("单号"); r.excludeHeadWords.add("订单号"); r.excludeHeadWords.add("订单");
-        r.excludeHeadWords.add("运单"); r.excludeHeadWords.add("快递单"); r.excludeHeadWords.add("尾号");
-
+        r.version = GeneratedRules.VERSION;
+        r.minAppVersionCode = GeneratedRules.MIN_APP_VERSION_CODE;
+        r.description = GeneratedRules.DESCRIPTION;
+        r.dashPatternStr = GeneratedRules.DASH_PATTERN;
+        r.alnumPatternStr = GeneratedRules.ALNUM_PATTERN;
+        r.featureWords = asList(GeneratedRules.FEATURE_WORDS);
+        r.actionWords = asList(GeneratedRules.ACTION_WORDS);
+        r.keywordAnchors = asList(GeneratedRules.KEYWORD_ANCHORS);
+        r.byWords = asList(GeneratedRules.BY_WORDS);
+        r.byLookaheadWords = asList(GeneratedRules.BY_LOOKAHEAD_WORDS);
+        r.placePrefixes = asList(GeneratedRules.PLACE_PREFIXES);
+        r.placeSuffixes = asList(GeneratedRules.PLACE_SUFFIXES);
+        r.negativeKeywords = asList(GeneratedRules.NEGATIVE_KEYWORDS);
+        r.excludeTailWords = asList(GeneratedRules.EXCLUDE_TAIL_WORDS);
+        r.excludeHeadWords = asList(GeneratedRules.EXCLUDE_HEAD_WORDS);
+        r.extraFeatureWords = asList(GeneratedRules.EXTRA_FEATURE_WORDS);
         r.compile();
         return r;
+    }
+
+    /** 数组常量 -> 可变列表（词表在 compile() 后不再改动） */
+    private static List<String> asList(String[] arr) {
+        List<String> list = new ArrayList<>();
+        if (arr != null) {
+            for (String s : arr) {
+                if (s != null && !s.isEmpty()) list.add(s);
+            }
+        }
+        return list;
     }
 
     public static ExtractorRules fromJson(String jsonStr) throws Exception {
@@ -187,23 +139,24 @@ public class ExtractorRules {
         // v3.1.0：三个「不能为空」的词表在此做兜底，与下面 excludeTail/Head 的处理方式一致。
         // compile() 里已改为对空表抛异常（防止规则损坏后门禁失效），
         // 这里先回落到内置默认，避免一个手滑的空数组就让整份热更规则被拒。
+        ExtractorRules fallback = createDefault();
         if (r.featureWords == null || r.featureWords.isEmpty()) {
-            r.featureWords = createDefault().featureWords;
+            r.featureWords = fallback.featureWords;
         }
         if (r.placeSuffixes == null || r.placeSuffixes.isEmpty()) {
-            r.placeSuffixes = createDefault().placeSuffixes;
+            r.placeSuffixes = fallback.placeSuffixes;
         }
         if (r.placePrefixes == null || r.placePrefixes.isEmpty()) {
-            r.placePrefixes = createDefault().placePrefixes;
+            r.placePrefixes = fallback.placePrefixes;
         }
 
         // ===== v4 新增字段：缺失时回落到内置默认（保证老 rules.json 也能安全加载）=====
         List<String> tail = jsonArrayToList(obj.optJSONArray("excludeTailWords"));
-        r.excludeTailWords = tail.isEmpty() ? createDefault().excludeTailWords : tail;
+        r.excludeTailWords = tail.isEmpty() ? fallback.excludeTailWords : tail;
         List<String> head = jsonArrayToList(obj.optJSONArray("excludeHeadWords"));
-        r.excludeHeadWords = head.isEmpty() ? createDefault().excludeHeadWords : head;
+        r.excludeHeadWords = head.isEmpty() ? fallback.excludeHeadWords : head;
         List<String> byLook = jsonArrayToList(obj.optJSONArray("byLookaheadWords"));
-        r.byLookaheadWords = byLook.isEmpty() ? createDefault().byLookaheadWords : byLook;
+        r.byLookaheadWords = byLook.isEmpty() ? fallback.byLookaheadWords : byLook;
         r.extraFeatureWords = jsonArrayToList(obj.optJSONArray("extraFeatureWords"));
 
         r.compile();

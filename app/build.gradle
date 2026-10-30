@@ -16,6 +16,99 @@ if (pickupVersionCode == null || pickupVersionName == null || pickupVersionName.
     throw new GradleException("version.properties must define VERSION_CODE and VERSION_NAME")
 }
 
+
+// ============================================================================
+//  规则单源（v4.0）
+// ----------------------------------------------------------------------------
+//  rules/rules.json 是【唯一】需要人工维护的规则文件。
+//  构建时由本任务生成两份派生产物：
+//    1. app/build/generated/rules/java/.../GeneratedRules.java
+//       —— 内置默认规则（系统进程没有 Context，只能读编译进代码的这份）
+//    2. app/build/generated/rules/assets/rules/rules.json
+//       —— APK 内置兜底（App 进程读 assets 时用）
+//  之前这三份要手工同步，漏改 Java 副本时系统进程会一直跑旧规则且毫无提示。
+// ============================================================================
+def rulesSourceFile = rootProject.file('rules/rules.json')
+def rulesGenRoot = layout.buildDirectory.dir('generated/rules')
+def rulesGenJavaDir = rulesGenRoot.map { it.dir('java') }
+def rulesGenAssetsDir = rulesGenRoot.map { it.dir('assets') }
+
+tasks.register('generateRules') {
+    group = 'build'
+    description = 'Generate the embedded rules asset + Java constant from rules/rules.json.'
+    inputs.file(rulesSourceFile)
+    outputs.dir(rulesGenRoot)
+    doLast {
+        if (!rulesSourceFile.exists()) {
+            throw new GradleException("Missing rules source: ${rulesSourceFile}")
+        }
+        def raw = rulesSourceFile.getText('UTF-8')
+        def parsed = new groovy.json.JsonSlurper().parseText(raw)
+        if (!parsed.containsKey('version') || !parsed.containsKey('dashPattern')) {
+            throw new GradleException('rules/rules.json must define version and dashPattern')
+        }
+
+        // Java 字符串字面量转义
+        def escStr = { String s ->
+            return s.replace('\\', '\\\\').replace('"', '\\"')
+                    .replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t')
+        }
+        // 数组字面量
+        def escArray = { String key ->
+            def arr = parsed[key] ?: []
+            return arr.collect { '"' + escStr(it.toString()) + '"' }.join(', ')
+        }
+
+        def sb = new StringBuilder()
+        sb.append('package io.github.okaidev.pickupcode;\n\n')
+        sb.append('/**\n')
+        sb.append(' * 【自动生成，请勿手工编辑】由构建任务 generateRules 从 rules/rules.json 生成。\n')
+        sb.append(' *\n')
+        sb.append(' * <p>规则集的唯一事实源是仓库根目录的 rules/rules.json；\n')
+        sb.append(' * 本文件与 APK assets 里的那份都是它的派生产物。\n')
+        sb.append(' *\n')
+        sb.append(' * <p>这里刻意【不用 JSON 内嵌字符串】而是生成类型化字段：\n')
+        sb.append(' * 系统进程（system_server / telephony）没有 Context，只能读编译进来的这份；\n')
+        sb.append(' * 而 JVM 上的单元测试用的 android.jar 里 org.json 只是空壳（调用即抛 Stub!），\n')
+        sb.append(' * 内置默认走 JSON 解析会让整套回归测试在离线环境里直接失效。\n')
+        sb.append(' */\n')
+        sb.append('public final class GeneratedRules {\n')
+        sb.append('    private GeneratedRules() { }\n\n')
+        sb.append('    public static final int VERSION = ' + parsed.version + ';\n')
+        sb.append('    public static final int MIN_APP_VERSION_CODE = ' + parsed.minAppVersionCode + ';\n')
+        sb.append('    public static final String DESCRIPTION = "' + escStr(parsed.description ?: '') + '";\n')
+        sb.append('    public static final String DASH_PATTERN = "' + escStr(parsed.dashPattern ?: '') + '";\n')
+        sb.append('    public static final String ALNUM_PATTERN = "' + escStr(parsed.alnumPattern ?: '') + '";\n\n')
+        def arrays = [
+                ['FEATURE_WORDS', 'featureWords'],
+                ['ACTION_WORDS', 'actionWords'],
+                ['KEYWORD_ANCHORS', 'keywordAnchors'],
+                ['BY_WORDS', 'byWords'],
+                ['BY_LOOKAHEAD_WORDS', 'byLookaheadWords'],
+                ['PLACE_PREFIXES', 'placePrefixes'],
+                ['PLACE_SUFFIXES', 'placeSuffixes'],
+                ['NEGATIVE_KEYWORDS', 'negativeKeywords'],
+                ['EXCLUDE_TAIL_WORDS', 'excludeTailWords'],
+                ['EXCLUDE_HEAD_WORDS', 'excludeHeadWords'],
+                ['EXTRA_FEATURE_WORDS', 'extraFeatureWords'],
+        ]
+        arrays.each { pair ->
+            sb.append('    public static final String[] ' + pair[0] + ' = { ' + escArray(pair[1]) + ' };\n')
+        }
+        sb.append('}\n')
+
+        def javaFile = rulesGenJavaDir.get()
+                .file('io/github/okaidev/pickupcode/GeneratedRules.java').asFile
+        javaFile.getParentFile().mkdirs()
+        javaFile.setText(sb.toString(), 'UTF-8')
+
+        def assetFile = rulesGenAssetsDir.get().file('rules/rules.json').asFile
+        assetFile.getParentFile().mkdirs()
+        assetFile.setText(raw, 'UTF-8')
+        logger.lifecycle("generateRules: rules.json v${parsed.version} -> GeneratedRules.java + assets")
+    }
+}
+
 android {
     namespace 'io.github.okaidev.pickupcode'
     compileSdk 34
@@ -61,9 +154,9 @@ android {
     sourceSets {
         main {
             manifest.srcFile 'AndroidManifest.xml'
-            java.srcDirs = ['src']
+            java.srcDirs = ['src', rulesGenJavaDir]
             res.srcDirs = ['res']
-            assets.srcDirs = ['assets']
+            assets.srcDirs = ['assets', rulesGenAssetsDir]
         }
     }
 }
@@ -96,5 +189,6 @@ tasks.register('checkVersionConsistency') {
 tasks.configureEach { task ->
     if (task.name == 'preBuild') {
         task.dependsOn tasks.named('checkVersionConsistency')
+        task.dependsOn tasks.named('generateRules')
     }
 }

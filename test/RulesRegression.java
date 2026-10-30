@@ -28,6 +28,144 @@ public class RulesRegression {
             "Repair.java", "Diagnostics.java"
     };
 
+    /**
+     * 准备 GeneratedRules.java 到临时目录。
+     *
+     * <p>优先直接复用 Gradle 任务 generateRules 的产物（app/build/generated/rules/java/...），
+     * 这样测的就是真正打进 APK 的那份；产物不存在时（例如贡献者没先跑构建），
+     * 再按同一套格式从 rules/rules.json 现场生成一份。
+     */
+    static void prepareGeneratedRules(String repo, Path tmp) throws Exception {
+        Path gradleOut = Paths.get(repo, "app", "build", "generated", "rules", "java",
+                "io", "github", "okaidev", "pickupcode", "GeneratedRules.java");
+        if (Files.isRegularFile(gradleOut)) {
+            Files.copy(gradleOut, tmp.resolve("GeneratedRules.java"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return;
+        }
+        Path rulesJson = Paths.get(repo, "rules", "rules.json");
+        if (!Files.isRegularFile(rulesJson)) {
+            System.out.println("RULES SOURCE MISS: " + rulesJson);
+            System.exit(2);
+        }
+        String raw = new String(Files.readAllBytes(rulesJson),
+                java.nio.charset.StandardCharsets.UTF_8);
+        Files.write(tmp.resolve("GeneratedRules.java"),
+                buildGeneratedRules(raw).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /** 从扁平 JSON 取一个字符串/数字字段（够用即可，避免为测试引入 JSON 依赖） */
+    static String extract(String json, String key) {
+        String needle = "\"" + key + "\"";
+        int i = json.indexOf(needle);
+        if (i < 0) return "";
+        int c = json.indexOf(':', i + needle.length());
+        int q1 = json.indexOf('"', c + 1);
+        if (q1 < 0) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int j = q1 + 1; j < json.length(); j++) {
+            char ch = json.charAt(j);
+            if (ch == '\\') {
+                char nx = json.charAt(j + 1);
+                if (nx == 'n') { sb.append('\n'); j++; continue; }
+                if (nx == 't') { sb.append('\t'); j++; continue; }
+                if (nx == 'r') { sb.append('\r'); j++; continue; }
+                sb.append('\\').append(nx); j++; continue;
+            }
+            if (ch == '"') break;
+            sb.append(ch);
+        }
+        return sb.toString();
+    }
+
+    /** 从扁平 JSON 取一个字符串数组字段 */
+    static java.util.List<String> extractArray(String json, String key) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        String needle = "\"" + key + "\"";
+        int i = json.indexOf(needle);
+        if (i < 0) return out;
+        int lb = json.indexOf('[', i);
+        if (lb < 0) return out;
+        int rb = json.indexOf(']', lb);
+        if (rb < 0) return out;
+        String body = json.substring(lb + 1, rb);
+        int p = 0;
+        while (true) {
+            int q1 = body.indexOf('"', p);
+            if (q1 < 0) break;
+            StringBuilder sb = new StringBuilder();
+            int j = q1 + 1;
+            while (j < body.length()) {
+                char ch = body.charAt(j);
+                if (ch == '\\') {
+                    char nx = body.charAt(j + 1);
+                    if (nx == 'n') { sb.append('\n'); j += 2; continue; }
+                    if (nx == 't') { sb.append('\t'); j += 2; continue; }
+                    if (nx == 'r') { sb.append('\r'); j += 2; continue; }
+                    sb.append('\\').append(nx); j += 2; continue;
+                }
+                if (ch == '"') break;
+                sb.append(ch);
+                j++;
+            }
+            out.add(sb.toString());
+            p = body.indexOf('"', j);
+            if (p < 0) break;
+        }
+        return out;
+    }
+
+    static String jstr(String s) {
+        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t") + "\"";
+    }
+
+    static String jarr(java.util.List<String> list) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < list.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(jstr(list.get(i)));
+        }
+        return sb.toString();
+    }
+
+    /** 由 rules/rules.json 生成 GeneratedRules.java（与 Gradle 的 generateRules 同格式） */
+    static String buildGeneratedRules(String raw) {
+        String[][] arrays = {
+                {"FEATURE_WORDS", "featureWords"},
+                {"ACTION_WORDS", "actionWords"},
+                {"KEYWORD_ANCHORS", "keywordAnchors"},
+                {"BY_WORDS", "byWords"},
+                {"BY_LOOKAHEAD_WORDS", "byLookaheadWords"},
+                {"PLACE_PREFIXES", "placePrefixes"},
+                {"PLACE_SUFFIXES", "placeSuffixes"},
+                {"NEGATIVE_KEYWORDS", "negativeKeywords"},
+                {"EXCLUDE_TAIL_WORDS", "excludeTailWords"},
+                {"EXCLUDE_HEAD_WORDS", "excludeHeadWords"},
+                {"EXTRA_FEATURE_WORDS", "extraFeatureWords"},
+        };
+        StringBuilder sb = new StringBuilder();
+        sb.append("package io.github.okaidev.pickupcode;\n\n");
+        sb.append("public final class GeneratedRules {\n");
+        sb.append("    private GeneratedRules() { }\n\n");
+        sb.append("    public static final int VERSION = ")
+          .append(extract(raw, "version").trim()).append(";\n");
+        sb.append("    public static final int MIN_APP_VERSION_CODE = ")
+          .append(extract(raw, "minAppVersionCode").trim()).append(";\n");
+        sb.append("    public static final String DESCRIPTION = ")
+          .append(jstr(extract(raw, "description"))).append(";\n");
+        sb.append("    public static final String DASH_PATTERN = ")
+          .append(jstr(extract(raw, "dashPattern"))).append(";\n");
+        sb.append("    public static final String ALNUM_PATTERN = ")
+          .append(jstr(extract(raw, "alnumPattern"))).append(";\n\n");
+        for (String[] pair : arrays) {
+            sb.append("    public static final String[] ").append(pair[0]).append(" = { ")
+              .append(jarr(extractArray(raw, pair[1]))).append(" };\n");
+        }
+        sb.append("}\n");
+        return sb.toString();
+    }
+
     public static void main(String[] args) throws Exception {
         // 允许用环境变量/参数覆盖仓库路径，便于其他贡献者在自己的机器上跑
         String repo = (args.length > 0) ? args[0]
@@ -40,6 +178,10 @@ public class RulesRegression {
             Files.copy(srcDir.resolve(f), tmp.resolve(f));
         }
 
+        // v4.0：内置默认规则不再是手写常量，而是构建期从 rules/rules.json 生成的
+        // GeneratedRules.java。优先复用 Gradle 产物；没有就现场生成一份同格式的。
+        prepareGeneratedRules(repo, tmp);
+
         String androidJar = (args.length > 1) ? args[1]
                 : System.getenv().getOrDefault("ANDROID_JAR",
                 "D:\\project\\_build-tools\\sdk\\platforms\\android-34\\android.jar");
@@ -47,6 +189,8 @@ public class RulesRegression {
         StringBuilder cmd = new StringBuilder("javac -encoding UTF-8 -nowarn -cp ")
                 .append(androidJar).append(" -d ").append(tmp);
         for (String f : NEED) cmd.append(" ").append(tmp.resolve(f));
+        // v4.0：内置默认规则来自构建生成的 GeneratedRules.java，必须一起编译
+        cmd.append(" ").append(tmp.resolve("GeneratedRules.java"));
 
         Process c = Runtime.getRuntime().exec(cmd.toString());
         if (c.waitFor() != 0) {
