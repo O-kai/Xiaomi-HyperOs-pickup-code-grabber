@@ -224,14 +224,25 @@ public class PickupListActivity extends Activity {
                     && Retention.isProbablyExpired(r.receivedAt, now)) staleCount++;
         }
         if (staleCount > 0) {
-            listBox.addView(staleHint(staleCount));
+            listBox.addView(staleHint(staleCount),
+                    new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT));
         }
         for (PickupRecord record : list) {
             listBox.addView(card(record));
         }
     }
 
-    /** 「可能已失效」是什么意思——用一句话讲清楚 */
+    /**
+     * 「可能已失效」是什么意思——用一句话讲清楚。
+     *
+     * <p>只负责【创建】这个 View，不自己 addView——
+     * 由调用方添加。（v4.0.2 第四轮修掉的闪退：
+     * 这里原本既自己 addView 又被调用方 addView，同一个 View 被挂两次，
+     * 抛 IllegalStateException: The specified child already has a parent，
+     * 表现就是「点首页的查看全部 → 闪退」。）
+     */
     private View staleHint(int count) {
         TextView v = UiKit.text(this,
                 "其中 " + count + " 条收到已超过 3 天还没取，标为「可能已失效」："
@@ -239,10 +250,6 @@ public class PickupListActivity extends Activity {
                         + "这只是提醒，不会自动删除——过两天才去取也还算数。",
                 12f, UiKit.INK3);
         v.setLineSpacing(dp(2), 1f);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(dp(4), dp(2), dp(4), dp(10));
-        listBox.addView(v, lp);
         return v;
     }
 

@@ -280,6 +280,10 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         // 标题与件数：
         //  - 只显示待取件：标题「待取件」，件数是待取总数
         //  - 显示全部信息：标题「取件记录」，件数是「N 待取 · M 已取」
+        // v4.0.2 第四轮：件数文案改成直白表述（「N 个待取」而不是「N 个」），
+        // 用户原话：「直接在展示区展示取件码的位置直白显示有几个待取、几个已取」。
+        int totalCount = snap == null ? 0 : snap.total;
+        int pickedTotal = Math.max(0, totalCount - pendingTotal);
         if (showAll) {
             rv.setTextViewText(R.id.widget_title, "取件记录");
             int shownPending = pendingShown(items, items == null ? 0 : items.size());
@@ -287,12 +291,42 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             rv.setTextViewText(R.id.widget_count, pendingTotal + " 待取 · " + shownPicked + " 已取");
         } else {
             rv.setTextViewText(R.id.widget_title, "待取件");
-            rv.setTextViewText(R.id.widget_count, pendingTotal + " 个");
+            rv.setTextViewText(R.id.widget_count, pendingTotal + " 个待取");
         }
         rv.setTextViewTextSize(R.id.widget_title, TypedValue.COMPLEX_UNIT_SP, 18f);
         rv.setTextViewTextSize(R.id.widget_count, TypedValue.COMPLEX_UNIT_SP, 12f);
 
         boolean empty = items == null || items.isEmpty();
+
+        // v4.0.2 第四轮：隐私模式（隐藏取件码）——不逐条显示，只给汇总。
+        //
+        // 用户原话：「当开启『隐藏取件码』时，目前桌面上仍会保留取件码后面的
+        // 『勾勾』，这个勾勾已经没有意义了，建议将其拿掉。也就是说，
+        // 当隐藏取件码时，下面这些内容都取消掉。」
+        // 以及「直接在展示区展示取件码的位置直白显示有几个待取、几个已取。
+        // 当然，这个信息也跟显示内容的选项关联，如果是只看待取件的话，
+        // 就显示有几个待取。」
+        //
+        // 所以：所有数据行整行隐藏（码、地点、✓ 一并消失），
+        // 展示区（原本逐条列码的位置）改成直白的汇总数字。
+        if (hideCode) {
+            for (int i = 0; i < MAX_ROWS; i++) {
+                rv.setViewVisibility(ROW_IDS[i], View.GONE);
+            }
+            String summary = showAll
+                    ? (pendingTotal + " 个待取 · " + pickedTotal + " 个已取")
+                    : (pendingTotal + " 个待取");
+            rv.setViewVisibility(R.id.widget_empty, View.VISIBLE);
+            rv.setTextViewText(R.id.widget_empty, summary);
+            rv.setTextViewTextSize(R.id.widget_empty, TypedValue.COMPLEX_UNIT_SP, 16f);
+            // 标题右侧不再重复数字——展示区已经直说了
+            rv.setTextViewText(R.id.widget_count, "");
+            PendingIntent openPrivacy = openApp(context);
+            rv.setOnClickPendingIntent(R.id.widget_title, openPrivacy);
+            rv.setOnClickPendingIntent(R.id.widget_empty, openPrivacy);
+            return rv;
+        }
+
         rv.setViewVisibility(R.id.widget_empty, empty ? View.VISIBLE : View.GONE);
         rv.setTextViewTextSize(R.id.widget_empty, TypedValue.COMPLEX_UNIT_SP, 12f * scale);
 

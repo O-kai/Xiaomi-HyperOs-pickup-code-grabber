@@ -393,13 +393,25 @@ public class WidgetSettingsActivity extends Activity {
         if (previewRows == null) return;
         float scale = WidgetPrefs.fontScale(this);
         boolean showAll = WidgetPrefs.showAll(this);
+        boolean hideCode = WidgetPrefs.hideCode(this);
 
         previewTitle.setText(showAll ? "取件记录" : "待取件");
-        previewCount.setText(showAll ? "2 待取 · 1 已取" : "2 个");
+        previewCount.setText(showAll ? "2 待取 · 1 已取" : "2 个待取");
 
         previewRows.removeAllViews();
-        // 行照旧画出来：隐私模式（隐藏取件码）下真实组件里行还在、
-        // 只是码与地点为空。预览不画行的话，用户看到的与桌面不一样。
+        // v4.0.2 第四轮：隐私模式（隐藏取件码）与真实组件保持一致——
+        // 不逐条显示，码/地点/✓ 全部取消，改在展示区直白给出汇总。
+        if (hideCode) {
+            previewCount.setText("");
+            TextView sum = UiKit.text(this,
+                    showAll ? "2 个待取 · 1 个已取" : "2 个待取",
+                    16f, 0xFFFFFFFF);
+            sum.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
+            previewRows.addView(sum, slp);
+            return;
+        }
         addPreviewRow(false, "12-3-4567", "菜鸟驿站 · 1 号柜");
         addPreviewRow(false, "58-2-9041", "顺丰速运 · 望江路驿站");
         if (showAll) {
