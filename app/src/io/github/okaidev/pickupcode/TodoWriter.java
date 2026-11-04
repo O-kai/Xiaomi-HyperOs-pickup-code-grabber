@@ -69,14 +69,57 @@ public class TodoWriter {
      */
     public static final String TPL_DEFAULT = "取件码 {code}｜{source}｜{place}｜{time}";
 
-    /** 入口：模块进程收到短信事件后处理一条短信 */
+    /**
+     * 单条事件的写入结果（v4.0.2 第八轮，来自 PR #14）。
+     *
+     * <p>为什么需要它：原来 Provider 只能用全局的 {@code lastWriteDiag} /
+     * {@code lastDedupHits} 判断「这条事件到底写成功没有」。这两份状态是
+     * <b>进程级共享</b>的，两条短信并发时，后一条的结果会覆盖前一条——
+     * 于是把 A 的失败报到 B 头上，或者反过来把真失败当成去重吞掉。
+     *
+     * <p>现在每条事件带着自己的结果返回，跨进程回执用它，不再看全局变量。
+     */
+    public static final class HandleResult {
+        /** 真正写进待办的取件码 */
+        public final List<String> written;
+        /** 本条事件解析出的取件码个数 */
+        public final int codeCount;
+        /** 命中去重（之前写过）的个数 */
+        public final int dedupCount;
+        /** 写入失败的个数 */
+        public final int failedCount;
+        /** 黑名单 / 无码 / 全部去重 / 全写失败 / 部分成功 / 全成功 */
+        public final String status;
+        /** 最近一次失败原因（供诊断，不含短信正文） */
+        public final String diagnostic;
+
+        HandleResult(List<String> written, int codeCount, int dedupCount,
+                     int failedCount, String status, String diagnostic) {
+            this.written = written;
+            this.codeCount = codeCount;
+            this.dedupCount = dedupCount;
+            this.failedCount = failedCount;
+            this.status = status;
+            this.diagnostic = diagnostic;
+        }
+    }
+
+    /** 入口：模块进程收到短信事件后处理一条短信（只要写入成功的码） */
     public static List<String> handle(Context ctx, String sender, String body) {
+        return handleDetailed(ctx, sender, body).written;
+    }
+
+    /**
+     * 入口（带结果）：处理一条事件，返回这条事件自己的结果。
+     * 需要跨进程回执或区分「去重 / 失败」时用这个。
+     */
+    public static HandleResult handleDetailed(Context ctx, String sender, String body) {
         // v3.0.0：记录发送方，供用户规则的 senderContains 过滤使用
         // v3.0.0：发送方以显式参数一路传递到提取引擎（避免并发串号）
         // 黑名单预检（12306/银行/广告等）
         if (isBlacklisted(ctx, body)) {
             Log.i(TAG, "blacklist skip: len=" + body.length());
-            return new ArrayList<>();
+            return new HandleResult(new ArrayList<>(), 0, 0, 0, "blacklisted", "");
         }
         List<String> codes = PickupExtractor.extract(sender, body);
         if (codes.isEmpty()) {
@@ -86,7 +129,7 @@ public class TodoWriter {
             if (PickupExtractor.hasFeatureWords(sender, body)) {
                 MissedSmsStore.record(ctx, sender, body);
             }
-            return codes;
+            return new HandleResult(codes, 0, 0, 0, "no_code", "");
         }
 
         String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date());
@@ -96,6 +139,9 @@ public class TodoWriter {
         String place = extractPlace(sender, body);
         String source = resolveSource(sender, body);
         StringBuilder dedupBuf = new StringBuilder();
+        int dedupCount = 0;
+        int failedCount = 0;
+        String failureDiagnostic = "";
 
         // v3.1.0：整个去重集合的读-改-写必须在同一个锁内。
         // 此前只把「改+写」放进锁里，而 `prefs.getStringSet("seen")` 的「读」留在锁外 ——
@@ -113,6 +159,7 @@ public class TodoWriter {
                 Log.i(TAG, "dedup skip: " + fingerprint);
                 if (dedupBuf.length() > 0) dedupBuf.append("; ");
                 dedupBuf.append(fingerprint);
+                dedupCount++;
                 continue;
             }
             seen.add(fingerprint);
@@ -122,6 +169,8 @@ public class TodoWriter {
                 wrote.add(code);
                 Log.i(TAG, "TODO OK: code=" + code);
             } else {
+                failedCount++;
+                failureDiagnostic = lastWriteDiag;
                 Log.e(TAG, "TODO FAIL: code=" + code);
                 // v3.1.0 修复：写入失败必须把指纹撤掉。
                 // 否则一次 su 授权超时 / sqlite3 异常，就会让这个取件码被去重永久挡掉——
@@ -146,7 +195,11 @@ public class TodoWriter {
                 .putInt("todo_mode", mode)
                 .apply();
         } // end synchronized
-        return wrote;
+        String status = failedCount > 0
+                ? (wrote.isEmpty() ? "write_failed" : "partial")
+                : (wrote.isEmpty() ? "deduplicated" : "written");
+        return new HandleResult(wrote, codes.size(), dedupCount, failedCount,
+                status, failureDiagnostic == null ? "" : failureDiagnostic);
     }
 
     /** v3.1.0：去重集合读-改-写的锁（跨通道并发写入的唯一防线） */

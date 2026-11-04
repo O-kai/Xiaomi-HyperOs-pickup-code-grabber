@@ -38,8 +38,10 @@ public class ProcessSync {
     private static final String PREFS = "dedup";
 
     /** 同步目录与文件（与 Repair.TARGET_DIR / UserRules.SYNC_DIR 一致） */
-    private static final String SYNC_DIR = RuntimePaths.SYNC_DIR;
-    private static final String SYNC_FILE = RuntimePaths.SYNC_FILE;
+    /** 跨进程同步目录（NotiHook 用它做 mtime 变更检测，故同包可见） */
+    static final String SYNC_DIR = RuntimePaths.SYNC_DIR;
+    /** 配置快照文件（同上） */
+    static final String SYNC_FILE = RuntimePaths.SYNC_FILE;
 
     /** 黑名单默认值（App 偏好读不到时的兜底；唯一来源在 TodoWriter） */
     public static final String DEFAULT_BLACKLIST = TodoWriter.DEFAULT_BLACKLIST;
@@ -59,6 +61,35 @@ public class ProcessSync {
          * 空 = 让兜底通道按原逻辑推断。
          */
         public String backend = "";
+    }
+
+    /**
+     * 让 system_server 读得到配置文件的收尾命令（v4.0.2 第八轮，来自 PR #14）。
+     *
+     * <p><b>为什么需要</b>：App 用自己的权限把文件写进 /data/local/tmp 之后，
+     * 文件属主是 App 的 uid、SELinux 标签是 <b>App 私有数据</b>。
+     * system_server 读它时会同时被两道门挡住：
+     * DAC（目录权限）和 SELinux（标签不允许 system_server 读 app_data_file），
+     * 表现就是「App 里明明写了配置，通知通道却一直用编译内置的旧规则」。
+     *
+     * <p>这里补两件事：
+     * <ul>
+     *   <li>{@code chmod 755} 目录 —— 解决 DAC；</li>
+     *   <li>{@code chcon system_data_file} —— 解决 SELinux。</li>
+     * </ul>
+     *
+     * <p><b>只处理配置文件本身</b>，绝不碰 sqlite3 及其依赖库：
+     * 那些是可执行文件，改了标签反而可能执行不了。
+     *
+     * <p>命令末尾带 {@code 2>/dev/null || true}：某些 ROM 没有这个 SELinux 上下文，
+     * chcon 会失败。<b>失败不能影响配置写入</b>（文件本身已经就位，只是可能读不到），
+     * 所以让它静默失败。
+     */
+    public static String readableConfigCommand(String file) {
+        // 路径都是内部常量，不拼接任何用户输入
+        return "; chmod 755 " + SYNC_DIR
+                + "; chcon u:object_r:system_data_file:s0 " + SYNC_DIR + " " + file
+                + " 2>/dev/null || true";
     }
 
     // ==================== App 进程：写入快照 ====================
@@ -165,7 +196,8 @@ public class ProcessSync {
                 String script = "mkdir -p " + SYNC_DIR + "; chmod 755 " + SYNC_DIR + "; "
                         + "cat > " + SYNC_FILE + ".tmp << 'PICKUP_EOF'\n" + b64 + "\nPICKUP_EOF\n"
                         + "chmod 644 " + SYNC_FILE + ".tmp; "
-                        + "mv -f " + SYNC_FILE + ".tmp " + SYNC_FILE;
+                        + "mv -f " + SYNC_FILE + ".tmp " + SYNC_FILE
+                        + readableConfigCommand(SYNC_FILE);
                 String out = RootShell.exec(script, 20000);
                 if (out == null) {
                     markPending(ctx);

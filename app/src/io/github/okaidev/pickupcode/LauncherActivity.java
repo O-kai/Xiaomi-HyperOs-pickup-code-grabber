@@ -1016,6 +1016,7 @@ public class LauncherActivity extends Activity {
 
         LinearLayout notiCard = UiKit.card(this, P);
         notiSwitchOn = isNotiHookFlagOn();
+        verifyNotiFlagIfRootReady();
         notiSw = new UiKit.Switch(this, P, notiSwitchOn);
         notiSw.setOnToggle(this::onNotiToggle);
         // v4.4：去掉「多平台」可点击（弹窗已移除），副标题改为说明这个开关的作用
@@ -2444,17 +2445,53 @@ public class LauncherActivity extends Activity {
     //  通知取件开关的真实可用状态（v3.1.1 逻辑原样保留）
     // ================================================================
 
+    /**
+     * 通知开关的当前状态。
+     *
+     * <p>v4.0.2 第八轮（来自 PR #14）：<b>不再直接读标志文件</b>。
+     * App 沙箱根本进不去 /data/local/tmp（属主 shell:shell，权限 0771），
+     * 旧实现每次 `f.exists()` 都是 false —— 于是<b>开关永远显示为「已关闭」</b>，
+     * 哪怕通知通道其实是开着的。这正是 PR 里报的那个现象。
+     *
+     * <p>现在以本地偏好为准（开关每次改动都会同步写偏好，两者本来就是一起写的），
+     * 再由 {@link #verifyNotiFlagIfRootReady()} 在有 root 会话时静默校对一次。
+     */
     private boolean isNotiHookFlagOn() {
-        try {
-            java.io.File f = new java.io.File(Repair.TARGET_DIR + "/enable_noti_hook");
-            if (!f.exists()) return false;
-            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
-            String line = r.readLine();
-            r.close();
-            return line != null && line.trim().equals("1");
-        } catch (Throwable t) {
-            return false;
-        }
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("noti_hook", false);
+    }
+
+    /**
+     * 有常驻 root 通道时，顺手把标志文件的真实值读回来校对（不额外唤 su）。
+     *
+     * <p>为什么不在页面渲染时直接跑 su：那会让用户每次打开设置都看到一次
+     * Magisk 的「已授予超级用户权限」提示——正是上一轮刚清掉的东西。
+     * 这里只在「本进程已经有 root 通道」时读，属于搭便车。
+     */
+    private void verifyNotiFlagIfRootReady() {
+        if (!RootShell.isReady()) return;
+        new Thread(() -> {
+            String out;
+            try {
+                out = RootShell.exec("cat " + Repair.TARGET_DIR + "/enable_noti_hook 2>/dev/null",
+                        5000);
+            } catch (Throwable t) {
+                return;
+            }
+            if (out == null) return;
+            String v = out.trim();
+            if (!"0".equals(v) && !"1".equals(v)) return;
+            final boolean actual = "1".equals(v);
+            final boolean cached = isNotiHookFlagOn();
+            if (actual == cached) return;
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("noti_hook", actual).apply();
+            runOnUiThread(() -> {
+                notiSwitchOn = actual;
+                if (notiSw != null) notiSw.setChecked(actual);
+                renderNotiSwitchUi();
+            });
+            android.util.Log.i("PICKUPDEBUG", "noti flag corrected from file: " + actual);
+        }, "pickup-noti-flag-verify").start();
     }
 
     private void toggleNotiHookFlag(boolean on) {
@@ -2462,8 +2499,23 @@ public class LauncherActivity extends Activity {
         new Thread(() -> {
             String flag = Repair.TARGET_DIR + "/enable_noti_hook";
             try {
-                Diagnostics.suExecPublic("mkdir -p " + Repair.TARGET_DIR + "; "
-                        + "echo " + (on ? "1" : "0") + " > " + flag + "; chmod 644 " + flag, 15);
+                // 写完立刻回读：写入失败（没 root / 被拒绝）时不留「界面显示开着、
+                // 实际没生效」的假象。回读结果同时作为界面的真实状态。
+                String[] r = Diagnostics.suExecPublic("mkdir -p " + Repair.TARGET_DIR + "; "
+                        + "echo " + (on ? "1" : "0") + " > " + flag + "; chmod 644 " + flag
+                        + ProcessSync.readableConfigCommand(flag)
+                        + "; cat " + flag + " 2>/dev/null", 15);
+                String v = r != null && r.length > 0 && r[0] != null ? r[0].trim() : "";
+                boolean actual = v.contains("1") && !v.contains("0");
+                if (!v.isEmpty() && actual != on) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putBoolean("noti_hook", actual).apply();
+                    runOnUiThread(() -> {
+                        notiSwitchOn = actual;
+                        if (notiSw != null) notiSw.setChecked(actual);
+                        renderNotiSwitchUi();
+                    });
+                }
             } catch (Throwable ignored) { }
         }).start();
     }
@@ -2859,6 +2911,7 @@ public class LauncherActivity extends Activity {
         refreshPickupCard();
         refreshHealth();
         notiSwitchOn = isNotiHookFlagOn();
+        verifyNotiFlagIfRootReady();
         if (notiSw != null) notiSw.setChecked(notiSwitchOn, false);
         renderNotiSwitchUi();
         // v4.0.1：不再在这里自动查 LSPosed 作用域——那一步要走 su，

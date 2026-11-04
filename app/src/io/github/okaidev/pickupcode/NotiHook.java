@@ -49,7 +49,9 @@ public class NotiHook {
             // B 设备通过「设备互联」收到同样内容的通知，这里也要读取，
             // 这样 B 设备同样能把取件码写进待办。
             // 非小米设备没有这个包，不影响运行（白名单只按包名匹配，未安装即永不命中）。
-            "com.xiaomi.mi_connect_service"  // 设备互联
+            "com.xiaomi.mi_connect_service", // 设备互联
+            // v4.0.2 第八轮（来自 PR #14）：抖音电商的取件通知
+            "com.ss.android.ugc.aweme"       // 抖音
     };
 
     /**
@@ -67,6 +69,7 @@ public class NotiHook {
         m.put("com.sf.cdsibm", "顺丰速运");
         m.put("com.fcbox.hiveconsumer", "丰巢");
         m.put("com.xiaomi.mi_connect_service", "设备互联");
+        m.put("com.ss.android.ugc.aweme", "抖音");
         PKG_LABELS = java.util.Collections.unmodifiableMap(m);
     }
 
@@ -98,6 +101,11 @@ public class NotiHook {
                 if (st != null && st.notiPkgs != null && !st.notiPkgs.trim().isEmpty()) {
                     synchronized (PKG_WHITELIST) {
                         PKG_WHITELIST.clear();
+                        // v4.0.2 第八轮（来自 PR #14）：先放回内置白名单。
+                        // 旧实现只填快照里的包名，而快照是「内置 + 用户追加」拼出来的；
+                        // 一旦 App 侧拼接逻辑变化（或快照来自旧版本），
+                        // 内置项就会被整份覆盖掉，表现为「升级后通知通道突然什么都收不到」。
+                        PKG_WHITELIST.addAll(java.util.Arrays.asList(BUILTIN_PKGS));
                         for (String p : st.notiPkgs.split("[,，\\s]+")) {
                             String t = p.trim();
                             if (!t.isEmpty()) PKG_WHITELIST.add(t);   // Set 天然去重
@@ -132,8 +140,15 @@ public class NotiHook {
     private static void handleEnqueue(XC_MethodHook.MethodHookParam param) {
         try {
             Object[] args = param.args;
-            // 参数形态：enqueueNotificationInternal(String pkg, String opPkg, int uid, ...)，逐 ROM 稳定
-            if (args == null || args.length < 10) return;
+            // 参数形态：enqueueNotificationInternal(String pkg, String opPkg, int uid, ...)
+            //
+            // v4.0.2 第八轮（来自 PR #14）：原来要求 args.length >= 10。
+            // 新系统（Android 16/17、ColorOS 17）改过参数个数，这个硬门槛会让整条
+            // 通知通道<b>静默失效</b>——日志里一个字都没有，表现为「通知取件突然全收不到」。
+            // 改成只校验首参是包名字符串；真正的类型判断交给 findNotification，
+            // 找不到 Notification 就直接返回，不会误处理别的调用。
+            if (args == null || args.length == 0 || !(args[0] instanceof String)) return;
+            refreshConfig();
             String pkg = (String) args[0];
             if (pkg == null || !isWhitelisted(pkg)) return;
             if (!isFlagOn()) return;
@@ -169,13 +184,67 @@ public class NotiHook {
                 }
                 return;
             }
+            // v4.0.2 第八轮（来自 PR #14）：同一条通知会被同名重载处理两遍，
+            // 30 秒内同 (包名, 文本) 只处理一次。持久化去重仍在 TodoWriter 里。
+            if (!NotiEventWindow.accept(pkg, text, android.os.SystemClock.elapsedRealtime())) {
+                return;
+            }
             // 提取成功：转发模块 App（与短信通道共用 TodoWriter.handle 的去重与写入）
             NotiRelay.relayHit(param, pkg, text, codes);
-        } catch (Throwable ignored) { }
+        } catch (Throwable t) {
+            // 以前这里是 catch (Throwable ignored){}：
+            // system_server 里出错完全不留痕，排查时只能靠猜。现在记一行。
+            XposedEntry.log("NotiHook handle err: " + t);
+        }
     }
 
     private static boolean isWhitelisted(String pkg) {
-        return PKG_WHITELIST.contains(pkg);
+        synchronized (PKG_WHITELIST) {
+            return PKG_WHITELIST.contains(pkg);
+        }
+    }
+
+    // ==================== 配置热重载（v4.0.2，来自 PR #14） ====================
+
+    private static long nextRefresh;
+    private static long configStamp = Long.MIN_VALUE;
+
+    /**
+     * 每 30 秒按文件 mtime 决定要不要重载「官方规则 / 用户规则 / 通知白名单」。
+     *
+     * <p>为什么需要：system_server 只在开机时加载一次配置，用户在设置页
+     * 改完规则或加完白名单后，必须重启手机才生效——很容易被当成「功能坏了」。
+     * 这里用 mtime 做变更检测，改完最多 30 秒自动生效，不需要重启。
+     *
+     * <p>读不到文件（没 root / 没同步过）时静默保持现状，
+     * 不能因为读不到配置就把已有规则清空。
+     */
+    private static synchronized void refreshConfig() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now < nextRefresh) return;
+        nextRefresh = now + 30_000L;
+        try {
+            java.io.File f = new java.io.File(ProcessSync.SYNC_FILE);
+            long stamp = f.lastModified();
+            if (stamp == configStamp || stamp <= 0L) return;
+            ProcessSync.State st = ProcessSync.load();
+            PickupExtractor.initForSystemProcess(st != null ? st.rulesJson : null);
+            PickupExtractor.loadUserRules(null, UserRules.loadForSystemProcess());
+            synchronized (PKG_WHITELIST) {
+                PKG_WHITELIST.clear();
+                PKG_WHITELIST.addAll(java.util.Arrays.asList(BUILTIN_PKGS));
+                if (st != null && st.notiPkgs != null) {
+                    for (String p : st.notiPkgs.split("[,，\\s]+")) {
+                        String t = p.trim();
+                        if (!t.isEmpty()) PKG_WHITELIST.add(t);
+                    }
+                }
+            }
+            configStamp = stamp;
+            XposedBridge.log(TAG + ": config reloaded (mtime=" + stamp + ")");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": config reload skipped: " + t);
+        }
     }
 
     /** 标志文件开关（默认关；设置页经 su 写入 1/0 同步） */
@@ -201,64 +270,13 @@ public class NotiHook {
     }
 
     /**
-     * 拼合通知全部可见文本
+     * 通知文本：交给 {@link NotificationText}（只取公开字段 + 长度上限）。
      *
-     * v3.2.0 加固：此前只取 TITLE / TEXT / BIG_TEXT 三个字段，导致「原文能识别、
-     * 实际收不到」——电商 App（拼多多/淘宝/京东）大量使用 MessagingStyle 与
-     * 多行列表，正文根本不在前三个字段里：
-     *   - EXTRA_TEXT_LINES：InboxStyle 多行（「取件码 xxx」常在第二行）
-     *   - EXTRA_SUB_TEXT / EXTRA_SUMMARY_TEXT：副标题与摘要
-     *   - EXTRA_INFO_TEXT：通知底部补充信息
-     *   - MessagingStyle.messages[]：聊天式通知，正文逐条在 Person 的 message 里
-     *   - EXTRA_TEMPLATE：部分 ROM 把模板名塞这里，一并纳入便于排查
-     * 全部拼进来后由提取引擎自行判断，不会因为多字段而误报（引擎有语义排除）。
+     * <p>v4.0.2 第八轮（来自 PR #14）：原来在这里自己拼 extras，
+     * 没有长度上限，也没有防御 OEM 自定义 extras 的异常结构。
+     * 这段代码跑在 system_server，一次异常就是系统进程崩溃。
      */
     private static String buildText(Notification n) {
-        StringBuilder sb = new StringBuilder();
-        try {
-            Bundle extras = n.extras;
-            if (extras == null) return null;
-
-            appendCs(sb, extras.getCharSequence(Notification.EXTRA_TITLE));
-            appendCs(sb, extras.getCharSequence(Notification.EXTRA_TEXT));
-            appendCs(sb, extras.getCharSequence(Notification.EXTRA_SUB_TEXT));
-            appendCs(sb, extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT));
-            appendCs(sb, extras.getCharSequence(Notification.EXTRA_INFO_TEXT));
-            appendCs(sb, extras.getCharSequence(Notification.EXTRA_BIG_TEXT));
-
-            // InboxStyle 多行
-            CharSequence[] lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
-            if (lines != null) {
-                for (CharSequence l : lines) appendCs(sb, l);
-            }
-
-            // MessagingStyle：电商 App 最常用的样式，正文在每条 message 里
-            // 注意：extractMessagingStyleFromNotification 是 @hide API，编译期不可直接调用，
-            // 必须走反射；失败则静默跳过（其它字段通常已覆盖同一份文本）
-            try {
-                java.lang.reflect.Method m = Notification.MessagingStyle.class
-                        .getDeclaredMethod("extractMessagingStyleFromNotification", Notification.class);
-                m.setAccessible(true);
-                Object ms = m.invoke(null, n);
-                if (ms instanceof Notification.MessagingStyle) {
-                    for (Notification.MessagingStyle.Message msg
-                            : ((Notification.MessagingStyle) ms).getMessages()) {
-                        if (msg != null) appendCs(sb, msg.getText());
-                    }
-                }
-            } catch (Throwable ignored) { }
-
-        } catch (Throwable ignored) { }
-        return sb.toString().trim();
-    }
-
-    private static void appendCs(StringBuilder sb, CharSequence cs) {
-        if (cs == null) return;
-        String s = cs.toString().trim();
-        if (s.isEmpty()) return;
-        // 去重：MessagingStyle 的 message 常与 TEXT/BIG_TEXT 重复
-        if (sb.indexOf(s) >= 0) return;
-        if (sb.length() > 0) sb.append(' ');
-        sb.append(s);
+        return NotificationText.build(n);
     }
 }

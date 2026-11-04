@@ -44,3 +44,34 @@ S8 截获 ContentValues(body/address/date)
 - root（Magisk），模块 App 授权一次
 - `/data/local/tmp/pickup_sqlite/` 存在 sqlite3 及其依赖库（构建后由部署脚本保证；版本：3.53.4）
 - 写入命令形态：`su -M -c "chmod…; LD_LIBRARY_PATH=/data/local/tmp/pickup_sqlite/lib /data/local/tmp/pickup_sqlite/sqlite3 /data/user/0/com.miui.notes/databases/todo.db < <sql文件>"`
+
+---
+
+## 五、ColorOS Provider 唤醒门禁（v4.0.2 第九轮，来自 PR #13）
+
+在 **system_server** 里 hook `com.android.server.am.ContentProviderHelperExtImpl`
+（ColorOS 的 `oplus-services.jar`），四道门禁任一返回 true 就不会拉起 Provider。
+
+| 编号 | 方法 | 作用 |
+|---|---|---|
+| W1 | `interceptStartProvider` | 关联启动 / 启动配额 / 链式启动 |
+| W2 | `hookHansProviderIfNeeded` | 场景限制 / 恶意行为策略 |
+| W3 | `hookbeforeInactiveProviderGet` | 恶意行为策略 |
+| W4 | `hookPreloadProviderBlock` | 资源预加载拦截 |
+
+**只放行一种情况**：被拉起的 `ProviderInfo.packageName` 是本模块，
+且调用方是 system（1000）或 phone（1001）。其余调用保持系统原判定，不扩大任何权限。
+
+`hookAllMethods` 按方法名挂，因此还加了一道返回类型检查：
+只有返回 `boolean`/`Boolean` 的方法才会 `setResult(Boolean.FALSE)`，
+避免某个 ROM 把同名方法改成 `void` 时破坏系统调用。
+
+**非 ColorOS**：`XposedHelpers.findClassIfExists` 返回 null → 直接 return，
+不注册任何 hook，只留一行 `WAKE skip` 日志。HyperOS 上零参与。
+
+**为什么需要它**：KernelSU 内核禁止 UID < 2000（system 除外）获取 su，
+短信进程是 1001，开不了「冻结免疫直写」；而 4.0 又删掉了导出的广播入口，
+Provider 是唯一通道——唤不醒就彻底断链。
+
+**日志**：`WAKE OK: N provider gate(s) hooked`（装机后）、
+`WAKE allowed: gate=... caller=... uid=...`（实际放行，10 秒限频）。

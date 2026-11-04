@@ -298,6 +298,77 @@ V<大版本>.<小版本>.<修复版本>
 13 套、485 项断言全绿（WidgetTest 的性质断言改成「行高恒为 40dp、
 行数取满、剩余留白不拉伸」）。
 
+### 🤝 v4.0.2（第九轮）：合并社区 PR（#13 / #14），ColorOS 与 HyperOS 双系统校验
+
+> 详细评审与逐条结论见 [`docs/PR-REVIEW-2026-11-05.md`](docs/PR-REVIEW-2026-11-05.md)，
+> 每个 PR 的公开评论原文见 `docs/pr-review/`。
+
+社区两位贡献者提了 5 个 PR，其中 2 个带真功能。它们的 base 都是 `main`（3.1.0），
+而 `release/4.0` 已领先 62 个提交，所以不是 cherry-pick，而是**逐条对照移植**。
+
+#### PR #14 · ColorOS 17 / Android 16 通知通道修复（@ByteJuno）
+
+采纳 8 项、3 项因 4.0 已更严格而不适用：
+
+| 采纳 | 说明 |
+|---|---|
+| 入队参数校验放宽 | `args.length < 10` → `args[0] instanceof String` + `findNotification()` 兜底。旧写法在新系统上会让**整条通知通道静默失效** |
+| 30 秒事件节流（新增 `NotiEventWindow`） | 同名重载会让同一条通知进两次；配 8 项单测 |
+| 只取公开文本字段（新增 `NotificationText`） | 加长度上限，防御 OEM 自定义 extras；保留 MessagingStyle 反射兜底 |
+| 配置 30 秒热重载 | 按 `app_state.json` mtime 判断，改完设置不用重启 |
+| 内置白名单补回 | 真 bug：`clear()` 后只填快照，快照为空时内置项**整份丢失** |
+| 抖音进白名单 | `com.ss.android.ugc.aweme` |
+| 结构化回执 | `TodoWriter.HandleResult` + Provider 返回 `status/code_count/...`，不再用进程级 `lastWriteDiag` 判断（并发会误报） |
+| 配置可读性 | `chmod 755` + `chcon system_data_file`，只处理配置文件 |
+
+不适用：
+- `SmsEventReceiver` 的 `miss` 类型修复 —— 4.0 已删除广播入口，只走 Provider；
+- `NotiRelay` 改 Provider 优先 —— 4.0 本来就是单入口，但**采纳了异步化**：
+  原来在 `enqueueNotificationInternal` 钩子里同步调用，冷启动会卡住 system_server 的通知入队线程；
+- 设置页开关状态 —— 结论采纳，实现改为「以本地偏好显示 + 仅在已有 root 通道时回读校对」，
+  避免为了渲染一个开关再唤一次 su（那正是第八轮刚清掉的弹窗）。
+
+#### PR #13 · ColorOS 冻结后放行 Provider 唤醒（@ByteJuno）
+
+新增 `ColorOsProviderWake`：在 system_server 里 hook
+`ContentProviderHelperExtImpl` 的四道门禁，**只放行「目标是本模块 Provider + 调用方 system/phone」**。
+
+- 动机很关键：KernelSU 内核禁止 UID < 2000 取 su，短信进程（1001）无法开「冻结免疫直写」，
+  而 4.0 又把跨进程入口收成了 Provider 单入口——一旦唤不醒，整条链路就断，没有广播可退。
+- **HyperOS 上零参与**：找不到那个类就 `findClassIfExists == null` 直接 return，
+  只留一行 `WAKE skip` 日志。
+- 额外防御：`hookAllMethods` 是按名字挂的，先判断返回类型是 `boolean` 才 `setResult`，
+  避免某个 ROM 把同名方法改成 void 时破坏系统调用。
+
+#### PR #9 / #12 · 已在仓库里
+
+- #9（ColorOS 短信 Hook 类名）：提交 `61b9699`（2026-10-16，随 3.1.1 发布）已包含
+  S1 双候选、S5 双候选、S9–S11 全部内容；
+- #12（CI 修复）：提交 `7919d2b` 已应用同样的改动。
+
+#### PR #8 · UI 重构：不合并
+
+4.0 的界面是按同一套思路（Java + UiKit、矢量图标、主题色体系）重新实现的，
+直接合并只会冲突，没有功能增量。
+
+#### 验证
+
+真机 REDMI K90 Pro Max / HyperOS 4.0 / Android 17，以系统身份（uid 1000）直调 Provider：
+
+```
+status=written        code_count=1 written_count=1 dedup_count=0 failed_count=0
+status=deduplicated   code_count=1 written_count=0 dedup_count=1
+status=written        result=[6-7-8899]
+```
+
+日志：`RootShell ready via su` → `root shell exec: exit=0` → `TODO OK` → `PROVIDER-CALL: status=written`。
+冷启动 0 崩溃、0 次 su。回归 **14 套、493 项断言全绿**（新增 `NotiEventWindowTest` 8 项）。
+
+#### 待验证（需 ColorOS 真机）
+
+- `ColorOsProviderWake` 与 `chcon` 只在 ColorOS 上真正生效，我这边无 ColorOS 设备；
+- `NotiHook` 跑在 system_server，**必须重启手机**才会加载新代码（LSPosed 进程启动时注入）。
+
 ### 🔧 v4.0.2（第八轮收口）：小组件尺寸自适应根治 + 打开不再弹 root + 卸载零残留
 
 #### 📐 小组件「拉大之后下面空一大块」：三个真因叠在一起

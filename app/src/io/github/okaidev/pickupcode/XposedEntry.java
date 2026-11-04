@@ -46,6 +46,11 @@ public class XposedEntry implements IXposedHookLoadPackage {
                 if ("android".equals(pkg) && lpparam.processName != null
                         && "android".equals(lpparam.processName)) {
                     NotiHook.install(lpparam.classLoader);
+                    // v4.0.2 第八轮（来自 PR #13）：ColorOS 会把被划掉的模块强行停止，
+                    // 之后短信/通知进程唤醒它的 Provider 会被系统拦截。
+                    // 这里在 system_server 里放行「系统身份 → 本模块 Provider」这一种情况。
+                    // 非 ColorOS（没有那个扩展类）时内部直接跳过，HyperOS 上不产生任何行为。
+                    ColorOsProviderWake.install(lpparam.classLoader);
                 }
             } else if (pkg.equals("com.android.providers.telephony")) {
                 hookSmsProvider(lpparam);             // S8：短信库写入兜底（网络短信也走这里）

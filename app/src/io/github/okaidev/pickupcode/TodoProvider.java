@@ -128,6 +128,8 @@ public class TodoProvider extends ContentProvider {
                 Log.i(TAG, "PROVIDER-CALL: 非取件短信，跳过");
                 Bundle r = new Bundle();
                 r.putInt("rc", 0);
+                r.putString("status", "not_pickup");
+                r.putInt("code_count", 0);
                 r.putString("result", "[]");
                 return r;
             }
@@ -151,7 +153,11 @@ public class TodoProvider extends ContentProvider {
                 }
             }
 
-            java.util.List<String> wrote = TodoWriter.handle(ctx, sender, body);
+            // v4.0.2 第八轮（来自 PR #14）：用「这条事件自己的结果」判断，
+            // 不再读进程级的 lastWriteDiag / lastDedupHits——
+            // 两条短信并发时那份全局状态会被后一条覆盖，导致误报/漏报。
+            TodoWriter.HandleResult outcome = TodoWriter.handleDetailed(ctx, sender, body);
+            java.util.List<String> wrote = outcome.written;
             boolean localNew = local != null && local.hasNew();
             if (!wrote.isEmpty()) {
                 Log.i(TAG, "PROVIDER-CALL: 已写入待办 " + wrote);
@@ -161,21 +167,25 @@ public class TodoProvider extends ContentProvider {
                 // 因为本地取件库是 4.0 的事实源。
                 Log.i(TAG, "PROVIDER-CALL: 本地首次记录 " + parsed);
                 Notifier.notifyCodes(ctx, parsed, null);
-            } else {
-                // v3.1.0：写入失败/全部命中去重时给出反馈。
-                String dedup = TodoWriter.getLastDedupHits();
-                if (dedup != null && !dedup.trim().isEmpty()) {
-                    Log.i(TAG, "PROVIDER-CALL: 全部命中去重 " + dedup);
-                } else if (!blacklisted) {
-                    String diag = TodoWriter.getLastWriteDiag();
-                    Log.e(TAG, "PROVIDER-CALL: 提取到取件码但写入失败: " + diag);
-                    Notifier.notifyWriteFailed(ctx,
-                            diag == null || diag.trim().isEmpty() ? "原因未知" : diag);
-                }
+            } else if (outcome.failedCount > 0 && !blacklisted) {
+                String diag = outcome.diagnostic;
+                Log.e(TAG, "PROVIDER-CALL: 提取到取件码但写入失败: " + diag);
+                Notifier.notifyWriteFailed(ctx,
+                        diag == null || diag.trim().isEmpty() ? "原因未知" : diag);
+            } else if (outcome.dedupCount > 0) {
+                Log.i(TAG, "PROVIDER-CALL: 全部命中去重 n=" + outcome.dedupCount);
             }
+            Log.i(TAG, "PROVIDER-CALL: status=" + outcome.status
+                    + " codes=" + outcome.codeCount + " written=" + wrote.size()
+                    + " dedup=" + outcome.dedupCount + " failed=" + outcome.failedCount);
             Bundle r = new Bundle();
             r.putInt("rc", 0);
-            r.putString("result", wrote.toString());
+            r.putString("status", outcome.status);
+            r.putInt("code_count", outcome.codeCount);
+            r.putInt("written_count", wrote.size());
+            r.putInt("dedup_count", outcome.dedupCount);
+            r.putInt("failed_count", outcome.failedCount);
+            r.putString("result", wrote.toString());   // 兼容旧调用方
             return r;
         }
         return null;

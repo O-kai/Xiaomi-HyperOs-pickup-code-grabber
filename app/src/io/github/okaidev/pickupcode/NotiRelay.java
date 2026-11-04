@@ -34,22 +34,45 @@ public class NotiRelay {
     /** 提取成功：伪短信上报（与短信同链路去重写入） */
     public static void relayHit(de.robv.android.xposed.XC_MethodHook.MethodHookParam param,
                                 String pkg, String text, java.util.List<String> codes) {
-        Bundle result = relay(param, pkg, text, false);
-        XposedBridge.log(TAG + ": NOTI-HIT relayed from " + pkg
-                + " codes=" + codes + " result=" + result);
+        relayAsync(param, pkg, text, false, "NOTI-HIT codes=" + codes);
     }
 
     /** 提取为空但含特征词：错题本上报（Provider 侧记录） */
     public static void relayMissed(de.robv.android.xposed.XC_MethodHook.MethodHookParam param,
                                    String pkg, String text) {
-        Bundle result = relay(param, pkg, text, true);
-        XposedBridge.log(TAG + ": NOTI-MISSED relayed from " + pkg + " result=" + result);
+        relayAsync(param, pkg, text, true, "NOTI-MISSED");
     }
 
-    private static Bundle relay(de.robv.android.xposed.XC_MethodHook.MethodHookParam param,
-                                String pkg, String text, boolean miss) {
+    /**
+     * 异步上报（v4.0.2 第八轮，来自 PR #14）。
+     *
+     * <p><b>为什么必须异步</b>：本方法由 {@code NotiHook} 在
+     * {@code enqueueNotificationInternal} 的钩子里调用，也就是跑在
+     * system_server 的<b>通知入队线程</b>上。
+     * 而 Provider 调用会唤醒模块 App 的冷进程——实测几百毫秒。
+     * 这段时间里整台手机的通知入队都被卡住，属于「用户能感觉到的系统卡顿」，
+     * 严重时直接 ANR。
+     *
+     * <p>改成后台线程后，通知照常显示，取件码稍后异步写入。
+     * 代价是拿不到同步回执——所以结果只写日志，不影响功能。
+     */
+    private static void relayAsync(de.robv.android.xposed.XC_MethodHook.MethodHookParam param,
+                                   final String pkg, final String text,
+                                   final boolean miss, final String logTag) {
+        final Object svc = param == null ? null : param.thisObject;
         try {
-            Context ctx = nmsContext(param.thisObject);
+            new Thread(() -> {
+                Bundle result = relay(svc, pkg, text, miss);
+                XposedBridge.log(TAG + ": " + logTag + " from " + pkg + " result=" + result);
+            }, "pickup-noti-relay").start();
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": relay thread err: " + t);
+        }
+    }
+
+    private static Bundle relay(Object svc, String pkg, String text, boolean miss) {
+        try {
+            Context ctx = nmsContext(svc);
             if (ctx == null) {
                 XposedBridge.log(TAG + ": noti relay skip: no NMS context");
                 return null;
