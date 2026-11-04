@@ -1,6 +1,7 @@
 package io.github.okaidev.pickupcode;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.util.Log;
 
 /**
@@ -41,10 +42,29 @@ public class NotesBackend {
     public static final String BACKEND_XIAOMI = "xiaomi";
     public static final String BACKEND_COLOROS_TODO = "coloros_todo";
     public static final String BACKEND_COLOROS_NOTE = "coloros_note";
+    /**
+     * 多选目标里的「桌面小组件」。
+     *
+     * <p>它不是一个「后端」——小组件读的是本地库，没有自己的库要写。
+     * 选项的意义是：<b>不勾待办、只勾它</b>时，取件码就不再写进系统待办，
+     * 只留在本地库/小组件里。
+     */
+    public static final String TARGET_WIDGET = "widget";
+
+    /**
+     * 旧版单选的「仅小组件」值。
+     *
+     * @deprecated v4.0.3 起改成多选（{@code backend_targets}），
+     *         这个常量只用于把老用户的设置迁移过来，别再写新逻辑。
+     */
+    @Deprecated
+    public static final String BACKEND_WIDGET_ONLY = "widget_only";
 
     /** 手动覆盖的 SharedPreferences 名/键（与主配置一致） */
     private static final String PREFS = "dedup";
     private static final String KEY_OVERRIDE = "backend_override";
+    /** v4.0.3：多选的目标集合（含 {@link #TARGET_WIDGET}） */
+    private static final String KEY_TARGETS = "backend_targets";
 
     /** 检测结果缓存（进程级） */
     private static volatile String cached;
@@ -66,17 +86,153 @@ public class NotesBackend {
         cached = null;
     }
 
+    /**
+     * 桌面上还有没有本模块的小组件。
+     *
+     * <p>走 {@link WidgetPresence} 而不是 {@code PickupWidgetProvider.hasWidget}：
+     * 后者会把 Room / AndroidX 拖进离线测试的编译链（那个链没有 AndroidX 的 jar）。
+     */
+    public static boolean hasWidget(Context ctx) {
+        return WidgetPresence.has(ctx);
+    }
+
+    /**
+     * 小组件全被移除时，把「仅小组件」模式回落成自动识别（v4.0.3）。
+     *
+     * <p>由 {@link PickupWidgetProvider#onDeleted} / {@code onDisabled} 调用。
+     * 不做这一步的话，用户删掉组件之后写入目标仍然停在 widget_only，
+     * 结果是「既不写待办、也没有小组件可看」——取件码只躺在 App 里，
+     * 而用户完全不知道发生了什么。
+     */
+    public static void dropWidgetOnlyIfNoWidget(Context ctx) {
+        if (ctx == null || hasWidget(ctx)) return;
+        java.util.Set<String> sel = selection(ctx);
+        if (!sel.contains(TARGET_WIDGET)) return;
+        sel.remove(TARGET_WIDGET);
+        if (sel.isEmpty()) {
+            // 只勾了小组件：组件没了就必须给回一个待办目标，
+            // 否则取件码只躺在 App 里，用户完全不知道发生了什么。
+            sel.add(systemDefaultTodo());
+        }
+        saveSelection(ctx, sel);
+        ProcessSync.push(ctx);
+        Log.i(TAG, "widget target dropped (widget removed) -> " + sel);
+    }
+
+    /**
+     * 「主目标」——只读场景（诊断显示、跳转 App、导入历史）用它。
+     *
+     * <p>写入是另一回事：那是多目标循环，见 {@link #todoTargets(Context)}。
+     * 这里取用户勾选的第一个可用目标；一个都没勾（只写小组件）时回落到
+     * 系统默认目标，因为这些只读场景仍然需要一个具体的库位置。
+     */
     private static String resolve(Context ctx) {
-        // 1) 用户手动指定优先
         try {
-            String o = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .getString(KEY_OVERRIDE, "");
-            if (BACKEND_XIAOMI.equals(o) || BACKEND_COLOROS_TODO.equals(o) || BACKEND_COLOROS_NOTE.equals(o)) {
-                return o;
-            }
+            java.util.List<String> t = todoTargets(ctx);
+            if (!t.isEmpty()) return t.get(0);
         } catch (Throwable ignored) { }
-        // 2) 自动识别
-        return resolveByPackage(ctx);
+        return systemDefaultTodo();
+    }
+
+    /** 本机默认的待办后端（不看用户选择） */
+    public static String systemDefaultTodo() {
+        return isMiuiRom() ? BACKEND_XIAOMI : BACKEND_COLOROS_TODO;
+    }
+
+    /**
+     * 本机可选的「待办类」目标（不含小组件）。
+     *
+     * <p>小米只有小米笔记待办；ColorOS 有两个——日历待办与便签笔记。
+     * 两个是各自独立的 SQLite 库、独立的 SQL，<b>可以同时写</b>，
+     * 所以这里允许都勾上（要不要都写由用户决定）。
+     */
+    public static java.util.List<String> availableTodoTargets() {
+        java.util.List<String> l = new java.util.ArrayList<>();
+        if (isMiuiRom()) {
+            l.add(BACKEND_XIAOMI);
+        } else {
+            l.add(BACKEND_COLOROS_TODO);
+            l.add(BACKEND_COLOROS_NOTE);
+        }
+        return l;
+    }
+
+    /**
+     * 读取用户勾选的目标集合（含 {@link #TARGET_WIDGET}）。
+     *
+     * <p>缺失时先尝试从旧的单选 {@code backend_override} 迁移过来：
+     * <ul>
+     *   <li>{@code widget_only} → 只勾小组件</li>
+     *   <li>某个具体后端 → 勾它 + 小组件（旧行为的等价形式）</li>
+     *   <li>空/自动 → 系统默认后端 + 小组件</li>
+     * </ul>
+     */
+    public static java.util.Set<String> selection(Context ctx) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        if (ctx == null) {
+            out.add(systemDefaultTodo());
+            out.add(TARGET_WIDGET);
+            return out;
+        }
+        try {
+            SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            java.util.Set<String> stored = sp.getStringSet(KEY_TARGETS, null);
+            if (stored != null && !stored.isEmpty()) {
+                out.addAll(stored);
+                return out;
+            }
+            // 迁移旧单选
+            String old = sp.getString(KEY_OVERRIDE, "");
+            java.util.Set<String> migrated = new java.util.LinkedHashSet<>();
+            if (BACKEND_WIDGET_ONLY.equals(old)) {
+                migrated.add(TARGET_WIDGET);
+            } else if (BACKEND_XIAOMI.equals(old) || BACKEND_COLOROS_TODO.equals(old)
+                    || BACKEND_COLOROS_NOTE.equals(old)) {
+                migrated.add(old);
+                migrated.add(TARGET_WIDGET);
+            } else {
+                migrated.add(systemDefaultTodo());
+                migrated.add(TARGET_WIDGET);
+            }
+            sp.edit().putStringSet(KEY_TARGETS, migrated).remove(KEY_OVERRIDE).apply();
+            Log.i(TAG, "selection migrated from '" + old + "' -> " + migrated);
+            out.addAll(migrated);
+            return out;
+        } catch (Throwable t) {
+            out.add(systemDefaultTodo());
+            out.add(TARGET_WIDGET);
+            return out;
+        }
+    }
+
+    /** 保存勾选（调用方保证非空） */
+    public static void saveSelection(Context ctx, java.util.Set<String> sel) {
+        if (ctx == null || sel == null || sel.isEmpty()) return;
+        try {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                    .putStringSet(KEY_TARGETS, new java.util.LinkedHashSet<>(sel))
+                    .apply();
+            invalidateCache();
+        } catch (Throwable t) {
+            Log.w(TAG, "saveSelection failed: " + t);
+        }
+    }
+
+    /** 勾了小组件吗 */
+    public static boolean widgetSelected(Context ctx) {
+        return selection(ctx).contains(TARGET_WIDGET);
+    }
+
+    /**
+     * 要写的待办目标（0~N 个）。空 = 只写本地库/小组件。
+     */
+    public static java.util.List<String> todoTargets(Context ctx) {
+        java.util.Set<String> sel = selection(ctx);
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String t : availableTodoTargets()) {
+            if (sel.contains(t)) out.add(t);
+        }
+        return out;
     }
 
     /**
@@ -101,6 +257,7 @@ public class NotesBackend {
     }
 
     public static String targetPkgOf(String b) {
+        if (BACKEND_WIDGET_ONLY.equals(b)) return RuntimePaths.PKG;   // 只写小组件时，「查看」就回本 App
         if (BACKEND_COLOROS_NOTE.equals(b)) return PKG_COLOROS_NOTE;
         if (b != null && b.startsWith("coloros")) return PKG_COLOROS_CALENDAR;
         return PKG_XIAOMI;

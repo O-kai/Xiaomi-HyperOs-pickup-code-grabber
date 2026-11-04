@@ -134,6 +134,10 @@ public class TodoWriter {
 
         String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date());
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        // v4.0.3：写入目标改成多选——这里拿到的是「要写的待办库」列表。
+        // 空 = 用户只勾了桌面小组件（取件码只进本地库，不写任何系统待办）。
+        final java.util.List<String> todoTargets = NotesBackend.todoTargets(ctx);
+        final boolean widgetOnly = todoTargets.isEmpty();
 
         List<String> wrote = new ArrayList<>();
         String place = extractPlace(sender, body);
@@ -164,7 +168,22 @@ public class TodoWriter {
             }
             seen.add(fingerprint);
             String content = buildContent(mode, customTpl, code, source, place, time);
-            boolean ok = writeTodo(ctx, content, buildTitle(code, content));
+            boolean ok;
+            if (widgetOnly) {
+                // 只勾了桌面小组件：本地库已由 Provider 写好，这里不再碰系统待办。
+                // 仍走一遍去重集合，保证同一条短信重发不会重复提醒。
+                ok = true;
+                Log.i(TAG, "TODO SKIP (widget-only): " + code);
+            } else {
+                // 多目标：ColorOS 上可能同时勾了「日历待办」和「便签」，
+                // 两个库各写一次；任何一个失败都算这次写入不完全成功。
+                ok = true;
+                for (String target : todoTargets) {
+                    if (!writeTodoFor(ctx, target, content, buildTitle(code, content))) {
+                        ok = false;
+                    }
+                }
+            }
             if (ok) {
                 wrote.add(code);
                 Log.i(TAG, "TODO OK: code=" + code);
@@ -197,7 +216,8 @@ public class TodoWriter {
         } // end synchronized
         String status = failedCount > 0
                 ? (wrote.isEmpty() ? "write_failed" : "partial")
-                : (wrote.isEmpty() ? "deduplicated" : "written");
+                : (wrote.isEmpty() ? "deduplicated"
+                        : (widgetOnly ? "widget_only" : "written"));
         return new HandleResult(wrote, codes.size(), dedupCount, failedCount,
                 status, failureDiagnostic == null ? "" : failureDiagnostic);
     }
@@ -253,14 +273,31 @@ public class TodoWriter {
         return false;
     }
 
-    /** 统一 SQL 执行器（一键测试 / 已取件 共用） */
+    /** 统一 SQL 执行器（一键测试 / 已取件 共用，走主目标） */
     public static int runSql(Context ctx, String sql) {
         String out = runSqlForOutput(ctx, sql);
         return out == null ? -1 : 0;
     }
 
-    /** 统一 SQL 执行器（返回输出；多路径 su 尝试） */
+    /** 指定后端执行（多目标写入 / 标记已取用） */
+    public static int runSql(Context ctx, String backend, String sql) {
+        String out = runSqlForOutput(ctx, backend, sql);
+        return out == null ? -1 : 0;
+    }
+
+    /** 统一 SQL 执行器（返回输出；多路径 su 尝试），走主目标 */
     public static String runSqlForOutput(Context ctx, String sql) {
+        return runSqlForOutput(ctx, NotesBackend.detect(ctx), sql);
+    }
+
+    /**
+     * 统一 SQL 执行器（指定后端）。
+     *
+     * <p>v4.0.3：写入目标改成多选之后，同一段 SQL 要对多个库各跑一次
+     * （小米只有一个库；ColorOS 可以有日历待办 + 便签两个），
+     * 所以「用哪个库」必须由调用方显式传进来，不能再在内部读全局状态。
+     */
+    public static String runSqlForOutput(Context ctx, String backend, String sql) {
         // v3.1.0：临时文件名唯一化。
         //   此前所有路径共用固定名 todo_sql.sql，而写入本方法的两条调用方互不排斥：
         //     · writeTodo（static synchronized，锁 TodoWriter.class）
@@ -285,14 +322,14 @@ public class TodoWriter {
             // 常驻通道把 su 的调用次数从「每条待办一次」降到「每进程一次」：
             // 第一次建 shell 时弹一次（用户打开 App 时就在建，有心理预期），
             // 之后全程静默。
-            String viaShell = runViaRootShell(ctx, sqlFile);
+            String viaShell = runViaRootShell(ctx, backend, sqlFile);
             if (viaShell != null) return viaShell;
 
             // HyperOS 的 Magisk su 位于 /product/bin/su（应用 PATH 不含该目录）→ 多路径尝试
             String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"};
             String trace = "";
             for (String suBin : suBins) {
-                String cmd = suBin + " -M -c \"id; " + buildSuCmd(ctx, sqlFile) + "\"";
+                String cmd = suBin + " -M -c \"id; " + buildSuCmd(ctx, backend, sqlFile) + "\"";
                 Log.i(TAG, "su attempt(" + suBin + ")");
                 Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd});
                 StringBuilder out = new StringBuilder();
@@ -449,15 +486,48 @@ public class TodoWriter {
     }
 
     /**
+     * 在所有勾选的待办目标里把某条标记为已取（v4.0.3）。
+     *
+     * <p>多选之后不能只改一个库：用户勾了两个（ColorOS 日历 + 便签），
+     * 只把日历标完成、便签还留着，会留下一条永远清不掉的旧待办。
+     *
+     * @return 成功写入的目标数；0 表示没有待办目标或全部失败
+     */
+    public static int markDoneAll(Context ctx, String code) {
+        java.util.List<String> targets = NotesBackend.todoTargets(ctx);
+        int ok = 0;
+        for (String t : targets) {
+            try {
+                if (runSql(ctx, t, NotesBackend.markDoneSqlOf(t, code)) == 0) ok++;
+            } catch (Throwable e) {
+                Log.w(TAG, "markDone(" + t + ") failed: " + e);
+            }
+        }
+        return ok;
+    }
+
+    /**
+     * 写入指定后端（v4.0.3 多选目标用）。
+     *
+     * <p>与 {@link #writeTodo} 的区别只有一处：用哪张表由 {@code backend} 决定，
+     * 不再读全局的「当前后端」。
+     */
+    private static synchronized boolean writeTodoFor(Context ctx, String backend,
+                                                     String content, String title) {
+        String sql = ".timeout 5000\n" + NotesBackend.insertSqlOf(backend, content, title);
+        return runSql(ctx, backend, sql) == 0;
+    }
+
+    /**
      * 走常驻 root 通道执行 SQL（v4.0.3）。
      *
      * @return 输出文本；通道不可用时返回 null，调用方退回一次性 su
      */
-    private static String runViaRootShell(Context ctx, File sqlFile) {
+    private static String runViaRootShell(Context ctx, String backend, File sqlFile) {
         try {
             // 常驻 shell 本身就是 root，不需要再跑一遍 id 探针。
             // 错误信息并入 stdout：sqlite3 的报错本来也走 stdout，混在一起便于诊断。
-            String script = buildSuCmd(ctx, sqlFile) + " 2>&1";
+            String script = buildSuCmd(ctx, backend, sqlFile) + " 2>&1";
             RootShell.Result r = RootShell.execResult(script, SU_TIMEOUT_MS);
             if (r == null) {
                 Log.w(TAG, "root shell unavailable, fallback to one-shot su");
@@ -483,12 +553,12 @@ public class TodoWriter {
         }
     }
 
-    private static String buildSuCmd(Context ctx, File sqlFile) {
+    private static String buildSuCmd(Context ctx, String backend, File sqlFile) {
         // 自愈式：每次写入前确保目录/文件可访问（App su 子进程缺 DAC 特权，需要放开；仅小米后端需要）
         // LD_LIBRARY_PATH 必须写在命令串内（su 会保留命令行内的环境变量赋值）
-        return NotesBackend.chmodCmd(ctx)
+        return NotesBackend.chmodCmdOf(backend)
                 + "LD_LIBRARY_PATH=" + LIBS + " " + SQLITE + " "
-                + NotesBackend.dbPath(ctx) + " < " + sqlFile.getAbsolutePath();
+                + NotesBackend.dbPathOf(backend) + " < " + sqlFile.getAbsolutePath();
     }
 
     private static void drain(java.io.InputStream in, StringBuilder sb) {

@@ -70,9 +70,11 @@ public class TodoProvider extends ContentProvider {
             if (ctx == null) {
                 return error("no_context");
             }
-            String sql = NotesBackend.markDoneSql(ctx, code);
-            int rc = TodoWriter.runSql(ctx, sql);
-            Log.i(TAG, "MARK_DONE(call): code=" + code + " rc=" + rc);
+            // v4.0.3：写入目标可多选，标记已取也要覆盖所有勾选的库
+            int okCount = TodoWriter.markDoneAll(ctx, code);
+            int rc = okCount > 0 ? 0 : -1;
+            Log.i(TAG, "MARK_DONE(call): code=" + code + " rc=" + rc
+                    + " targets=" + okCount);
             Bundle r = new Bundle();
             r.putInt("rc", rc);
             return r;
@@ -160,7 +162,9 @@ public class TodoProvider extends ContentProvider {
             java.util.List<String> wrote = outcome.written;
             boolean localNew = local != null && local.hasNew();
             if (!wrote.isEmpty()) {
-                Log.i(TAG, "PROVIDER-CALL: 已写入待办 " + wrote);
+                Log.i(TAG, "PROVIDER-CALL: "
+                        + ("widget_only".equals(outcome.status) ? "仅写小组件 " : "已写入待办 ")
+                        + wrote);
                 Notifier.notifyCodes(ctx, wrote, null);
             } else if (localNew) {
                 // 系统待办已存在（或写入失败），但本地库首次记录：仍然提醒，

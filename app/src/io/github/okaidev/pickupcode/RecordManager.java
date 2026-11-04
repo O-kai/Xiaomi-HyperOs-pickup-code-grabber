@@ -92,17 +92,12 @@ public class RecordManager {
         final LinearLayout exportRow = addRow(wrap, R.drawable.ic_download, "导出记录",
                 "导出 JSON 或 CSV", v -> showExportPicker());
         wrap.addView(UiKit.divider(act, p));
+        // v4.0.3：两个导入入口合并成一行。
+        // 「从文件导入」和「从小米笔记导入历史」对用户来说都是「把记录弄回来」，
+        // 并列两行只是让人多读一遍——而后者只对 3.x 升级上来的用户有意义。
         addRow(wrap, R.drawable.ic_upload, "导入记录",
-                "从文件导入 JSON 或 CSV（已有同码记录会跳过）",
-                v -> startImport());
-        wrap.addView(UiKit.divider(act, p));
-        // v4.0.3：从设置页搬过来。
-        // 此前「导入历史取件记录」只挂在设置页里，而管理面板才是记录相关功能的
-        // 唯一入口——同一个功能的两个入口会让用户不知道该去哪找。
-        // 现在统一归口到这里，设置页不再重复出现。
-        addRow(wrap, R.drawable.ic_book, "导入历史取件记录",
-                "从小米笔记把老的取件待办读回本地库",
-                v -> importHistoryNow());
+                "从文件导入，或从小米笔记读回 3.x 的历史待办",
+                v -> showImportPicker());
         wrap.addView(UiKit.divider(act, p));
         // v4.0.2：「立即清理过期记录」→「立即清理所有已取件记录」。
         // 用户理由：过期清理本来就该自动发生（保留期到了就删），
@@ -258,6 +253,18 @@ public class RecordManager {
     // ================================================================
     //  导入
     // ================================================================
+
+    /** 导入入口：先问「从哪导」（v4.0.3） */
+    private void showImportPicker() {
+        UiKit.chooser(act, p, R.drawable.ic_upload, "导入记录",
+                new CharSequence[]{
+                        "从文件导入（JSON / CSV）",
+                        "从小米笔记导入历史待办（3.x 升级用）"
+                }, -1, idx -> {
+                    if (idx == 0) startImport();
+                    else importHistoryNow();
+                });
+    }
 
     public void startImport() {
         try {

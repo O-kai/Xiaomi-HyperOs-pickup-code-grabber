@@ -120,6 +120,12 @@ public class SystemDirectWriter {
             //   · 黑名单   → 用用户实际配置（读不到才回落默认 8 词）
             //   · 模板     → 用用户选的模式与自定义模板（此前这里写死 MODE_FULL）
             ProcessSync.State st = loadStateOnce();
+            // v4.0.3：用户选了「仅桌面小组件」就不写系统待办——
+            // 兜底直写也必须遵守，否则这条路径会偷偷把待办写进去。
+            if (st != null && NotesBackend.BACKEND_WIDGET_ONLY.equals(st.backend)) {
+                Log.i(TAG, "fallback skip: widget-only mode");
+                return;
+            }
             PickupExtractor.initForSystemProcess(st != null ? st.rulesJson : null);
             String[] blacklist = DEFAULT_BLACKLIST;
             int mode = TodoWriter.MODE_FULL;
@@ -168,34 +174,54 @@ public class SystemDirectWriter {
             // v3.1.0：优先用用户在设置页手动指定的写入目标（来自 ProcessSync 快照）。
             // 没有指定时才按 ROM 属性推断——否则用户把目标改成与推断不同的那个时，
             // 主通道和兜底通道会写进两个不同的库，用户在其中一个 App 里看不到。
-            String backend = (st != null && st.backend != null && !st.backend.trim().isEmpty())
-                    ? st.backend.trim()
-                    : NotesBackend.propsBackend();
-            String db = NotesBackend.dbPathOf(backend);
+            // v4.0.3：改多选后要按「用户勾选的全部目标」写。
+            // 快照里没有 backends（老版本文件）时退回旧的单值语义。
+            java.util.List<String> targets = new java.util.ArrayList<>();
+            if (st != null && st.backends != null && !st.backends.trim().isEmpty()) {
+                for (String x : st.backends.split(",")) {
+                    String v = x.trim();
+                    if (!v.isEmpty()) targets.add(v);
+                }
+            } else if (st != null && st.backend != null && !st.backend.trim().isEmpty()) {
+                targets.add(st.backend.trim());
+            } else {
+                targets.add(NotesBackend.propsBackend());
+            }
+            if (targets.isEmpty()) {
+                // 只勾了桌面小组件：兜底通道也不能偷偷写待办
+                XposedEntry.log("SYS-WRITE skip: widget-only");
+                return;
+            }
             String source = TodoWriter.resolveSource(sender, body);
             // v3.1.0 P3：此处原先调用 extractPlace(body) 不传 sender，
             // 导致「带发送方范围的用户规则」在兜底通道取不到地点 → 与短信通道不一致
             String place = TodoWriter.extractPlace(sender, body);
             String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date());
 
-            StringBuilder sql = new StringBuilder(".timeout 5000\n");
-            int wrote = 0;
-            for (String code : codes) {
-                String content = TodoWriter.buildContent(mode, customTpl, code, source, place, time);
-                String title = TodoWriter.buildTitle(code, content);
-                if (exists(ctx, backend, db, code)) {
-                    XposedEntry.log("SYS-WRITE dedup skip: " + code);
-                    continue;
+            int totalWrote = 0;
+            for (String backend : targets) {
+                String db = NotesBackend.dbPathOf(backend);
+                StringBuilder sql = new StringBuilder(".timeout 5000\n");
+                int wrote = 0;
+                for (String code : codes) {
+                    String content = TodoWriter.buildContent(mode, customTpl, code, source, place, time);
+                    String title = TodoWriter.buildTitle(code, content);
+                    if (exists(ctx, backend, db, code)) {
+                        XposedEntry.log("SYS-WRITE dedup skip: " + backend + " " + code);
+                        continue;
+                    }
+                    sql.append(NotesBackend.insertSqlOf(backend, content, title));
+                    wrote++;
                 }
-                sql.append(NotesBackend.insertSqlOf(backend, content, title));
-                wrote++;
+                if (wrote == 0) continue;
+                int rc = runSqlFile(ctx, sql.toString(), backend);
+                totalWrote += wrote;
+                XposedEntry.log("SYS-WRITE backend=" + backend + " codes=" + wrote + " rc=" + rc);
             }
-            if (wrote == 0) return;
+            if (totalWrote == 0) return;
 
             lastFingerprint = fp;
             lastWriteAt = now;
-            int rc = runSqlFile(ctx, sql.toString(), backend);
-            XposedEntry.log("SYS-WRITE backend=" + backend + " codes=" + wrote + " rc=" + rc);
         } catch (Throwable t) {
             XposedEntry.log("SYS-WRITE err: " + t);
         }

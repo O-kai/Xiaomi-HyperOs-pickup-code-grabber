@@ -100,6 +100,43 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             R.id.widget_done_10, R.id.widget_done_11, R.id.widget_done_12
     };
 
+    /**
+     * 桌面上还有没有本模块的小组件（v4.0.3）。
+     *
+     * <p>「仅桌面小组件」这个写入模式必须建立在「组件真的在」的基础上：
+     * 没有组件还选它，取件码就只躺在 App 里，用户表面上什么也看不到。
+     */
+    public static boolean hasWidget(Context context) {
+        return WidgetPresence.has(context);
+    }
+
+    /**
+     * 最后一个组件被移除时，把「仅小组件」写入模式回落掉。
+     *
+     * <p>不回落会留下一个谁都看不懂的状态：既不写待办、桌面上也没有组件，
+     * 新到的取件码只剩 App 里能看到。
+     */
+    @Override
+    public void onDeleted(Context context, int[] appWidgetIds) {
+        super.onDeleted(context, appWidgetIds);
+        try {
+            NotesBackend.dropWidgetOnlyIfNoWidget(context);
+        } catch (Throwable t) {
+            Log.w(TAG, "onDeleted fallback failed: " + t);
+        }
+    }
+
+    /** 最后一个组件移除后系统也会回调这里，同上 */
+    @Override
+    public void onDisabled(Context context) {
+        super.onDisabled(context);
+        try {
+            NotesBackend.dropWidgetOnlyIfNoWidget(context);
+        } catch (Throwable t) {
+            Log.w(TAG, "onDisabled fallback failed: " + t);
+        }
+    }
+
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
         refreshAsync(context);

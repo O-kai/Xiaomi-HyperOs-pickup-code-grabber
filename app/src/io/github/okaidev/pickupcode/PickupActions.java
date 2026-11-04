@@ -64,8 +64,9 @@ public final class PickupActions {
 
     private static int markBackend(Context context, String code) {
         try {
-            String sql = NotesBackend.markDoneSql(context, code);
-            return TodoWriter.runSql(context, sql);
+            // v4.0.3：所有勾选的待办目标都要标完成（可能不止一个）
+            int ok = TodoWriter.markDoneAll(context, code);
+            return ok > 0 ? 0 : -1;
         } catch (Throwable t) {
             Log.w(TAG, "mark backend failed: " + t);
             return -1;

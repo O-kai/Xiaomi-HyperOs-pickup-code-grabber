@@ -61,6 +61,14 @@ public class ProcessSync {
          * 空 = 让兜底通道按原逻辑推断。
          */
         public String backend = "";
+        /**
+         * v4.0.3：多选之后的待办目标，逗号分隔（可能 0~2 个）。
+         *
+         * <p>为什么不能只留 {@link #backend}：ColorOS 上用户可以同时勾「日历待办」
+         * 和「便签笔记」，兜底通道只写一个就会漏掉另一个。
+         * 空串 = 用户只勾了桌面小组件，兜底通道不应写任何待办。
+         */
+        public String backends = "";
     }
 
     /**
@@ -240,6 +248,15 @@ public class ProcessSync {
             o.put("notiPkgs", notiPkgsOf(ctx));
             // v3.1.0：写入目标也进快照，保证主通道与冻结兜底通道写同一个库
             o.put("backend", sp.getString("backend_override", ""));
+            // v4.0.3：多选目标（0~N 个）。空串表示「只写小组件」。
+            StringBuilder bs = new StringBuilder();
+            if (ctx != null) {
+                for (String t : NotesBackend.todoTargets(ctx)) {
+                    if (bs.length() > 0) bs.append(',');
+                    bs.append(t);
+                }
+            }
+            o.put("backends", bs.toString());
             return o.toString();
         } catch (Throwable t) {
             Log.w(TAG, "ProcessSync: buildJson failed: " + t);
@@ -307,6 +324,7 @@ public class ProcessSync {
             st.customTpl = o.optString("customTpl", "");
             st.notiPkgs = o.optString("notiPkgs", "");
             st.backend = o.optString("backend", "");
+            st.backends = o.optString("backends", "");
         } catch (Throwable t) {
             Log.w(TAG, "ProcessSync: load failed: " + t);
         }

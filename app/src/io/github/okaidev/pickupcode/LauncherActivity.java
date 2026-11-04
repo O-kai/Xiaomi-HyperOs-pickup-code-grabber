@@ -169,6 +169,8 @@ public class LauncherActivity extends Activity {
     private TextView notiScopeHintView;
     private LinearLayout sdwRow;
     private TextView tplValueView, tplPreviewText;
+    /** v4.0.3：「写入格式」整张卡——「仅桌面小组件」模式下它没有意义，需要整张隐藏 */
+    private LinearLayout tplCardRef;
     private LinearLayout tplPreview;          // 预览容器：标签 + 矢量图标 + 文本
     private ImageView tplPreviewIcon;
     private LinearLayout tplEditorBox, tplBtnRow;
@@ -256,15 +258,20 @@ public class LauncherActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         subLp.setMargins(0, dp(5), 0, 0);
         header.addView(headerSub, subLp);
-        // v4.7：首页标题与副标题都是「项目版本信息」的隐藏入口。
-        // 「项目版本信息」放在设置里没有使用场景，改成点标题/V4.0 小字查看。
-        View.OnClickListener verEntry = v -> showVersionDialog();
+        // v4.7：头部是「项目版本信息」的入口。
+        //
+        // v4.0.3：只保留在【设置】页。用户原话：「在首页、通知提取、高级规则这 3 个页面，
+        // 点击顶部的头部，就不要弹出来这个内容了；设置页依然保留。」
+        // 理由很实在——那三页的标题写着功能名，点它弹版本号是纯粹的意外行为。
+        View.OnClickListener verEntry = v -> {
+            if (currentTab == 3) showVersionDialog();
+        };
         headerTitle.setOnClickListener(verEntry);
         headerSub.setOnClickListener(verEntry);
         header.setOnClickListener(verEntry);
         page.addView(header);
 
-        // v4.0.4：底栏改为【悬浮在内容之上】——用 FrameLayout 叠加，内容从底栏下方滚过。
+        // v4.0.3：底栏改为【悬浮在内容之上】——用 FrameLayout 叠加，内容从底栏下方滚过。
         // 之前把底栏当作内容区下方的独立一行，导致内容被压短、底栏上方多出一条空白。
         contentArea = new FrameLayout(this);
         contentHost = new LinearLayout(this);
@@ -631,26 +638,28 @@ public class LauncherActivity extends Activity {
         final int seen = sp.getInt(KEY_SEEN_VERSION_CODE, 0);
         final String seenName = sp.getString(KEY_SEEN_VERSION_NAME, "");
 
+        // v4.0.3：首次安装也要提示。
+        //
+        // 用户原话：「只要安装了 4.0.3 版本的 APP，安装完之后就要弹出来一次重启提示。
+        // 因为很多其他用户可能是 3.1.0 版本，不是非得是 4.0.2 升级到 4.0.3。」
+        // 而且首次安装本来也必须重启——LSPosed 只在进程启动时注入，
+        // 不重启的话用户会以为「装完就能用」，结果什么都抓不到。
         boolean upgraded = false;
-        if (seen == 0) {
-            // 没有历史记录：区分「首次安装」与「从旧版本升上来（旧版本没写过这个键）」
-            try {
-                android.content.pm.PackageInfo pi = getPackageManager()
-                        .getPackageInfo(getPackageName(), 0);
-                upgraded = pi.lastUpdateTime - pi.firstInstallTime > 60_000L;
-            } catch (Throwable ignored) { }
-            if (!upgraded) {
-                sp.edit().putInt(KEY_SEEN_VERSION_CODE, cur)
-                        .putString(KEY_SEEN_VERSION_NAME, curName).apply();
-                return;
-            }
-        } else if (seen >= cur) {
-            return;
-        }
+        try {
+            android.content.pm.PackageInfo pi = getPackageManager()
+                    .getPackageInfo(getPackageName(), 0);
+            upgraded = pi.lastUpdateTime - pi.firstInstallTime > 60_000L;
+        } catch (Throwable ignored) { }
+        if (seen != 0 && seen >= cur) return;   // 这个版本已经提示过，点掉后不再出现
+        final boolean firstInstall = seen == 0 && !upgraded;
 
-        final String head = (seenName == null || seenName.isEmpty())
-                ? "已更新到 V" + curName
-                : "V" + seenName + " → V" + curName;
+        final String head;
+        if (seen != 0 && seenName != null && !seenName.isEmpty()) {
+            head = "V" + seenName + " → V" + curName;
+        } else {
+            // seen==0：可能是真·首次安装，也可能是从没写过这个键的旧版本升上来（版本跳跃）
+            head = (upgraded ? "已更新到 V" : "已安装 V") + curName;
+        }
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.HORIZONTAL);
@@ -672,7 +681,10 @@ public class LauncherActivity extends Activity {
         col.addView(t);
 
         TextView sub = UiKit.text(this,
-                "抓取逻辑跑在系统进程里，重启手机后新代码才会生效", 11.5f, P.label);
+                firstInstall
+                        ? "LSPosed 要在重启后才会注入本模块；首次使用请先勾选作用域"
+                        : "抓取逻辑跑在系统进程里，重启手机后新代码才会生效",
+                11.5f, P.label);
         sub.setLineSpacing(dp(1), 1f);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -859,6 +871,7 @@ public class LauncherActivity extends Activity {
 
         // 写入格式（待办模板）
         LinearLayout tplCard = UiKit.card(this, P);
+        tplCardRef = tplCard;
         tplValueView = UiKit.value(this, P, modeLabel(currentMode));
         LinearLayout tplRow = UiKit.row(this, P, R.drawable.ic_template, "写入格式",
                 "待办里写什么内容", tplValueView);
@@ -872,6 +885,8 @@ public class LauncherActivity extends Activity {
         buildTplEditor();
         tplCard.addView(tplEditorBox);
         box.addView(tplCard, UiKit.cardLp(this, 12));
+        // 首屏也按当前写入目标同步一次（比如上次选的是「仅小组件」）
+        applyBackendDependentUi();
 
         // 一键链路测试（放在页面最下方——整套流程走完后的最终验证）
         // v4.0.1：样式做得更显眼——它是这一页最该被用到的功能
@@ -1639,6 +1654,13 @@ public class LauncherActivity extends Activity {
         //                       → 一个「反馈与支持」入口（弹窗里列全部渠道）
         //   · 项目仓库 + GitHub 反馈 + 更新日志 → 一个「项目主页」
         // 设置页行数从 21 降到 13，功能一项没少。
+        // v4.0.3：打赏从「关于」提到设置页最上方（用户要求）。
+        // 单独一张单行卡，不并进「基础设置」——它不是设置项，混进去反而更难找。
+        LinearLayout donateCard = UiKit.card(this, P);
+        donateCard.addView(toolRow(R.drawable.ic_heart, "打赏作者", "纯自愿，不影响任何功能",
+                v -> startActivity(new Intent(this, DonateActivity.class))));
+        box.addView(donateCard, UiKit.cardLp(this, 12));
+
         box.addView(UiKit.groupLabel(this, P, "基础设置"));
         LinearLayout perCard = UiKit.card(this, P);
 
@@ -1728,11 +1750,8 @@ public class LauncherActivity extends Activity {
                 "GitHub · 仓库、更新日志与 Issue", v -> openUrl(REPO_URL)));
         aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_chat, "反馈与支持",
-                "诊断报告 · 错题本 · sqlite3 自检 · GitHub · QQ 群 · 酷安",
+                "诊断报告 · 错题本 · GitHub · QQ 群 · 酷安",
                 v -> showFeedbackSupportDialog()));
-        aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_heart, "打赏作者", "纯自愿，不影响任何功能",
-                v -> startActivity(new Intent(this, DonateActivity.class))));
         aboutCard.addView(UiKit.divider(this, P));
         // v4.0.2 第八轮：卸载残留清理。
         //
@@ -2168,10 +2187,10 @@ public class LauncherActivity extends Activity {
         wrap.addView(UiKit.divider(this, P));
         addSupportRow(wrap, R.drawable.ic_notebook, "疑似漏抓错题本",
                 "当前 " + missed + " 条 · 一键脱敏复制上报", v -> showMissedSmsDialog());
-        wrap.addView(UiKit.divider(this, P));
-        addSupportRow(wrap, R.drawable.ic_refresh, "sqlite3 自检与修复",
-                "检查写入用的 sqlite3 是否真的可用，坏了自动重装并可回滚",
-                v -> repairSqlite3Now());
+        // v4.0.3：删掉「sqlite3 自检与修复」。
+        // 用户理由：这个和能力重复——sqlite3 有问题时，「点击体检」里的
+        // 「sqlite3 部署」项就会报红，并直接给出「一键部署」按钮。
+        // 单独留一个自检入口只是让反馈弹窗看起来更复杂。
         wrap.addView(UiKit.divider(this, P));
         addSupportRow(wrap, R.drawable.ic_github, "GitHub Issues",
                 "反馈漏抓、写入失败等问题", v -> openUrl(ISSUES_URL));
@@ -2210,6 +2229,14 @@ public class LauncherActivity extends Activity {
             String res;
             try {
                 res = Repair.deploySqlite3(this);
+                // v4.0.3：部署没成功就直接做一次深度自检 + 自动修复。
+                // 原先「sqlite3 自检与修复」是「反馈与支持」里的一个独立入口，
+                // 现在那个入口删掉了——这条能力并进部署流程更合理：
+                // 用户点「一键部署」要的就是「让它能用」，中间步骤不该让他再点一次。
+                if (res == null || !res.contains("部署成功")) {
+                    String repair = Repair.repairSqlite3(this);
+                    res = res + "\n\n—— 已自动做一次深度自检 ——\n" + repair;
+                }
             } catch (Throwable t) {
                 res = "部署异常：" + t.getMessage();
             }
@@ -2355,51 +2382,120 @@ public class LauncherActivity extends Activity {
         if (sdwSw != null) sdwSw.setChecked(sdwOn, false);
     }
 
+    /**
+     * 写入位置（v4.0.3 改成多选）。
+     *
+     * <p>模型：取件码<b>一定会</b>存进本地库（App 与桌面小组件都读它），
+     * 这里选的是「另外还要写到哪里」——可以多选：
+     * <ul>
+     *   <li>小米：小米笔记待办 / 桌面小组件</li>
+     *   <li>ColorOS：日历待办 / 便签笔记 / 桌面小组件（前两个是各自独立的库，能同时写）</li>
+     * </ul>
+     * 只勾小组件时就不写任何系统待办——这正是「只想在桌面看码」的人要的。
+     */
     private void showBackendPicker() {
-        String cur = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_BACKEND, "");
-        final String[] values = {
-                "", NotesBackend.BACKEND_XIAOMI, NotesBackend.BACKEND_COLOROS_TODO, NotesBackend.BACKEND_COLOROS_NOTE
-        };
-        CharSequence[] items = {
-                "自动识别（推荐）",
-                "小米笔记 待办（HyperOS/MIUI）",
-                "ColorOS 日历 待办（ColorOS 16 默认）",
-                "ColorOS 便签 置顶笔记（备用）"
-        };
-        int checked = 0;
-        for (int i = 0; i < values.length; i++) if (values[i].equals(cur)) { checked = i; break; }
-        UiKit.chooser(this, P, R.drawable.ic_target, "选择写入目标", items, checked,
-                w -> applyBackend(values[w]));
+        java.util.Set<String> sel = NotesBackend.selection(this);
+
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        java.util.List<String> todoAvail = NotesBackend.availableTodoTargets();
+        for (String t : todoAvail) {
+            addTargetRow(wrap, todoLabel(t), todoSub(t), t, sel);
+            wrap.addView(UiKit.divider(this, P));
+        }
+        addTargetRow(wrap, "桌面小组件",
+                PickupWidgetProvider.hasWidget(this)
+                        ? "桌面上已有小组件 · 取件码会显示在里面"
+                        : "桌面上还没有小组件 · 打开后会提示你添加",
+                NotesBackend.TARGET_WIDGET, sel);
+
+        UiKit.dialog(this, P, R.drawable.ic_target, "写入位置",
+                "取件码一定会存进本地库——App 和桌面小组件都读它。\n\n"
+                        + "下面选的是「另外还要写到哪里」，可以多选。"
+                        + "只留「桌面小组件」时，不会写进任何系统待办。",
+                wrap, 0, UiKit.primary("完成", null));
     }
 
-    private void applyBackend(String value) {
-        if (value != null && !value.isEmpty()) {
-            String pkg = NotesBackend.targetPkgOf(value);
-            if (!isPackageInstalled(pkg)) {
-                Toast.makeText(this, "未检测到 " + backendAppName(value) + " App，无法作为写入目标\n"
-                        + "（" + pkg + "）\n请先安装该 App，或改选「自动识别」。", Toast.LENGTH_LONG).show();
-                return;
+    /** 一行「目标 + 开关」 */
+    private void addTargetRow(LinearLayout parent, String title, String sub,
+                              String target, java.util.Set<String> sel) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(12), 0, dp(12));
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        TextView t = UiKit.text(this, title, 14.5f, P.navInk);
+        col.addView(t);
+        TextView s2 = UiKit.text(this, sub, 11.5f, P.muteInk);
+        s2.setLineSpacing(dp(1), 1f);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.setMargins(0, dp(3), 0, 0);
+        col.addView(s2, slp);
+        row.addView(col, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        UiKit.Switch sw = new UiKit.Switch(this, P, sel.contains(target));
+        sw.setOnToggle(checked -> {
+            java.util.Set<String> now = NotesBackend.selection(this);
+            if (checked) {
+                if (NotesBackend.TARGET_WIDGET.equals(target)
+                        && !PickupWidgetProvider.hasWidget(this)) {
+                    sw.setChecked(false, false);
+                    UiKit.info(this, P, R.drawable.ic_home, "先在桌面添加小组件",
+                            "「桌面小组件」这个位置需要桌面上真的有本模块的小组件。\n\n"
+                                    + "桌面长按空白处 → 添加小部件 → 找到「取件码助手」，"
+                                    + "添加后再回来勾选。");
+                    return;
+                }
+                now.add(target);
+            } else {
+                now.remove(target);
+                if (now.isEmpty()) {
+                    // 一个都不留 = 取件码只留在 App 里，用户很可能不是这个意思
+                    sw.setChecked(true, false);
+                    Toast.makeText(this, "至少要保留一个写入位置", Toast.LENGTH_SHORT).show();
+                    return;
+                }
             }
+            NotesBackend.saveSelection(this, now);
+            ProcessSync.push(this);
+            refreshBackendValue();
+            applyBackendDependentUi();
+            headerSub.setText(headerSubtitle(currentTab));
+            refreshHealth();
+        });
+        row.addView(sw, new LinearLayout.LayoutParams(dp(46), dp(28)));
+        parent.addView(row);
+    }
+
+    private String todoLabel(String backend) {
+        if (NotesBackend.BACKEND_XIAOMI.equals(backend)) return "小米笔记 待办";
+        if (NotesBackend.BACKEND_COLOROS_NOTE.equals(backend)) return "ColorOS 便签 笔记";
+        return "ColorOS 日历 待办";
+    }
+
+    private String todoSub(String backend) {
+        if (NotesBackend.BACKEND_XIAOMI.equals(backend)) return "写进小米笔记的待办列表";
+        if (NotesBackend.BACKEND_COLOROS_NOTE.equals(backend)) return "在便签里建一条置顶笔记";
+        return "写进日历的「待办」（ColorOS 16 默认）";
+    }
+
+    /**
+     * 写入目标变了之后，联动其它行的可见性（v4.0.3）。
+     *
+     * <p>目前只有一条：「仅桌面小组件」时隐藏「写入格式」——
+     * 那个模板只决定**写进待办的文字长什么样**，不写待办了，留着一张
+     * 点了没效果的卡片只会让人困惑。
+     */
+    private void applyBackendDependentUi() {
+        boolean noTodo = NotesBackend.todoTargets(this).isEmpty();
+        if (tplCardRef != null) {
+            tplCardRef.setVisibility(noTodo ? View.GONE : View.VISIBLE);
         }
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_BACKEND, value).apply();
-        NotesBackend.invalidateCache();
-        ProcessSync.push(this);
-        String name;
-        if (NotesBackend.BACKEND_XIAOMI.equals(value)) name = "小米笔记待办";
-        else if (NotesBackend.BACKEND_COLOROS_TODO.equals(value)) name = "ColorOS 日历待办";
-        else if (NotesBackend.BACKEND_COLOROS_NOTE.equals(value)) name = "ColorOS 便签置顶笔记";
-        else name = "自动识别";
-        Toast.makeText(this, "写入目标已切换：\n" + name
-                + "\n（下次收到取件短信即写入新目标；可点首页「一键链路测试」立即验证）",
-                Toast.LENGTH_LONG).show();
-        // v4.6：就地刷新右侧值。
-        // 原先只更新 backendValue（TextView），但 v4.3 起该控件改为
-        // buildBackendValueView() 返回的组合 View，backendValue 从未被赋值，
-        // 于是这段刷新是空操作——表现为「切换后界面不变，退出重进才生效」。
-        refreshBackendValue();
-        headerSub.setText(headerSubtitle(currentTab));
-        updateSdwDisplay();
-        refreshHealth();
     }
 
     /**
@@ -2436,11 +2532,35 @@ public class LauncherActivity extends Activity {
     }
 
     /** 副标题/选择器当前后端的人话名 */
+    /**
+     * 写入位置的摘要文案（v4.0.3 多选）。
+     *
+     * <p>原来是单个后端名；现在组合可能有很多种，按「待办几个 + 有没有小组件」概括：
+     * 例如「待办 · 小组件」「日历待办 + 便签 · 小组件」「仅小组件」。
+     */
     private String backendLabel() {
-        String b = NotesBackend.detect(this);
-        if (NotesBackend.BACKEND_XIAOMI.equals(b)) return "小米笔记待办";
-        if (NotesBackend.BACKEND_COLOROS_NOTE.equals(b)) return "ColorOS 便签置顶笔记";
-        return "ColorOS 日历待办";
+        java.util.List<String> targets = NotesBackend.todoTargets(this);
+        boolean widget = NotesBackend.widgetSelected(this);
+        StringBuilder sb = new StringBuilder();
+        if (targets.isEmpty()) {
+            // 只勾了小组件：这是最常见的一种「不写待办」形态，直接这么写最清楚
+            return widget ? "仅小组件" : "未选择";
+        } else if (targets.size() == 1) {
+            sb.append(shortName(targets.get(0)));
+        } else {
+            for (int i = 0; i < targets.size(); i++) {
+                if (i > 0) sb.append(" + ");
+                sb.append(shortName(targets.get(i)));
+            }
+        }
+        if (widget) sb.append(sb.length() > 0 ? " · 小组件" : "小组件");
+        return sb.toString();
+    }
+
+    private String shortName(String backend) {
+        if (NotesBackend.BACKEND_XIAOMI.equals(backend)) return "小米笔记待办";
+        if (NotesBackend.BACKEND_COLOROS_NOTE.equals(backend)) return "便签";
+        return "日历待办";
     }
 
     /**
@@ -3223,25 +3343,6 @@ public class LauncherActivity extends Activity {
                 }
             }
         } catch (Throwable ignored) { }
-    }
-
-    /** sqlite3 深度自检 + 自动修复（坏掉自动重装，仍不行则回滚） */
-    private void repairSqlite3Now() {
-        Toast.makeText(this, "正在自检 sqlite3…（约 5-15 秒）", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            String res;
-            try {
-                res = Repair.repairSqlite3(this);
-            } catch (Throwable t) {
-                res = "自检异常：" + t.getMessage();
-            }
-            final String r2 = res;
-            android.util.Log.i("PICKUPDEBUG", "SQLITE SELFCHECK: " + r2);
-            runOnUiThread(() -> {
-                Toast.makeText(this, r2, Toast.LENGTH_LONG).show();
-                refreshHealth(true);
-            });
-        }).start();
     }
 
     /** 生成 JSON 版诊断报告并复制到剪贴板 */
