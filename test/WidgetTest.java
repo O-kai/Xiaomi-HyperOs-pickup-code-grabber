@@ -72,22 +72,22 @@ public class WidgetTest {
                 WidgetPrefs.rowsForHeight(800, 333, MAX) > 2,
                 String.valueOf(WidgetPrefs.rowsForHeight(800, 333, MAX)));
 
-        // v4.0.2 第六轮：行高固定 40dp，不再按权重均分。
+        // v4.0.2 第八轮：行高固定 36dp（常量 ROW_DP），不再按权重均分。
         //
         // 用户原话：「正常的每条内容显示就应该占据它正常的空间，然后一个一个排下来」
         // 「我待取的件只有两件，但是我把尺寸调得比较大，那就让它下面空白着就行了。
         //   这是合理的，没有必要把它全部填满」
         //
         // 核心性质：
-        //   · 行高恒为 40dp（内容多少都不变）
-        //   · 行数 = 可用高度 / 40，且剩余不足一行（否则说明少算了一行）
+        //   · 行高恒为 ROW_DP（内容多少都不变）
+        //   · 行数 = 可用高度 / ROW_DP，且剩余不足一行（否则说明少算了一行）
         //   · 剩余空间留在列表底部——留白是合理的，不该把行拉高去填满
         for (int h = 120; h <= 900; h += 20) {
-            int avail = h - 24 - 28;          // 去掉上下 padding 与标题行
+            int avail = h - WidgetPrefs.PAD_DP - WidgetPrefs.HEADER_DP;
             if (avail <= 0) continue;
             int rows = WidgetPrefs.rowsForHeight(h, 333, MAX);
             if (rows <= 0) { rows = 1; }
-            int used = rows * WidgetPrefs.ROW_MIN_DP;
+            int used = rows * WidgetPrefs.ROW_DP;
             if (used > avail) {
                 check("显示的行不能超出可用高度（h=" + h + "dp）", false,
                         "rows=" + rows + " used=" + used + " avail=" + avail + "dp");
@@ -95,13 +95,13 @@ public class WidgetTest {
             }
             // 只有在还没撞到布局行数上限时才要求「取满」——
             // 超过上限是布局只有 12 行造成的，不是算法少算了。
-            if (rows < MAX && avail - used >= WidgetPrefs.ROW_MIN_DP) {
+            if (rows < MAX && avail - used >= WidgetPrefs.ROW_DP) {
                 check("行数应取满（少算一行就是浪费空间，h=" + h + "dp）", false,
                         "rows=" + rows + " used=" + used + " avail=" + avail + "dp");
                 break;
             }
         }
-        check("行高固定 40dp、行数取满、剩余留白不拉伸", true, "");
+        check("行高固定 " + WidgetPrefs.ROW_DP + "dp、行数取满、剩余留白不拉伸", true, "");
 
         // 行数随高度单调不减（拉高组件不会反而变少行）
         int prev = 0;

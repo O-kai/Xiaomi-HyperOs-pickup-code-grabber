@@ -40,8 +40,8 @@ import java.util.regex.Pattern;
 public class Diagnostics {
 
     private static final String TAG = "PICKUPDEBUG";
-    private static final String LIBS = "/data/local/tmp/pickup_sqlite/lib";
-    private static final String SQLITE = "/data/local/tmp/pickup_sqlite/sqlite3";
+    private static final String LIBS = RuntimePaths.LIBS;
+    private static final String SQLITE = RuntimePaths.SQLITE;
 
     // ==================== 脱敏规则 ====================
     // v3.2.0 重做的理由（踩坑记录，两个方向的毛病都有）：

@@ -2,6 +2,7 @@ package io.github.okaidev.pickupcode;
 
 import android.content.Context;
 import android.content.res.AssetManager;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -21,9 +22,16 @@ import java.io.OutputStream;
  */
 public class Repair {
 
-    public static final String TARGET_DIR = "/data/local/tmp/pickup_sqlite";
-    public static final String LIBS = TARGET_DIR + "/lib";
-    public static final String SQLITE = TARGET_DIR + "/sqlite3";
+    /**
+     * 部署目录：v4.0.2 第八轮从 /data/local/tmp 搬到【应用私有目录】。
+     *
+     * <p>原因：/data/local/tmp 在应用数据之外，卸载 App 时系统不清理，
+     * 手机上会永久残留 1.5MB 的 sqlite3 + 依赖库（用户明确要求卸载要干净）。
+     * 私有目录随卸载自动删除；真机已验证 root 可以直接执行这里的二进制。
+     */
+    public static final String TARGET_DIR = RuntimePaths.RT_DIR;
+    public static final String LIBS = RuntimePaths.LIBS;
+    public static final String SQLITE = RuntimePaths.SQLITE;
     private static final String LSP_DB = "/data/adb/lspd/config/modules_config.db";
 
     /** 已知的配置库位置：LSPosed 官方 + 常见分支（Vector 等） */
@@ -54,51 +62,163 @@ public class Repair {
     // ==================== 一键部署 sqlite3 ====================
 
     /**
-     * 从 assets 释放 sqlite3 并 su 部署。
+     * 从 assets 释放 sqlite3 到应用私有目录。
      * 返回结果说明（人话，可直接展示/写入诊断报告）。
      */
     public static String deploySqlite3(Context ctx) {
-        // 1. assets → 私有目录
-        File stage;
+        // 1. assets → 应用私有目录
+        //
+        // v4.0.2 第八轮：这里【不再需要 root】。
+        // 旧实现是把资产先解到私有目录，再用 su cp 到 /data/local/tmp 并 chmod；
+        // 现在目标就是私有目录，App 自己有写权限，纯 Java 拷贝即可。
+        // 顺带把一个「每次部署必弹 Magisk 授权框」的来源也去掉了。
+        File rt = new File(ctx.getFilesDir(), "rt");
+        File libDst = new File(rt, "lib");
+        if (!rt.exists() && !rt.mkdirs()) {
+            return "部署失败：无法创建 " + rt.getAbsolutePath();
+        }
+        if (!libDst.exists() && !libDst.mkdirs()) {
+            return "部署失败：无法创建 " + libDst.getAbsolutePath();
+        }
         try {
-            stage = new File(ctx.getFilesDir(), "sqlite3");
-            new File(stage, "lib").mkdirs();
-            copyAsset(ctx.getAssets(), "sqlite3/sqlite3", new File(stage, "sqlite3"));
+            copyAsset(ctx.getAssets(), "sqlite3/sqlite3", new File(rt, "sqlite3"));
             String[] libs = ctx.getAssets().list("sqlite3/lib");
             if (libs == null || libs.length == 0) {
-                return "部署失败：APK 内未找到 sqlite3 资产（安装包不完整，请重新下载）";
+                return "部署失败：APK 内未找到 sqlite3 依赖库（安装包不完整）";
             }
             for (String l : libs) {
-                copyAsset(ctx.getAssets(), "sqlite3/lib/" + l, new File(stage, "lib/" + l));
+                copyAsset(ctx.getAssets(), "sqlite3/lib/" + l, new File(libDst, l));
+            }
+            // 权限：所有者可读写执行，其余无（应用私有目录本来也不对外）
+            new File(rt, "sqlite3").setReadable(true, true);
+            new File(rt, "sqlite3").setWritable(true, true);
+            new File(rt, "sqlite3").setExecutable(true, true);
+            File[] libFiles = libDst.listFiles();
+            if (libFiles != null) {
+                for (File f : libFiles) {
+                    f.setReadable(true, true);
+                    f.setExecutable(true, true);
+                }
             }
         } catch (Throwable t) {
-            return "部署失败（释放资产）：" + t.getMessage();
+            return "部署失败（写私有目录）：" + t.getMessage();
         }
 
-        // 2. su 拷贝到约定目录 + 赋权（与 TodoWriter 相同的 su 多路径策略）
-        String from = stage.getAbsolutePath();
-        String cmd = "mkdir -p " + LIBS + "; "
-                + "cp -f " + from + "/sqlite3 " + SQLITE + "; "
-                + "cp -f " + from + "/lib/* " + LIBS + "/; "
-                + "chmod 755 " + SQLITE + "; chmod 755 " + LIBS + "; "
-                + "chmod 644 " + LIBS + "/*; "
-                + "echo DEPLOY_DONE";
-        String[] r = Diagnostics.suExecPublic(cmd, 30);
-        String out = r == null ? "" : (r[0] == null ? "" : r[0]);
-        String err = r == null ? "" : (r[1] == null ? "" : r[1]);
-        if (!out.contains("DEPLOY_DONE")) {
-            return "部署失败（su 执行）：exit 输出=" + clip(out + " " + err, 160)
-                    + "。请确认已在 Magisk 弹窗中允许授权。";
-        }
-
-        // 3. 验证可执行
+        // 3. 验证可执行（root 才能执行应用私有目录里的二进制）
         String[] v = Diagnostics.suExecPublic(
-                "LD_LIBRARY_PATH=" + LIBS + " " + SQLITE + " --version", 15);
+                RuntimePaths.ld() + SQLITE + " --version", 15);
         String ver = v == null ? "" : (v[0] == null ? "" : v[0]).trim();
         if (ver.contains("3.")) {
-            return "部署成功 ✓ sqlite3 " + clip(ver, 60) + "（已放入 " + TARGET_DIR + "）";
+            return "部署成功 ✓ sqlite3 " + clip(ver, 60) + "（已放入应用私有目录）";
         }
-        return "部署完成但验证未通过：" + clip(ver + " " + err, 160);
+        // 验证失败不算部署失败：文件已经就位，可能只是这次没拿到 root
+        return "已部署到应用私有目录，但这次没能验证运行（" + clip(ver, 80) + "）"
+                + "\n如果是第一次，请在 Magisk 弹窗里允许授权后重试一次。";
+    }
+
+    /**
+     * 静默补齐 sqlite3 部署（v4.0.2 第八轮新增，用于版本升级后的迁移）。
+     *
+     * <p>为什么要它：部署位置从 /data/local/tmp 换到应用私有目录后，
+     * 升级上来的用户私有目录里还没有 sqlite3——如果不补齐，
+     * 第一次「标记已取」会因为找不到可执行文件而失败。
+     *
+     * <p>只做文件拷贝，<b>不做任何 root 验证</b>：拷贝不需要 root，
+     * 而验证要跑 su 会弹授权框——那正是这一轮要消灭的东西。
+     *
+     * @return true 表示文件已就位
+     */
+    public static boolean ensureInstalledSilently(Context ctx) {
+        if (ctx == null) return false;
+        File rt = new File(ctx.getFilesDir(), "rt");
+        File bin = new File(rt, "sqlite3");
+        File libDst = new File(rt, "lib");
+        if (bin.exists() && libDst.isDirectory()) {
+            File[] libs = libDst.listFiles();
+            if (libs != null && libs.length > 0) return true;
+        }
+        try {
+            if (!libDst.exists() && !libDst.mkdirs()) return false;
+            copyAsset(ctx.getAssets(), "sqlite3/sqlite3", bin);
+            String[] libs = ctx.getAssets().list("sqlite3/lib");
+            if (libs == null || libs.length == 0) return false;
+            for (String l : libs) {
+                copyAsset(ctx.getAssets(), "sqlite3/lib/" + l, new File(libDst, l));
+            }
+            bin.setReadable(true, true);
+            bin.setWritable(true, true);
+            bin.setExecutable(true, true);
+            File[] fs = libDst.listFiles();
+            if (fs != null) {
+                for (File f : fs) {
+                    f.setReadable(true, true);
+                    f.setExecutable(true, true);
+                }
+            }
+            Log.i("PICKUPDEBUG", "ensureInstalledSilently: deployed to " + rt.getAbsolutePath());
+            return true;
+        } catch (Throwable t) {
+            Log.w("PICKUPDEBUG", "ensureInstalledSilently failed: " + t);
+            return false;
+        }
+    }
+
+    /** 自动清理只做一次（避免每次 root 会话都跑） */
+    private static final String KEY_LEGACY_CLEANED = "legacy_cleaned_v802";
+
+    /**
+     * 首次升级后自动清理旧残留（不需要额外 root —— 复用已有的常驻通道）。
+     *
+     * <p>只做一次，并用偏好记住，之后不再执行。
+     * 如果当前进程没有 root 通道，直接跳过（等下次）。
+     */
+    public static void autoCleanupLegacyOnce(Context ctx) {
+        if (ctx == null || !RootShell.isReady()) return;
+        try {
+            if (ctx.getSharedPreferences("dedup", Context.MODE_PRIVATE)
+                    .getBoolean(KEY_LEGACY_CLEANED, false)) return;
+        } catch (Throwable t) {
+            return;
+        }
+        String L = RuntimePaths.LEGACY_DIR;
+        String script = "rm -f " + L + "/sqlite3 " + L + "/sqlite3.bak "
+                + L + "/*.sql " + L + "/*.db " + L + "/wtest 2>/dev/null; "
+                + "rm -rf " + L + "/lib 2>/dev/null; echo LEGACY_CLEANED";
+        String out = RootShell.exec(script, 20000);
+        if (out != null && out.contains("LEGACY_CLEANED")) {
+            try {
+                ctx.getSharedPreferences("dedup", Context.MODE_PRIVATE).edit()
+                        .putBoolean(KEY_LEGACY_CLEANED, true).apply();
+            } catch (Throwable ignored) { }
+            Log.i("PICKUPDEBUG", "autoCleanupLegacyOnce: ok");
+        }
+    }
+
+    /**
+     * 清理旧版本留在应用数据目录之外的残留（v4.0.2 第八轮）。
+     *
+     * <p>旧版把 sqlite3 + 依赖库部署在 /data/local/tmp/pickup_sqlite，
+     * 卸载 App 时系统不会清理。这里删掉二进制与依赖库（约 1.5MB），
+     * 以及历史调试留下的临时 sql/db 文件；
+     * <b>跨进程同步用的几个文本文件保留</b>——系统进程要靠它们读配置，
+     * 删了会让通知通道回落到编译内置规则。
+     *
+     * @return 人话结果，可直接展示
+     */
+    public static String cleanupLegacy(Context ctx) {
+        String L = RuntimePaths.LEGACY_DIR;
+        String cmd = "rm -f " + L + "/sqlite3 " + L + "/sqlite3.bak "
+                + L + "/*.sql " + L + "/*.db " + L + "/wtest 2>/dev/null; "
+                + "rm -rf " + L + "/lib 2>/dev/null; "
+                + "ls -l " + L + " 2>&1 | head -20; echo CLEAN_DONE";
+        String[] r = Diagnostics.suExecPublic(cmd, 20);
+        String out = r == null ? "" : (r[0] == null ? "" : r[0]);
+        if (!out.contains("CLEAN_DONE")) {
+            return "清理失败（需要 root）：" + clip(out, 120);
+        }
+        Log.i("PICKUPDEBUG", "cleanupLegacy done: " + clip(out, 200));
+        return "已清理旧版本残留（sqlite3 与依赖库）。"
+                + "\n现在 sqlite3 装在应用私有目录，卸载 App 时会随应用数据一起删掉。";
     }
 
     // ================================================================

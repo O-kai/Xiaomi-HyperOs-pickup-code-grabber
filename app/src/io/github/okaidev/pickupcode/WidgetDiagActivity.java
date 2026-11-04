@@ -96,7 +96,7 @@ public class WidgetDiagActivity extends Activity {
         // ---- 检查 1：布局能否 inflate ----
         Throwable layoutErr = null;
         try {
-            RemoteViews bare = new RemoteViews(getPackageName(), R.layout.widget_pickup_v2);
+            RemoteViews bare = new RemoteViews(getPackageName(), R.layout.widget_pickup_v4);
             View v = bare.apply(this, new FrameLayout(this));
             layoutErr = null;
             Log.i(TAG, "自检: 裸布局 apply 成功 view=" + (v == null ? "null" : v.getClass().getName()));
@@ -236,7 +236,7 @@ public class WidgetDiagActivity extends Activity {
     private String findBannedClasses() {
         String xml;
         try {
-            java.io.InputStream in = getResources().openRawResource(R.layout.widget_pickup_v2);
+            java.io.InputStream in = getResources().openRawResource(R.layout.widget_pickup_v4);
             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
             byte[] buf = new byte[8192];
             int n;

@@ -25,9 +25,9 @@ import java.util.Set;
 public class TodoWriter {
 
     private static final String TAG = "PICKUPDEBUG";
-    // sqlite3 部署在 /data/local/tmp（对 App su 子进程可执行），依赖库同目录
-    private static final String LIBS = "/data/local/tmp/pickup_sqlite/lib";
-    private static final String SQLITE = "/data/local/tmp/pickup_sqlite/sqlite3";
+    // sqlite3 部署在【应用私有目录】（卸载时随应用数据自动删除），依赖库同目录
+    private static final String LIBS = RuntimePaths.LIBS;
+    private static final String SQLITE = RuntimePaths.SQLITE;
     private static final String PREFS = "dedup";
     private static final int DEDUP_MAX = 500;
 
@@ -414,6 +414,11 @@ public class TodoWriter {
                     + " out=" + r.output.trim());
             if (r.ok()) {
                 lastWriteDiag = "OK（常驻 root 通道）";
+                // 已经付过一次 root 的代价了：顺手把跨进程配置快照同步出去、
+                // 并把旧版本留在 /data/local/tmp 的 sqlite3 + 依赖库清掉。
+                // 两件事复用同一个常驻通道，不会再多弹一次授权框。
+                try { ProcessSync.flushIfReady(ctx); } catch (Throwable ignored) { }
+                try { Repair.autoCleanupLegacyOnce(ctx); } catch (Throwable ignored) { }
                 return r.output;
             }
             lastWriteDiag = "常驻通道执行失败 exit=" + r.code

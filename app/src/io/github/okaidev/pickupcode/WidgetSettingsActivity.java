@@ -291,7 +291,7 @@ public class WidgetSettingsActivity extends Activity {
         row.setGravity(Gravity.CENTER_VERTICAL);
         // 行高与真实布局的下限一致（真实布局按权重均分，实际会略大于 40dp）
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(WidgetPrefs.ROW_DP));
         previewRows.addView(row, rlp);
 
         boolean hideCode = WidgetPrefs.hideCode(this);
@@ -323,7 +323,7 @@ public class WidgetSettingsActivity extends Activity {
             // 已取的不再显示 ✓（小组件里也是这样）
             check.setVisibility(View.INVISIBLE);
         }
-        row.addView(check, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        row.addView(check, new LinearLayout.LayoutParams(dp(28), dp(28)));
 
         // 「显示取件地点」关掉时：地点列【保留占位】只清空文字——
         // 与真实小组件一致（PickupWidgetProvider.build 里也是 setViewVisibility(VISIBLE)

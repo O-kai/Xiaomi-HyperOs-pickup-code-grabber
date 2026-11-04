@@ -197,6 +197,11 @@ public class LauncherActivity extends Activity {
 
         PickupExtractor.init(this);
         UpdateCenter.maybeCheck(this);
+        // v4.0.2 第八轮：部署位置迁到应用私有目录后，升级上来的用户需要补齐文件。
+        // 纯文件拷贝、不开线程池也不碰 root —— 打开 App 绝不会因此弹授权框。
+        new Thread(() -> {
+            try { Repair.ensureInstalledSilently(this); } catch (Throwable ignored) { }
+        }, "pickup-ensure-sqlite").start();
         ProcessSync.pushThrottled(this);
         // v4.0.3：记录管理（保留期 / 导入导出 / 清理 / 导入历史）改到
         // 「取件记录 → 管理」这一个入口，设置页不再重复列出。
@@ -1634,6 +1639,15 @@ public class LauncherActivity extends Activity {
         aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_heart, "打赏作者", "纯自愿，不影响任何功能",
                 v -> startActivity(new Intent(this, DonateActivity.class))));
+        aboutCard.addView(UiKit.divider(this, P));
+        // v4.0.2 第八轮：卸载残留清理。
+        //
+        // sqlite3 与依赖库现在装在应用私有目录，卸载时系统会一起删掉；
+        // 但旧版本把它们放在 /data/local/tmp（应用数据之外），
+        // 升级上来的用户那里还留着约 1.5MB。这里手动清一次。
+        aboutCard.addView(toolRow(R.drawable.ic_refresh, "清理旧版本残留",
+                "删除旧版留在系统临时目录的 sqlite3 与依赖库（约 1.5MB）",
+                v -> confirmCleanupLegacy()));
         box.addView(aboutCard, UiKit.cardLp(this, 0f));
 
         return sv;
@@ -2582,6 +2596,13 @@ public class LauncherActivity extends Activity {
                 allOk = false;
                 err = String.valueOf(t.getMessage());
             }
+            // 完整体检刚用过 root（常驻通道已建立）：
+            // 顺手把跨进程配置快照同步出去、并把旧版本留在 /data/local/tmp 的
+            // sqlite3 + 依赖库清掉 —— 这两件事都不再额外唤 su，不会再弹授权框。
+            if (full) {
+                try { ProcessSync.flushIfReady(this); } catch (Throwable ignored) { }
+                try { Repair.autoCleanupLegacyOnce(this); } catch (Throwable ignored) { }
+            }
             final List<Diagnostics.Check> cs = checks;
             final boolean show = needDeploy, ok = allOk;
             final String errMsg = err;
@@ -3118,6 +3139,32 @@ public class LauncherActivity extends Activity {
                 }
             });
         }).start();
+    }
+
+    /**
+     * 清理旧版本残留（v4.0.2 第八轮）。
+     *
+     * <p>sqlite3 与依赖库现在装在应用私有目录，卸载 App 时由系统一起删掉；
+     * 但旧版本把它们放在 /data/local/tmp/pickup_sqlite（应用数据之外），
+     * 升级上来的用户那里还留着约 1.5MB。这里给一个明确的清理入口。
+     */
+    private void confirmCleanupLegacy() {
+        UiKit.dialog(this, P, R.drawable.ic_refresh, "清理旧版本残留",
+                "旧版本的 sqlite3 可执行文件与依赖库放在系统临时目录"
+                        + "（/data/local/tmp/pickup_sqlite），卸载 App 时系统不会清理，"
+                        + "会一直占着约 1.5MB。\n\n"
+                        + "新版本已改到应用私有目录，卸载时会自动删除。"
+                        + "这里只清理旧版本留下的那部分。\n\n"
+                        + "跨进程同步用的几个 KB 配置文本会保留——系统进程要靠它读设置。",
+                null, 0,
+                UiKit.primary("确认清理", () -> {
+                    Toast.makeText(this, "正在清理…", Toast.LENGTH_SHORT).show();
+                    new Thread(() -> {
+                        final String msg = Repair.cleanupLegacy(this);
+                        runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());
+                    }).start();
+                }),
+                UiKit.ghost("取消", null));
     }
 
     private void openUrl(String url) {

@@ -34,8 +34,8 @@ import java.util.Locale;
 public class SystemDirectWriter {
 
     private static final String TAG = "PICKUPDEBUG";
-    private static final String LIBS = "/data/local/tmp/pickup_sqlite/lib";
-    private static final String SQLITE = "/data/local/tmp/pickup_sqlite/sqlite3";
+    private static final String LIBS = RuntimePaths.LIBS;
+    private static final String SQLITE = RuntimePaths.SQLITE;
 
     /** 开关标志文件（可变副本，设置页写入）：/data/local/tmp/pickup_sqlite/enable_sys_direct_write */
     private static final String FLAG_TMP = "/data/local/tmp/pickup_sqlite/enable_sys_direct_write";

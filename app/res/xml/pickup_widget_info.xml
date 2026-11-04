@@ -1,24 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  v4.0.2：这里刻意【不写】targetCellWidth / targetCellHeight。
+  v4.0.2 第八轮：补上 maxResizeWidth / maxResizeHeight。
 
-  原因（真机定位到的坑）：Android 12+ 会用 targetCell 的格数换算建议尺寸，
-  4x2 格在小米 HyperOS 上等于 640dp × 460dp —— 比手机屏宽（约 400dp）还大，
-  结果 MIUI 的「添加小部件」列表直接不显示本 App（provider 在系统里注册正常，
-  但选择器里查不到），用户根本加不上。
+  为什么必须写（这是「拉大组件不显示更多内容」的真正原因）：
+  Android 12+ 会按 minResize~maxResize 的区间，把「这个组件能有多大」
+  报给 App（OPTION_APPWIDGET_SIZES / MIN_HEIGHT / MAX_HEIGHT）。
+  不写 maxResize 时区间退化成一点，实测拿到的是：
 
-  去掉之后由 minWidth/minHeight 决定默认尺寸，行数随实际分配高度自适应
-  （见 PickupWidgetProvider.onAppWidgetOptionsChanged）。
+      appWidgetMinHeight=195  appWidgetMaxHeight=195
+      appWidgetSizes=[257.86x195.36]      ← 只有一个尺寸
+
+  于是用户拖动边角放大，桌面只是把旧的 195dp 画面拉伸去填格子，
+  回调里的尺寸永远是 195dp —— 行数当然不会增加，下面就是一大块空白。
+  补上 maxResize 之后，尺寸列表才会变成多个值，拖动才真的会触发
+  重新布局与 onAppWidgetOptionsChanged。
+
+  仍然【不写】targetCellWidth / targetCellHeight：Android 12+ 用格数
+  换算建议尺寸，4x2 在 HyperOS 上被算成 640dp × 460dp（比屏还宽），
+  结果 MIUI 的「添加小部件」列表里直接查不到本 App。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:initialLayout="@layout/widget_pickup_v2"
-    android:previewLayout="@layout/widget_pickup_v2"
+    android:initialLayout="@layout/widget_pickup_v4"
+    android:previewLayout="@layout/widget_pickup_v4"
     android:previewImage="@drawable/widget_preview"
     android:description="@string/widget_description"
     android:minWidth="250dp"
     android:minHeight="110dp"
-    android:minResizeWidth="180dp"
-    android:minResizeHeight="70dp"
+    android:minResizeWidth="200dp"
+    android:minResizeHeight="110dp"
+    android:maxResizeWidth="480dp"
+    android:maxResizeHeight="640dp"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen" />

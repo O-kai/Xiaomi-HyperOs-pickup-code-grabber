@@ -114,6 +114,20 @@ for f in ExtractorRules PickupExtractor UserRules TodoWriter MissedSmsStore \
          NotesBackend Repair Diagnostics NotesFormat PkgInput NetPolicy AppVersion; do
   cp "$SRC/$f.java" "$OUT/src/io/github/okaidev/pickupcode/" 2>/dev/null
 done
+# 测试替身：真实 NotiHook 依赖 Xposed API（compileOnly，离线没有 jar）。
+# ProcessSync 引用了 NotiHook.BUILTIN_PKGS，-sourcepath 自动推导会把它拖进来，
+# 于是「规则依赖链」整条编译失败。这里放一个只保留常量的替身，
+# 并把拷贝目录放在 sourcepath 最前面，让它优先命中。
+cat > "$OUT/src/io/github/okaidev/pickupcode/NotiHook.java" <<'PICKUP_STUB_EOF'
+package io.github.okaidev.pickupcode;
+
+public final class NotiHook {
+    public static final String[] BUILTIN_PKGS = new String[0];
+    public static final java.util.Map<String, String> PKG_LABELS = new java.util.HashMap<>();
+    private NotiHook() { }
+}
+PICKUP_STUB_EOF
+
 GEN="$ROOT/app/build/generated/rules/java/io/github/okaidev/pickupcode/GeneratedRules.java"
 if [ ! -f "$GEN" ]; then
   echo "GeneratedRules.java 缺失，先跑 generateRules："
@@ -123,7 +137,7 @@ else
   cp "$GEN" "$OUT/src/io/github/okaidev/pickupcode/GeneratedRules.java"
 
   "$JDK/bin/javac.exe" -encoding UTF-8 -nowarn \
-    -sourcepath "app/src" \
+    -sourcepath "$OUT/src;app/src" \
     -classpath "$SDK" -d "$OUT/cls" \
     "$OUT/src/io/github/okaidev/pickupcode/"*.java 2> "$OUT/javac-reg.log"
   if [ $? -ne 0 ]; then

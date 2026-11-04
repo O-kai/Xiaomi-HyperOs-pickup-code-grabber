@@ -189,6 +189,32 @@ public class RulesRegression {
             Files.copy(srcDir.resolve(f), tmp.resolve(f));
         }
 
+        // 测试替身：真实 NotiHook 依赖 Xposed API（compileOnly，离线没有 jar）。
+        // ProcessSync 引用了 NotiHook.BUILTIN_PKGS，-sourcepath 自动推导会把它
+        // 拖进依赖链，于是整条链编译失败。这里显式编译一个只保留常量的替身，
+        // 命令行里给的文件优先于 sourcepath 里的同名类。
+        Files.write(tmp.resolve("NotiHook.java"), (
+                "package io.github.okaidev.pickupcode;\n"
+                + "public final class NotiHook {\n"
+                + "    public static final String[] BUILTIN_PKGS = new String[0];\n"
+                + "    public static final java.util.Map<String, String> PKG_LABELS"
+                + " = new java.util.HashMap<>();\n"
+                + "    private NotiHook() { }\n"
+                + "}\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        // 测试替身：真实 NotiHook 依赖 Xposed API（compileOnly，离线没有 jar）。
+        // ProcessSync 引用了 NotiHook.BUILTIN_PKGS，-sourcepath 自动推导会把它
+        // 拖进依赖链，于是整条链编译失败。这里显式编译一个只保留常量的替身，
+        // 命令行里给的文件优先于 sourcepath 里的同名类。
+        Files.write(tmp.resolve("NotiHook.java"), (
+                "package io.github.okaidev.pickupcode;\n"
+                + "public final class NotiHook {\n"
+                + "    public static final String[] BUILTIN_PKGS = new String[0];\n"
+                + "    public static final java.util.Map<String, String> PKG_LABELS"
+                + " = new java.util.HashMap<>();\n"
+                + "    private NotiHook() { }\n"
+                + "}\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
         // v4.0：内置默认规则不再是手写常量，而是构建期从 rules/rules.json 生成的
         // GeneratedRules.java。优先复用 Gradle 产物；没有就现场生成一份同格式的。
         prepareGeneratedRules(repo, tmp);
@@ -216,6 +242,10 @@ public class RulesRegression {
         for (String f : NEED) cmd.add(tmp.resolve(f).toString());
         // v4.0：内置默认规则来自构建生成的 GeneratedRules.java，必须一起编译
         cmd.add(tmp.resolve("GeneratedRules.java").toString());
+        // Xposed 依赖的替身（见上面写入 NotiHook.java 的注释）
+        cmd.add(tmp.resolve("NotiHook.java").toString());
+        // Xposed 依赖的替身（见上面写入 NotiHook.java 的注释）
+        cmd.add(tmp.resolve("NotiHook.java").toString());
 
         Process c = Runtime.getRuntime().exec(cmd.toArray(new String[0]));
         if (c.waitFor() != 0) {

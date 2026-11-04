@@ -38,8 +38,8 @@ public class ProcessSync {
     private static final String PREFS = "dedup";
 
     /** 同步目录与文件（与 Repair.TARGET_DIR / UserRules.SYNC_DIR 一致） */
-    private static final String SYNC_DIR = "/data/local/tmp/pickup_sqlite";
-    private static final String SYNC_FILE = SYNC_DIR + "/app_state.json";
+    private static final String SYNC_DIR = RuntimePaths.SYNC_DIR;
+    private static final String SYNC_FILE = RuntimePaths.SYNC_FILE;
 
     /** 黑名单默认值（App 偏好读不到时的兜底；唯一来源在 TodoWriter） */
     public static final String DEFAULT_BLACKLIST = TodoWriter.DEFAULT_BLACKLIST;
@@ -63,17 +63,25 @@ public class ProcessSync {
 
     // ==================== App 进程：写入快照 ====================
 
-    /** 节流推送的最小间隔（30 分钟）：用于 App 启动这类高频但配置通常没变的时机 */
+    /** 节流推送的最小间隔（30 分钟） */
     private static final long PUSH_THROTTLE_MS = 30L * 60 * 1000;
     private static final String KEY_LAST_PUSH = "state_last_push";
+    /** 有改动但还没同步出去的标记 */
+    private static final String KEY_PENDING = "state_pending";
 
     /**
-     * 启动时兜底推送（节流）。
+     * 启动时兜底同步（v4.0.2 第八轮重做）。
      *
-     * 背景：快照文件此前只会在「规则热更成功」或「用户改设置」时写入，
-     * 导致全新安装且用户从未改过任何设置的用户，系统进程永远读不到快照、
-     * 只能回落编译内置规则——等于本次修复对他们无效。
-     * 故在主界面启动时补推一次；用 30 分钟节流避免每次开 App 都跑 su。
+     * <p><b>为什么改成「只在已有 root 会话时同步」</b>：
+     * 旧实现在每次冷启动（30 分钟节流）时都跑一次 {@code su} 去写快照文件，
+     * 于是用户每次打开 App 都可能看到 Magisk 的「已被授予超级用户权限」弹窗。
+     * 用户明确要求：「在已经授予所有权限的情况下，这种弹窗就不应该再出现了；
+     * 但又不能影响没有正常激活 / 无法使用的用户场景」。
+     *
+     * <p>所以现在：<b>绝不为了同步去唤 su</b>。
+     * 进程里已经有常驻 root 通道（说明用户刚刚做过需要 root 的事）才顺手同步，
+     * 否则只记一个「待同步」标记，等下一次真正需要 root 的动作一起带出去。
+     * 没有 root 的用户完全不受影响——系统进程会回落到编译内置的默认配置。
      */
     public static void pushThrottled(final Context ctx) {
         if (ctx == null) return;
@@ -81,12 +89,43 @@ public class ProcessSync {
             long now = System.currentTimeMillis();
             long last = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .getLong(KEY_LAST_PUSH, 0L);
-            if (now - last < PUSH_THROTTLE_MS) return;
-            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                    .putLong(KEY_LAST_PUSH, now).apply();
+            boolean pending = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getBoolean(KEY_PENDING, false);
+            if (!pending && now - last < PUSH_THROTTLE_MS) return;
         } catch (Throwable t) {
-            // 读不到偏好就直接推，不因节流判断失败而跳过同步
+            // 读不到偏好就不做节流判断，继续往下走
         }
+        if (!RootShell.isReady()) {
+            // 没现成的 root 会话就只记账，绝不主动唤 su
+            markPending(ctx);
+            return;
+        }
+        push(ctx);
+    }
+
+    /** 记一个「待同步」标记（下次有 root 会话时一起带出去） */
+    public static void markPending(Context ctx) {
+        if (ctx == null) return;
+        try {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                    .putBoolean(KEY_PENDING, true).apply();
+        } catch (Throwable ignored) { }
+    }
+
+    /**
+     * 如果当前进程已经有常驻 root 通道，就顺手把快照同步出去（不额外唤 su）。
+     * 调用时机：任何已经成功用过 root 的动作之后（写待办 / 完整体检 / 部署）。
+     */
+    public static void flushIfReady(final Context ctx) {
+        if (ctx == null || !RootShell.isReady()) return;
+        boolean pending;
+        try {
+            pending = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getBoolean(KEY_PENDING, false);
+        } catch (Throwable t) {
+            pending = true;
+        }
+        if (!pending) return;
         push(ctx);
     }
 
@@ -97,6 +136,11 @@ public class ProcessSync {
      */
     public static void push(final Context ctx) {
         if (ctx == null) return;
+        if (!RootShell.isReady()) {
+            // 不为了同步去唤 su（那会让用户在「只是改了个开关」时也看到授权弹窗）
+            markPending(ctx);
+            return;
+        }
         new Thread(() -> {
             try {
                 String json = buildJson(ctx);
@@ -117,10 +161,22 @@ public class ProcessSync {
                 //   读到空串或半截内容；而读方（system_server / telephony）读到坏数据会
                 //   静默回落到编译内置规则 + 默认黑名单 + 错误的写入目标 ——
                 //   正是本类要消灭的「组合债」。同目录 rename 是原子的。
-                Diagnostics.suExecPublic("mkdir -p " + SYNC_DIR + "; "
+                // 走常驻 root 通道：不再单独起一次 su（那又会弹一次授权框）
+                String script = "mkdir -p " + SYNC_DIR + "; chmod 755 " + SYNC_DIR + "; "
                         + "cat > " + SYNC_FILE + ".tmp << 'PICKUP_EOF'\n" + b64 + "\nPICKUP_EOF\n"
                         + "chmod 644 " + SYNC_FILE + ".tmp; "
-                        + "mv -f " + SYNC_FILE + ".tmp " + SYNC_FILE, 20);
+                        + "mv -f " + SYNC_FILE + ".tmp " + SYNC_FILE;
+                String out = RootShell.exec(script, 20000);
+                if (out == null) {
+                    markPending(ctx);
+                    Log.w(TAG, "ProcessSync: push skipped (root shell unavailable)");
+                    return;
+                }
+                try {
+                    ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                            .putBoolean(KEY_PENDING, false)
+                            .putLong(KEY_LAST_PUSH, System.currentTimeMillis()).apply();
+                } catch (Throwable ignored) { }
                 Log.i(TAG, "ProcessSync: state pushed (" + json.length() + " bytes json)");
             } catch (Throwable t) {
                 Log.w(TAG, "ProcessSync: push failed: " + t);

@@ -264,7 +264,10 @@ public class PickupWidgetProvider extends AppWidgetProvider {
     private static RemoteViews build(Context context, int widgetId,
                                      PickupRepository.PendingSnapshot snap,
                                      List<Integer> shiftedRows) {
-        RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_pickup_v2);
+        // v4.0.2 第八轮：布局换到 v3（新 layout 资源 id）。
+        // 桌面不会重建已存在组件的视图树，换资源 id 是唯一能让
+        // AppWidgetHostView 重新 inflate 的手段。
+        RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_pickup_v4);
 
         // v4.0.2 第三轮：一次算好行数与实际行高（补位动画的位移量要用真实行高）
         int[] metrics = widgetMetrics(context, widgetId);
@@ -330,7 +333,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         rv.setTextViewTextSize(R.id.widget_empty, TypedValue.COMPLEX_UNIT_SP, 12f * scale);
 
         // v4.0.2 第三轮：行高改成按权重均分，位移量要用【实际行高】，
-        // 否则补位动画会错位（按固定 40dp 算，实际可能是 45dp）。
+        // 否则补位动画会错位。
         float rowPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, metrics[2],
                 context.getResources().getDisplayMetrics());
 
@@ -341,7 +344,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
                 // 放不下的整行直接不显示；内容不够时下面的空白是合理的。
                 //
                 // 不做半行截断——半个取件码会被误读成完整的一条。
-                // 也不做「空行占位」：行高固定 40dp 之后，
+                // 也不做「空行占位」：行高固定之后，
                 // 列表容器内部自然就会在内容下面留白，不需要额外的空行。
                 rv.setViewVisibility(ROW_IDS[i], View.GONE);
                 continue;
@@ -350,7 +353,6 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             shown++;
             boolean pending = record.isPending();
             rv.setViewVisibility(ROW_IDS[i], View.VISIBLE);
-
             // 隐私模式：不显示取件码，也不显示地点——组件上只剩件数，
             // 想看码得点进 App。
             //
@@ -457,9 +459,8 @@ public class PickupWidgetProvider extends AppWidgetProvider {
     /**
      * 组件的尺寸与行数。
      *
-     * <p>v4.0.2：行高改成【固定 40dp】，不再按权重均分。
-     * 所以补位动画的位移量也回到固定值——按实际行高算才不会错位，
-     * 而实际行高就是 40dp。
+     * <p>v4.0.2 第八轮：行高固定 36dp（与布局 v3 一致），
+     * 补位动画的位移量也按这个固定值算，不会错位。
      *
      * @return {行数, 组件高度dp, 行高dp}
      */
@@ -476,9 +477,28 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             Log.w(TAG, "widget options failed: " + t);
         }
         int rows = WidgetPrefs.rowsForHeight(heightDp, widthDp, MAX_ROWS);
-        int rowDp = WidgetPrefs.ROW_MIN_DP;
+        int rowDp = WidgetPrefs.ROW_DP;
         Log.i(TAG, "WIDGET size: h=" + heightDp + "dp w=" + widthDp
                 + "dp -> rows=" + rows + " rowH=" + rowDp + "dp");
+        // v4.0.2：把启动器给的完整 options 打进日志。
+        //
+        // Android 12+ 的「可缩放小组件」会同时给出尺寸【区间】：
+        //   MIN_* = 当前占位，MAX_* = 内容应当按多大来渲染（启动器再缩放到 MIN）。
+        // 只读 MIN 会把内容渲染得太挤——行数算少，桌面上就空一大截。
+        // 这个日志能直接看出启动器到底给了什么。
+        try {
+            Bundle opt = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId);
+            if (opt != null) {
+                StringBuilder sb = new StringBuilder("WIDGET opts: ");
+                for (String k : opt.keySet()) {
+                    Object v = opt.get(k);
+                    sb.append(k).append("=").append(v).append("  ");
+                }
+                Log.i(TAG, sb.toString());
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "widget options dump failed: " + t);
+        }
         return new int[]{rows, heightDp, rowDp};
     }
 

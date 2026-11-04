@@ -158,3 +158,76 @@ MIUI 的「添加小部件 → 全部应用」列出的
 **另一个 LinearLayout 的坑**：v4.0.1 把行高从 `layout_weight=1` 改成 `wrap_content` 后，
 行被压扁了——LinearLayout 在空间不足且子视图无 weight 时会**均分压缩**子视图。
 现在行高写死 `40dp`（固定值不会被压缩），放不下的行直接 GONE，剩余空间留白。
+
+---
+
+## 追加（v4.0.2 第八轮）：上面「唯一有效的办法」被推翻了
+
+上一节写的是「移除旧的、重新添加一次」是唯一办法。**这条不准确**，
+真正起作用的不是「重新添加」，而是**布局的资源 ID 变了**。
+
+### 关键机制：桌面比的是资源 ID 数字，不是布局内容
+
+`AppWidgetHostView.updateAppWidget()` 里判断「要不要重新 inflate」看的是
+`RemoteViews.getLayoutId()` —— **编译后的 `0x7f05xxxx` 那种数字**。
+
+资源 ID 按资源表顺序分配。所以只要 App 里**只有一个**小组件布局，
+把它叫 `widget_pickup_v2` / `v3` / `v4`，编出来都是 `0x7f050000`，
+桌面就认为「布局没变」，继续用首次添加时那棵旧树：
+
+```
+真机实测：把行高从 40dp 改成 36dp、再把行改成 wrap_content，
+          截图逐像素完全一致 —— 因为根本没重新加载。
+```
+
+这就解释了「改文件名没用」「重新 updateAppWidget 没用」的全部现象。
+
+**做法**：留一个按名字排在正式布局之前、**永远不被使用**的极小布局
+（`res/layout/widget_pickup_v3.xml`，只有一个 1dp 的 FrameLayout），
+正式布局 `widget_pickup_v4` 的 ID 就被顶成 `0x7f050001`：
+
+```
+resource 0x7f050000 layout/widget_pickup_v3     ← 占位，不引用
+resource 0x7f050001 layout/widget_pickup_v4     ← 真正用的
+```
+
+装上之后桌面**立刻**重新 inflate，用户不需要移除重加。
+以后每次要强制刷新布局，就再往前插一个占位文件把 ID 继续往后顶。
+
+### 第二个坑：桌面把布局里的 dp 按 ~0.778 倍渲染，文字却不缩
+
+同一份布局，在 App 内用 `RemoteViews.apply()` 渲染是 40dp 行距，
+桌面上只有 31dp；改成 36dp 后桌面是 28dp，比例恒为 0.775~0.778。
+而 18sp / 17sp 文字在两边的像素尺寸**完全一致**。
+
+原因：文字尺寸是我们用 `setTextViewTextSize(COMPLEX_UNIT_SP, …)` 下发的，
+按本 App 的 `DisplayMetrics` 换算；而布局里的 `dp` 走的是桌面 inflate 时那套密度。
+两者不是同一个尺度。
+
+**推论**：只要行高由 `dp` 决定，它在桌面上就永远比预期矮一截，
+按 dp 算出来的行数就会偏少 → 底部空一大块。
+
+**做法**：行高改成 `android:layout_height="wrap_content"` +
+`paddingTop/Bottom`，让行高由**文字**撑出来。这样「1 行」恒等于「1 行文字」，
+与桌面怎么缩放 dp 无关。实测行距从 28dp 回到 38dp，
+195dp 高的组件里从「4 行 + 底部空 112dp」变成「8 行 + 底部空 34dp」（不到一行）。
+
+> 上一节末尾写的「`wrap_content` 会让行被 LinearLayout 均分压缩」这条**不成立**：
+> 那次的现象是「旧视图树没换」，不是压缩。`LinearLayout` 对固定 `dp` 的子视图
+> 不会压缩（`getChildMeasureSpec` 里 childDimension ≥ 0 时直接 EXACTLY）。
+
+### 第三个坑：不写 maxResize，组件其实不可缩放
+
+真机 `dumpsys appwidget` 拿到的 options：
+
+```
+appWidgetMinHeight=195  appWidgetMaxHeight=195
+appWidgetSizes=[257.86x195.36]        ← 只有一个尺寸
+```
+
+区间退化成一点 —— 用户拖动边角放大，桌面只是把旧的 195dp 画面**拉伸**去填格子，
+`onAppWidgetOptionsChanged` 里读到的尺寸永远是 195dp，行数当然不会增加。
+
+补上 `android:maxResizeWidth` / `maxResizeHeight` 后区间才正常。
+仍然不要写 `targetCellWidth/Height`（上一节记录的坑：4x2 会被算成 640dp 宽，
+MIUI 的「添加小部件」列表里直接查不到本 App）。

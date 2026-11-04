@@ -1,20 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  桌面小组件布局（v4.0.2 第三轮重做）。
+  桌面小组件布局 v4（v4.0.2 第八轮）。
 
-  每一行都是【固定 40dp】，一个一个往下排。
-  · 行不参与权重均分——所以内容少的时候，行不会被拉高去填满组件，
-    多出来的空间留在列表底部（空白是合理的）。
-  · 列表容器用 weight 撑满剩余高度；由于它内部没有带 weight 的可见子项，
-    LinearLayout 不会去压缩那些固定高度的行。
-  · 行数由代码按「每行 40dp」算出：组件更高就多显示几行，
+  为什么换文件名：Android 桌面【不会重建】已存在小组件的视图树，
+  只改布局内容 / 改根 id / 重新 updateAppWidget 都无效，桌面会一直用
+  首次添加时 inflate 出来的那棵旧树。换一个【新的 layout 资源 id】
+  才能让 AppWidgetHostView 判定「不是同一份布局」并重新 inflate。
+
+  · 每一行固定 36dp，一个一个往下排，内容多少都不变；
+  · 行不参与权重均分——内容少时行不会被拉高去填满组件，
+    多出来的空间留在列表底部（空白是合理的）；
+  · 列表容器用 weight 撑满剩余高度；容器内部没有带 weight 的【可见】子项，
+    LinearLayout 因此不会去压缩这些固定高度的行；
+  · 行数由代码按「每行 36dp」算出：组件更高就多显示几行，
     放不下的整行 GONE——绝不做半行截断（半个取件码会被误读成完整的一条）。
 
-  另外：
-  · 去掉底部「查看全部」：点顶部标题即可跳转，两处入口重复反而让人犹豫；
-  · 标题 18sp 并给标题行确定高度，解决「标题下沿被截」。
-  · 注意：Android 桌面在 App 更新后【不会重建】已有小组件的视图树，
-    布局结构变了必须移除旧组件再重新添加（设置页里有「重新添加小组件」入口）。
+  尺寸常量（改这里必须同步 WidgetPrefs.PAD_DP / HEADER_DP / ROW_DP）：
+    padding 10dp（上下共 20）· 标题行 26dp · 数据行 36dp · ✓ 28dp
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root_v2"
@@ -22,13 +24,14 @@
     android:layout_height="match_parent"
     android:background="@drawable/widget_bg"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="10dp">
 
     <!-- 标题行：标题可点（跳转取件记录页），右侧显示件数 -->
     <LinearLayout
+        android:id="@+id/widget_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="28dp"
+        android:minHeight="26dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -75,7 +78,9 @@
         <LinearLayout
             android:id="@+id/widget_row_1"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -101,8 +106,8 @@
 
             <TextView
                 android:id="@+id/widget_done_1"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -113,7 +118,9 @@
         <LinearLayout
             android:id="@+id/widget_row_2"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -139,8 +146,8 @@
 
             <TextView
                 android:id="@+id/widget_done_2"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -151,7 +158,9 @@
         <LinearLayout
             android:id="@+id/widget_row_3"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -177,8 +186,8 @@
 
             <TextView
                 android:id="@+id/widget_done_3"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -189,7 +198,9 @@
         <LinearLayout
             android:id="@+id/widget_row_4"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -215,8 +226,8 @@
 
             <TextView
                 android:id="@+id/widget_done_4"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -227,7 +238,9 @@
         <LinearLayout
             android:id="@+id/widget_row_5"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -253,8 +266,8 @@
 
             <TextView
                 android:id="@+id/widget_done_5"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -265,7 +278,9 @@
         <LinearLayout
             android:id="@+id/widget_row_6"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -292,8 +307,8 @@
 
             <TextView
                 android:id="@+id/widget_done_6"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -304,7 +319,9 @@
         <LinearLayout
             android:id="@+id/widget_row_7"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -331,8 +348,8 @@
 
             <TextView
                 android:id="@+id/widget_done_7"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -343,7 +360,9 @@
         <LinearLayout
             android:id="@+id/widget_row_8"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -370,8 +389,8 @@
 
             <TextView
                 android:id="@+id/widget_done_8"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -382,7 +401,9 @@
         <LinearLayout
             android:id="@+id/widget_row_9"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -409,8 +430,8 @@
 
             <TextView
                 android:id="@+id/widget_done_9"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -421,7 +442,9 @@
         <LinearLayout
             android:id="@+id/widget_row_10"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -448,8 +471,8 @@
 
             <TextView
                 android:id="@+id/widget_done_10"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -460,7 +483,9 @@
         <LinearLayout
             android:id="@+id/widget_row_11"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -487,8 +512,8 @@
 
             <TextView
                 android:id="@+id/widget_done_11"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"
@@ -499,7 +524,9 @@
         <LinearLayout
             android:id="@+id/widget_row_12"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -526,8 +553,8 @@
 
             <TextView
                 android:id="@+id/widget_done_12"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:background="@drawable/widget_done_bg"
                 android:gravity="center"
                 android:text="✓"

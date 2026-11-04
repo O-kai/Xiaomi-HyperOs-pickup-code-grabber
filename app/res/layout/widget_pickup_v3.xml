@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  占位布局，【永远不被使用】，只为了让布局资源 ID 发生位移。
+
+  背景（真机踩坑）：Android 桌面判断「要不要重新 inflate 小组件的视图树」
+  比的是 RemoteViews.getLayoutId()，也就是编译后的【资源 ID 数字】。
+  而资源 ID 是按资源表里的顺序分配的 —— 只要 App 里只有一个小组件布局，
+  无论把文件叫 widget_pickup_v2 / v3 / v4，它都是 0x7f050000，
+  桌面就认定「布局没变」，继续用首次添加时那棵旧树。
+
+  实测代价：改了行高、把行改成 wrap_content，屏幕上纹丝不动
+  （截图逐像素相同），因为根本没重新加载。
+
+  留一个按名字排在 widget_pickup_v4 之前的小布局，
+  v4 的 ID 就会从 0x7f050000 变成 0x7f050001，桌面才会重新 inflate。
+  这个文件不要删，也不要往里加内容。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="1dp"
+    android:layout_height="1dp" />

@@ -115,30 +115,40 @@ public final class WidgetPrefs {
      * <p>与 {@code PickupWidgetProvider.rowsFor} 用的是同一套算法，
      * 抽到这里是为了能离线跑（Provider 那一层依赖 Android 上下文）。
      *
+     * <p>v4.0.2 第八轮：常量与布局 v3 对齐（padding 20 / 标题 26 / 行 36）。
+     *
+     * <p>行高固定、行数按高度取满，剩不到一行的零头留在底部——
+     * 绝不把行拉高去填满（用户原话：「明明没几个件要取的，
+     * 我把尺寸调大了，你就把它全部填满，这种效果显得太低端了」）。
+     *
+     * <p><b>为什么只需要一个高度值就够</b>：实测桌面给的高度比真实可用高度
+     * 少约 15dp（左右各 7.5dp 的单元格内边距被扣掉了）。按偏小的值算行数
+     * 只会少显示一行、留一点空白；算多了则会出现「半个取件码」——
+     * 两害相权取其轻，所以这里一律用偏保守的高度。
+     *
      * @param heightDp 组件高度（dp）
-     * @param widthDp  组件宽度（dp）；窄组件（<150dp）最多 2 行
+     * @param widthDp  组件宽度（dp）；窄组件（&lt;150dp）最多 3 行
      * @param maxRows  布局允许的最大行数
      * @return 实际显示的行数
      */
     public static int rowsForHeight(int heightDp, int widthDp, int maxRows) {
         if (heightDp <= 0) return 3;                       // 拿不到尺寸时的保守值
-        // 上下 padding 各 12dp = 24dp；标题行约 28dp（18sp 文字 + 一点余量）
-        int avail = heightDp - 24 - 28;
+        int avail = heightDp - PAD_DP - HEADER_DP;
         if (avail <= 0) return 1;                          // 极小高度：至少留一行
-        // 每行固定 40dp，能放下几行就是几行。
-        // 剩下的零头留在列表底部——空白是合理的，
-        // 不该把行拉高去填满（用户原话：「明明没几个件要取的，
-        // 我把尺寸调大了，你就把它全部填满，这种效果显得太低端了」）。
-        int rows = avail / ROW_MIN_DP;
+        int rows = avail / ROW_DP;
         rows = Math.min(rows, Math.max(1, maxRows));
         if (widthDp > 0 && widthDp < 150) rows = Math.min(rows, 3);
         return Math.max(1, rows);
     }
 
-    /** 单行高度（dp）——固定值，内容多少都不变 */
-    public static final int ROW_MIN_DP = 40;
-    /** 单行最大高度（dp）——超过这个值一行内容会显得松散 */
-    public static final int ROW_MAX_DP = 79;
+    /** 上下内边距之和（dp）——与布局 v3 的 padding 10dp 对齐 */
+    public static final int PAD_DP = 20;
+    /** 标题行高度（dp）——与布局 v3 的 minHeight 26dp 对齐 */
+    public static final int HEADER_DP = 26;
+    /** 单行高度（dp）——固定值，内容多少都不变，与布局 v3 对齐 */
+    public static final int ROW_DP = 36;
+    /** 兼容旧名（补位动画位移量要用） */
+    public static final int ROW_MIN_DP = ROW_DP;
 
     /**
      * 是否隐藏取件码（只显示件数）。
