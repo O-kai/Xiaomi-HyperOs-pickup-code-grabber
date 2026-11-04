@@ -298,6 +298,65 @@ V<大版本>.<小版本>.<修复版本>
 13 套、485 项断言全绿（WidgetTest 的性质断言改成「行高恒为 40dp、
 行数取满、剩余留白不拉伸」）。
 
+### 🧩 v4.0.2（第十轮）：配置可读性落地 + 体检项可见 + PR 处置脚本
+
+> 背景：第九轮把 `chmod + chcon` 写进了代码，但没有在真机上验证过，
+> 也没告诉用户「标签不对该看哪里」。这一轮把三件事补齐。
+
+#### 1. 三个配置文件统一 chmod + chcon，并有可见的检查项
+
+真机实测（REDMI K90 Pro Max / HyperOS 4.0 / Android 17）：
+`chcon u:object_r:system_data_file:s0` **可用**（`rc=0`，标签确实被改）。
+
+但升级上来的用户，老文件不会自动变——`enable_noti_hook` 与 `user_rules.json`
+还是 10 月 22 日写下的 `shell_data_file`。所以：
+
+- `RuntimePaths.CONFIG_FILES` 集中列出三个文件（快照 / 开关 / 用户规则），
+  避免再漏（曾经漏过开关文件）；
+- 新增 `Repair.fixConfigLabels()`：一次 chmod 755 目录 + chmod 644 文件 +
+  chcon 三个文件，返回**是否三个都成功**（按 `ls -Z` 输出核对，不靠猜）；
+- 完整体检时自动补一次（`fixConfigLabelsOnce`，只做一次，失败下次重试），
+  且**放在检测之前**，免得用户看到「刚体检失败、其实已经修好」；
+- 新增体检项 **「配置快照」**：直接显示标签，标签不对时给出原因与修复动作。
+
+真机结果：`fixConfigLabels ok=true (3/3)`，三个文件全部 `system_data_file`。
+
+#### 2. NotiHook：把「读到了」和「读不到」分开记日志
+
+原来只要 mtime 变了就打 `config reloaded`，哪怕 `ProcessSync.load()`
+返回 null（SELinux 拦住 / 目录权限不对）也照打——**日志看着正常，
+实际用的还是编译内置规则**。这种「假成功日志」排查时最要命。
+
+现在：
+
+```
+config reloaded (mtime=..., rules=8123B, pkgs=14)              ← 真读到并生效
+config NOT readable -> load() 返回 null（SELinux 标签/目录权限？）  ← 要修
+```
+
+读失败时**不更新 stamp**，下个周期自动重试（比如刚被体检修好标签）。
+
+#### 3. 通知开关改为 30 秒缓存，不再每条通知读一次文件
+
+`isFlagOn()` 原来在 `enqueueNotificationInternal` 的钩子里每条通知都
+`exists()` + `FileReader` 读一遍——这是 system_server 的通知入队线程，
+纯属浪费。现在由 `refreshConfig()` 每 30 秒刷一次缓存，
+只有「开机后第一条通知」才直读。
+
+#### 4. 体检副标题不再写死「6 项」
+
+加了「配置快照」之后清单变 7 项，副标题还是「6 项体检全部通过」——
+自相矛盾。改成按 `checks.size()` 动态生成。
+
+#### 5. PR 处置脚本
+
+`tools/github_pr_action.py`：把 `docs/pr-review/prN.md` 的正文发成 PR 评论，
+并按结论关闭（#13/#14/#12/#9 → completed，#8 → not_planned）。
+保证「仓库里写的」与「GitHub 上发的」是同一份内容，不靠手工复制。
+支持 `--dry-run` 与 `--only 13,14`。
+
+回归：14 套、493 项断言全绿；真机冷启动 0 崩溃，完整体检 7 项全通过。
+
 ### 🤝 v4.0.2（第九轮）：合并社区 PR（#13 / #14），ColorOS 与 HyperOS 双系统校验
 
 > 详细评审与逐条结论见 [`docs/PR-REVIEW-2026-11-05.md`](docs/PR-REVIEW-2026-11-05.md)，

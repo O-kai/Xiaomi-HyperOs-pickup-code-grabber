@@ -59,6 +59,26 @@ public final class RuntimePaths {
     /** 跨进程同步快照 */
     public static final String SYNC_FILE = SYNC_DIR + "/app_state.json";
 
+    /** 通知通道开关标志（system_server 里的 NotiHook 要读，故与快照同目录） */
+    public static final String FLAG_FILE = SYNC_DIR + "/enable_noti_hook";
+
+    /** 用户规则（系统进程要读） */
+    public static final String USER_RULES_FILE = SYNC_DIR + "/user_rules.json";
+
+    /**
+     * 需要「让 system_server 读得到」的全部配置文件。
+     *
+     * <p>App 用 root 写进 {@link #SYNC_DIR} 的文件，SELinux 标签默认是
+     * {@code app_data_file} 或 {@code shell_data_file}，其中
+     * {@code app_data_file} 在多数 ROM 上 system_server <b>读不了</b>。
+     * 所以写完要统一 chmod + chcon 成 {@code system_data_file}。
+     * 这里集中列一份，避免漏掉某个文件（曾经漏过开关文件，
+     * 表现为「开关打开但通知通道就是不工作」）。
+     */
+    public static final String[] CONFIG_FILES = {
+            SYNC_FILE, FLAG_FILE, USER_RULES_FILE
+    };
+
     /** 把一段命令里用到的库路径前缀（避免每处都手写 LD_LIBRARY_PATH） */
     public static String ld() {
         return "LD_LIBRARY_PATH=" + LIBS + " ";

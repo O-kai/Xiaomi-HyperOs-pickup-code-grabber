@@ -31,7 +31,8 @@ import java.util.List;
 public class NotiHook {
 
     private static final String TAG = "PICKUPDEBUG";
-    private static final String FLAG_FILE = "/data/local/tmp/pickup_sqlite/enable_noti_hook";
+    /** 开关文件路径统一由 RuntimePaths 提供（App 侧写完会一起 chcon） */
+    private static final String FLAG_FILE = RuntimePaths.FLAG_FILE;
 
     /**
      * 快递/电商通知白名单（v1：主流大厂，按需热扩）
@@ -208,57 +209,107 @@ public class NotiHook {
 
     private static long nextRefresh;
     private static long configStamp = Long.MIN_VALUE;
+    /** 开关文件读到的值（null = 还没成功读过） */
+    private static volatile Boolean flagOn = null;
+    /** 配置读不到时不要每隔 30 秒刷一行日志 */
+    private static long lastUnreadableLogAt;
 
     /**
-     * 每 30 秒按文件 mtime 决定要不要重载「官方规则 / 用户规则 / 通知白名单」。
+     * 每 30 秒按文件 mtime 决定要不要重载「官方规则 / 用户规则 / 通知白名单」，
+     * 同时把通知开关的缓存刷新一遍。
      *
      * <p>为什么需要：system_server 只在开机时加载一次配置，用户在设置页
      * 改完规则或加完白名单后，必须重启手机才生效——很容易被当成「功能坏了」。
      * 这里用 mtime 做变更检测，改完最多 30 秒自动生效，不需要重启。
      *
-     * <p>读不到文件（没 root / 没同步过）时静默保持现状，
-     * 不能因为读不到配置就把已有规则清空。
+     * <p><b>v4.0.2 第十轮修正</b>：原先只要 mtime 变了就打「config reloaded」，
+     * 哪怕 {@code load()} 返回 null（读不到）也照打——日志看着正常、实际用的还是
+     * 编译内置规则，排查时会被这条假日志带偏。现在把两种情况分开记，
+     * 并且<b>读失败时不更新 stamp</b>，下个周期会重试（比如权限/标签刚被修好）。
      */
     private static synchronized void refreshConfig() {
         long now = android.os.SystemClock.elapsedRealtime();
         if (now < nextRefresh) return;
         nextRefresh = now + 30_000L;
+
+        // ① 开关文件：每 30 秒读一次并缓存。
+        //    原来每条通知都开一次文件（system_server 的通知入队线程上），
+        //    量大了纯属浪费；而且文件读不到时没有留痕。
+        Boolean flag = readFlagFile();
+        if (flag != null) flagOn = flag;
+
         try {
             java.io.File f = new java.io.File(ProcessSync.SYNC_FILE);
             long stamp = f.lastModified();
-            if (stamp == configStamp || stamp <= 0L) return;
+            if (stamp <= 0L) {
+                logUnreadable("mtime=0（文件不存在或不可 stat）");
+                return;
+            }
+            if (stamp == configStamp) return;
+
             ProcessSync.State st = ProcessSync.load();
-            PickupExtractor.initForSystemProcess(st != null ? st.rulesJson : null);
+            if (st == null) {
+                // 读不到：保持现有规则不动，也不更新 stamp → 下个周期重试
+                logUnreadable("load() 返回 null（SELinux 标签 / 目录权限？）mtime=" + stamp);
+                return;
+            }
+            int rulesLen = st.rulesJson == null ? 0 : st.rulesJson.length();
+            PickupExtractor.initForSystemProcess(st.rulesJson);
             PickupExtractor.loadUserRules(null, UserRules.loadForSystemProcess());
+            int pkgCount;
             synchronized (PKG_WHITELIST) {
                 PKG_WHITELIST.clear();
                 PKG_WHITELIST.addAll(java.util.Arrays.asList(BUILTIN_PKGS));
-                if (st != null && st.notiPkgs != null) {
+                if (st.notiPkgs != null) {
                     for (String p : st.notiPkgs.split("[,，\\s]+")) {
                         String t = p.trim();
                         if (!t.isEmpty()) PKG_WHITELIST.add(t);
                     }
                 }
+                pkgCount = PKG_WHITELIST.size();
             }
             configStamp = stamp;
-            XposedBridge.log(TAG + ": config reloaded (mtime=" + stamp + ")");
+            XposedBridge.log(TAG + ": config reloaded (mtime=" + stamp
+                    + ", rules=" + rulesLen + "B, pkgs=" + pkgCount + ")");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": config reload skipped: " + t);
         }
     }
 
-    /** 标志文件开关（默认关；设置页经 su 写入 1/0 同步） */
-    private static boolean isFlagOn() {
+    /** 读不到配置时节流记一行——要有痕迹，但不能刷屏 */
+    private static void logUnreadable(String why) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastUnreadableLogAt < 5 * 60_000L) return;
+        lastUnreadableLogAt = now;
+        XposedBridge.log(TAG + ": config NOT readable -> " + why);
+    }
+
+    /** 直读开关文件；读不到返回 null（区别于「读到 0」） */
+    private static Boolean readFlagFile() {
         try {
             java.io.File f = new java.io.File(FLAG_FILE);
-            if (!f.exists()) return false;
+            if (!f.exists()) return Boolean.FALSE;
             java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
             String line = r.readLine();
             r.close();
             return line != null && line.trim().equals("1");
         } catch (Throwable t) {
-            return false;
+            return null;
         }
+    }
+
+    /**
+     * 标志文件开关（默认关；设置页经 su 写入 1/0 同步）。
+     *
+     * <p>优先用 {@link #refreshConfig()} 每 30 秒刷新的缓存值；
+     * 还没读到过（开机后第一条通知）才直读一次。
+     */
+    private static boolean isFlagOn() {
+        Boolean cached = flagOn;
+        if (cached != null) return cached;
+        Boolean v = readFlagFile();
+        if (v != null) flagOn = v;
+        return v != null && v;
     }
 
     /** 在参数数组里找 Notification 对象 */

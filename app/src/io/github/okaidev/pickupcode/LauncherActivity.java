@@ -134,7 +134,7 @@ public class LauncherActivity extends Activity {
     /**
      * v4.0.1：上一次体检是不是「完整体检」。
      *
-     * <p>用来区分措辞——轻量体检只覆盖 2 项，不能说成「6 项全部通过」。
+     * <p>用来区分措辞——轻量体检只覆盖 2 项，不能说成「N 项全部通过」。
      */
     private volatile boolean lastHealthFull;
 
@@ -2674,7 +2674,7 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * @param full true = 完整体检结果（6 项）；false = 轻量体检结果（2 项）。
+     * @param full true = 完整体检结果；false = 轻量体检结果（2 项）。
      */
     private void renderHealth(List<Diagnostics.Check> checks, boolean allOk, boolean needDeploy,
                               String err, boolean full) {
@@ -2694,7 +2694,12 @@ public class LauncherActivity extends Activity {
         } else if (allOk) {
             heroTitle.setText("一切正常 · 已激活");
             if (full) {
-                heroSub.setText("LSPosed 已注入 · 6 项体检全部通过");
+                // 项数不再写死：体检项增加时（这轮加了「配置快照」）文案会自己跟上，
+                // 否则会出现「清单里 7 项、副标题说 6 项」这种自相矛盾。
+                int n = checks == null ? 0 : checks.size();
+                heroSub.setText(n > 0
+                        ? "LSPosed 已注入 · " + n + " 项体检全部通过"
+                        : "LSPosed 已注入 · 体检全部通过");
             } else {
                 // v4.0.2：轻量体检只覆盖 2 项，措辞必须准确——
                 // 说「全部通过」会让用户以为跑过完整检测，那是骗人。

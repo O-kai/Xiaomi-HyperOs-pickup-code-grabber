@@ -194,6 +194,89 @@ public class Repair {
         }
     }
 
+    // ================================================================
+    //  配置快照的可读性（SELinux 标签）
+    // ================================================================
+
+    /** 自动修复只做一次的标记 */
+    private static final String KEY_LABEL_FIXED = "config_label_fixed_v1002";
+
+    /**
+     * 让 {@code system_server} 读得到配置快照与开关文件（v4.0.2 第十轮）。
+     *
+     * <p><b>为什么需要</b>：App 用 root 往 {@code /data/local/tmp/pickup_sqlite}
+     * 写文件时，新文件的 SELinux 标签是 {@code shell_data_file}（继承目录），
+     * 个别 ROM 上 system_server 读它会被 SELinux 拦下——表现是
+     * 「设置里改了规则/白名单，通知通道却一直用旧规则」，
+     * 而且日志里只有一行 reloaded，看不出失败。
+     *
+     * <p>修法：{@code chmod 755} 目录 + {@code chmod 644} 文件 +
+     * {@code chcon u:object_r:system_data_file:s0}。
+     * 真机（HyperOS 4.0 / Android 17）实测 chcon 可用、rc=0。
+     *
+     * <p><b>失败不影响功能</b>：chcon 失败时命令仍返回成功（{@code || true}），
+     * 因为文件本身已经写好，只是可能读不到；此时系统进程会回落到编译内置规则。
+     *
+     * @return true 表示命令执行且三个文件标签都已是 system_data_file
+     */
+    public static boolean fixConfigLabels(Context ctx) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("chmod 755 ").append(RuntimePaths.SYNC_DIR).append(" 2>/dev/null; ");
+        for (String f : RuntimePaths.CONFIG_FILES) {
+            sb.append("chmod 644 ").append(f).append(" 2>/dev/null; ");
+        }
+        sb.append("chcon u:object_r:system_data_file:s0 ")
+                .append(RuntimePaths.SYNC_DIR).append(" ");
+        for (String f : RuntimePaths.CONFIG_FILES) {
+            sb.append(f).append(" ");
+        }
+        sb.append("2>/dev/null || true; ");
+        sb.append("ls -Z ");
+        for (String f : RuntimePaths.CONFIG_FILES) {
+            sb.append(f).append(" ");
+        }
+        sb.append("2>/dev/null; echo LABEL_DONE");
+
+        String[] r = Diagnostics.suExecPublic(sb.toString(), 15);
+        String out = r == null ? "" : (r[0] == null ? "" : r[0]);
+        if (!out.contains("LABEL_DONE")) {
+            Log.w("PICKUPDEBUG", "fixConfigLabels failed: " + clip(out, 160));
+            return false;
+        }
+        // 三个文件里只要还有一个不是 system_data_file，就认为没修好
+        int good = 0;
+        for (String line : out.split("\n")) {
+            if (line.contains("system_data_file")) good++;
+        }
+        boolean ok = good >= RuntimePaths.CONFIG_FILES.length;
+        Log.i("PICKUPDEBUG", "fixConfigLabels ok=" + ok + " (" + good + "/"
+                + RuntimePaths.CONFIG_FILES.length + ")\n" + clip(out, 300));
+        if (ok && ctx != null) {
+            try {
+                ctx.getSharedPreferences("dedup", Context.MODE_PRIVATE).edit()
+                        .putBoolean(KEY_LABEL_FIXED, true).apply();
+            } catch (Throwable ignored) { }
+        }
+        return ok;
+    }
+
+    /**
+     * 有 root 会话时顺手修一次（只做一次，之后靠每次写入自带的 chcon 维持）。
+     *
+     * <p>为什么需要「一次」：老版本写下的 user_rules.json / enable_noti_hook
+     * 从来没被 chcon 过，升级后不会自动变。第一次体检时补一次即可。
+     */
+    public static void fixConfigLabelsOnce(Context ctx) {
+        if (ctx == null || !RootShell.isReady()) return;
+        try {
+            if (ctx.getSharedPreferences("dedup", Context.MODE_PRIVATE)
+                    .getBoolean(KEY_LABEL_FIXED, false)) return;
+        } catch (Throwable t) {
+            return;
+        }
+        fixConfigLabels(ctx);
+    }
+
     /**
      * 清理旧版本留在应用数据目录之外的残留（v4.0.2 第八轮）。
      *

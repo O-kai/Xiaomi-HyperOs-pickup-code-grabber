@@ -100,6 +100,64 @@ public class Diagnostics {
 
     // ==================== 体检 ====================
 
+    /**
+     * 配置快照的可读性（v4.0.2 第十轮新增）。
+     *
+     * <p>查的是 {@value RuntimePaths#SYNC_DIR} 里那三个文件的 SELinux 标签。
+     * 为什么要单独一项：{@code system_server} 里的通知通道靠读它们拿规则与开关，
+     * 而 App 用 root 写文件时标签默认是 {@code shell_data_file}。
+     * 标签不对时功能「看起来正常、实际用内置规则」，日志里也看不出来——
+     * 只有把标签显示出来，出问题的人才知道该修什么。
+     *
+     * <p>判据：
+     * <ul>
+     *   <li>三个文件都是 {@code system_data_file} → 通过；</li>
+     *   <li>是别的标签 → 不通过，但说明「多数 ROM 也能读，HyperOS 实测可读」，
+     *       并给出修复动作（体检后会顺手修）。</li>
+     * </ul>
+     */
+    private static Check checkConfigLabels() {
+        StringBuilder sb = new StringBuilder("ls -Z ");
+        for (String f : RuntimePaths.CONFIG_FILES) {
+            sb.append(f).append(" ");
+        }
+        sb.append("2>&1; echo ").append(PROBE_MARK);
+        String[] r = suExecPublic(sb.toString(), 12);
+        if (!hasMark(r)) {
+            return new Check("配置快照", false, "root 命令没跑起来：" + tail(suErr(r), 120));
+        }
+        String all = stdoutOf(r);
+        if (all.contains("No such file")) {
+            return new Check("配置快照", false,
+                    "文件还没生成 → 改动一次设置或点「点击体检」后会自动写入");
+        }
+        int good = 0;
+        int total = RuntimePaths.CONFIG_FILES.length;
+        for (String line : all.split("\n")) {
+            if (line.contains("system_data_file")) good++;
+        }
+        if (good >= total) {
+            return new Check("配置快照", true,
+                    total + " 个文件标签正常（system_data_file）✓ 系统进程可读");
+        }
+        return new Check("配置快照", false,
+                good + "/" + total + " 个文件是 system_data_file，其余为 "
+                        + guessLabel(all) + "——部分 ROM 上系统进程读不到，"
+                        + "表现为改了设置不生效。修复：再点一次「点击体检」会自动修正");
+    }
+
+    /** 从 ls -Z 的输出里取第一个标签，供提示用 */
+    private static String guessLabel(String lsOut) {
+        for (String line : lsOut.split("\n")) {
+            int i = line.indexOf("u:object_r:");
+            if (i >= 0) {
+                int end = line.indexOf(' ', i);
+                return end > i ? line.substring(i, end) : line.substring(i).trim();
+            }
+        }
+        return "未知标签";
+    }
+
     /** 六项体检（含 su 执行，调用方需放到线程里）；v2.2.0 加入作用域与通知检测 */
     public static List<Check> healthCheck(Context ctx) {
         List<Check> out = new ArrayList<>();
@@ -111,9 +169,15 @@ public class Diagnostics {
         if (su.ok) {
             out.add(checkSqlite3());
             out.add(checkNotesDb(ctx));
+            // 老版本写下的配置文件从来没被 chcon 过，升级后不会自动变。
+            // 这里借已建立的常驻通道补一次（只做一次，失败下次重试），
+            // 放在检测之前，免得用户看到「刚体检失败、其实已经修好了」。
+            try { Repair.fixConfigLabelsOnce(ctx); } catch (Throwable ignored) { }
+            out.add(checkConfigLabels());                   // v4.0.2 第十轮：SELinux 标签
         } else {
             out.add(new Check("sqlite3 部署", false, "需要先有 root 才能检测（见上一项）"));
             out.add(new Check("待办库访问", false, "需要先有 root 才能检测（见上一项）"));
+            out.add(new Check("配置快照", false, "需要先有 root 才能检测（见上一项）"));
         }
         return out;
     }
