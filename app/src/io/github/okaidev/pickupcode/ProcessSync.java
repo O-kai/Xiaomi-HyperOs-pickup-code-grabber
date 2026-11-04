@@ -62,6 +62,13 @@ public class ProcessSync {
         public String backend = "";
     }
 
+    /** Only configuration files are relabelled; never relabel sqlite3 or its libraries. */
+    public static String readableConfigCommand(String file) {
+        // Paths are internal constants, not notification text or user input.
+        return "; chmod 755 " + SYNC_DIR
+                + "; chcon u:object_r:system_data_file:s0 " + SYNC_DIR + " " + file;
+    }
+
     // ==================== App 进程：写入快照 ====================
 
     /** 节流推送的最小间隔（30 分钟）：用于 App 启动这类高频但配置通常没变的时机 */
@@ -121,7 +128,8 @@ public class ProcessSync {
                 Diagnostics.suExecPublic("mkdir -p " + SYNC_DIR + "; "
                         + "cat > " + SYNC_FILE + ".tmp << 'PICKUP_EOF'\n" + b64 + "\nPICKUP_EOF\n"
                         + "chmod 644 " + SYNC_FILE + ".tmp; "
-                        + "mv -f " + SYNC_FILE + ".tmp " + SYNC_FILE, 20);
+                        + "mv -f " + SYNC_FILE + ".tmp " + SYNC_FILE
+                        + readableConfigCommand(SYNC_FILE), 20);
                 Log.i(TAG, "ProcessSync: state pushed (" + json.length() + " bytes json)");
             } catch (Throwable t) {
                 Log.w(TAG, "ProcessSync: push failed: " + t);

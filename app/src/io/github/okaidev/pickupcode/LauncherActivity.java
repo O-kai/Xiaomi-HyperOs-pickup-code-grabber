@@ -1093,7 +1093,7 @@ public class LauncherActivity extends Activity {
             try {
                 Diagnostics.suExecPublic("mkdir -p " + Repair.TARGET_DIR + "; "
                         + "echo " + (target ? "1" : "0") + " > " + flag + "; "
-                        + "chmod 644 " + flag, 15);
+                        + "chmod 644 " + flag + ProcessSync.readableConfigCommand(flag), 15);
             } catch (Throwable ignored) { }
             runOnUiThread(() -> {
                 btn.setText(target ? "已开启" : "已关闭");
@@ -1111,29 +1111,26 @@ public class LauncherActivity extends Activity {
     }
 
     /** v2.9.0：读通知钩子标志文件（system_server 侧唯一开关来源，默认关） */
+    // App sandbox cannot read /data/local/tmp directly. Initial value is only a hint.
+    private volatile int notiStateGeneration;
+    private boolean notiStateVerified;
     private boolean isNotiHookFlagOn() {
-        try {
-            java.io.File f = new java.io.File(Repair.TARGET_DIR + "/enable_noti_hook");
-            if (!f.exists()) return false;
-            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
-            String line = r.readLine();
-            r.close();
-            return line != null && line.trim().equals("1");
-        } catch (Throwable t) {
-            return false;
-        }
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("noti_hook", false);
     }
 
     /** v2.9.0：写通知钩子标志文件（su 同步给 system_server 侧） */
     private void toggleNotiHookFlag(boolean on) {
+        notiStateGeneration++;
+        notiStateVerified = false;
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("noti_hook", on).apply();
         new Thread(() -> {
             String flag = Repair.TARGET_DIR + "/enable_noti_hook";
             try {
                 Diagnostics.suExecPublic("mkdir -p " + Repair.TARGET_DIR + "; "
                         + "echo " + (on ? "1" : "0") + " > " + flag + "; "
-                        + "chmod 644 " + flag, 15);
+                        + "chmod 644 " + flag + ProcessSync.readableConfigCommand(flag), 15);
             } catch (Throwable ignored) { }
+            runOnUiThread(() -> reloadNotiSwitchUi());
         }).start();
     }
 
@@ -1160,8 +1157,30 @@ public class LauncherActivity extends Activity {
      * /data/local/tmp/pickup_sqlite/enable_noti_hook 才是 system_server 侧的唯一开关来源）。
      */
     private void reloadNotiSwitchUi() {
-        notiSwitchOn = isNotiHookFlagOn();
-        renderNotiSwitchUi();
+        final int generation = ++notiStateGeneration;
+        new Thread(() -> {
+            Boolean actual = null;
+            try {
+                String[] result = Diagnostics.suExecPublic(
+                        "cat " + Repair.TARGET_DIR + "/enable_noti_hook", 15);
+                String value = result != null && result.length > 0 && result[0] != null
+                        ? result[0].trim() : "";
+                if ("1".equals(value)) actual = true;
+                else if ("0".equals(value)) actual = false;
+            } catch (Throwable ignored) { }
+            final Boolean checked = actual;
+            runOnUiThread(() -> {
+                if (generation != notiStateGeneration) return;
+                notiStateVerified = checked != null;
+                if (checked != null) {
+                    notiSwitchOn = checked;
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putBoolean("noti_hook", checked).apply();
+                }
+                renderNotiSwitchUi();
+                if (checked != null) checkNotiHookScopeAsync(false);
+            });
+        }, "pickup-switch-read").start();
     }
 
     /**
@@ -1172,7 +1191,10 @@ public class LauncherActivity extends Activity {
     private void renderNotiSwitchUi() {
         if (notiBtnView == null) return;
         boolean on = notiSwitchOn;
-        if (on && Boolean.TRUE.equals(notiScopeBlocked)) {
+        if (!notiStateVerified) {
+            notiBtnView.setText("状态未知");
+            notiBtnView.setBackgroundColor(Color.parseColor(C_WARN));
+        } else if (on && Boolean.TRUE.equals(notiScopeBlocked)) {
             notiBtnView.setText("作用域未勾选");
             notiBtnView.setBackgroundColor(Color.parseColor(C_WARN));
         } else {

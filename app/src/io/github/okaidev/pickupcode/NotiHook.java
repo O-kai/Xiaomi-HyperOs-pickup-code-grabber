@@ -43,7 +43,8 @@ public class NotiHook {
             "com.jingdong.app.mall",    // 京东
             "com.taobao.taobao",        // 淘宝
             "com.xunmeng.pinduoduo",    // 拼多多
-            "com.sf.cdsibm"             // 顺丰
+            "com.sf.cdsibm",            // 顺丰
+            "com.ss.android.ugc.aweme" // 抖音电商取件通知
     };
 
     /** 运行时白名单 = 内置 + 用户追加（v3.1.0 P4） */
@@ -62,6 +63,7 @@ public class NotiHook {
                 if (st != null && st.notiPkgs != null && !st.notiPkgs.trim().isEmpty()) {
                     synchronized (PKG_WHITELIST) {
                         PKG_WHITELIST.clear();
+                        PKG_WHITELIST.addAll(java.util.Arrays.asList(BUILTIN_PKGS));
                         for (String p : st.notiPkgs.split("[,，\\s]+")) {
                             String t = p.trim();
                             if (!t.isEmpty() && !PKG_WHITELIST.contains(t)) PKG_WHITELIST.add(t);
@@ -97,7 +99,8 @@ public class NotiHook {
         try {
             Object[] args = param.args;
             // 参数形态：enqueueNotificationInternal(String pkg, String opPkg, int uid, ...)，逐 ROM 稳定
-            if (args == null || args.length < 10) return;
+            if (args == null || args.length == 0 || !(args[0] instanceof String)) return;
+            refreshConfig();
             String pkg = (String) args[0];
             if (pkg == null || !isWhitelisted(pkg)) return;
             if (!isFlagOn()) return;
@@ -114,6 +117,7 @@ public class NotiHook {
             String notiSender = "通知:" + pkg;
             if (!PickupExtractor.hasFeatureWords(notiSender, text)) return;
 
+            if (!NotiEventWindow.accept(pkg, text, android.os.SystemClock.elapsedRealtime())) return;
             List<String> codes = PickupExtractor.extract(notiSender, text);
             if (codes.isEmpty()) {
                 // 漏抓嫌疑：错题本（system_server 无 Context 写 prefs → 经广播转发给模块 App 记录）
@@ -122,11 +126,34 @@ public class NotiHook {
             }
             // 提取成功：转发模块 App（与短信通道共用 TodoWriter.handle 的去重与写入）
             NotiRelay.relayHit(param, pkg, text, codes);
-        } catch (Throwable ignored) { }
+        } catch (Throwable t) { XposedEntry.log("NotiHook handle err: " + t); }
     }
 
     private static boolean isWhitelisted(String pkg) {
-        return PKG_WHITELIST.contains(pkg);
+        synchronized (PKG_WHITELIST) { return PKG_WHITELIST.contains(pkg); }
+    }
+
+    private static long nextRefresh;
+    private static long configStamp = Long.MIN_VALUE;
+    private static synchronized void refreshConfig() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now < nextRefresh) return;
+        nextRefresh = now + 30_000L;
+        java.io.File f = new java.io.File("/data/local/tmp/pickup_sqlite/app_state.json");
+        long stamp = f.lastModified();
+        if (stamp == configStamp) return;
+        ProcessSync.State st = ProcessSync.load();
+        PickupExtractor.initForSystemProcess(st.rulesJson);
+        PickupExtractor.loadUserRules(null, UserRules.loadForSystemProcess());
+        synchronized (PKG_WHITELIST) {
+            PKG_WHITELIST.clear();
+            PKG_WHITELIST.addAll(java.util.Arrays.asList(BUILTIN_PKGS));
+            for (String p : st.notiPkgs.split("[,，\\s]+")) {
+                String t = p.trim();
+                if (!t.isEmpty() && !PKG_WHITELIST.contains(t)) PKG_WHITELIST.add(t);
+            }
+        }
+        configStamp = stamp;
     }
 
     /** 标志文件开关（默认关；设置页经 su 写入 1/0 同步） */
@@ -151,19 +178,8 @@ public class NotiHook {
         return null;
     }
 
-    /** 拼合通知全部可见文本（title + text + bigText + extras） */
+    /** Extract only documented visible text fields, not arbitrary/private extras. */
     private static String buildText(Notification n) {
-        StringBuilder sb = new StringBuilder();
-        try {
-            Bundle extras = n.extras;
-            if (extras == null) return null;
-            CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
-            CharSequence text = extras.getCharSequence(Notification.EXTRA_TEXT);
-            CharSequence big = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
-            if (title != null) sb.append(title).append(" ");
-            if (text != null) sb.append(text).append(" ");
-            if (big != null) sb.append(big);
-        } catch (Throwable ignored) { }
-        return sb.toString().trim();
+        return NotificationText.build(n);
     }
 }

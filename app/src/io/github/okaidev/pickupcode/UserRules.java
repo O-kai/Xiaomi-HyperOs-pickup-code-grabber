@@ -291,7 +291,8 @@ public class UserRules {
                 Diagnostics.suExecPublic("mkdir -p " + SYNC_DIR + "; "
                         + "cat > " + SYNC_FILE + ".tmp << 'PICKUP_EOF'\n" + b64 + "\nPICKUP_EOF\n"
                         + "chmod 644 " + SYNC_FILE + ".tmp; "
-                        + "mv -f " + SYNC_FILE + ".tmp " + SYNC_FILE, 20);
+                        + "mv -f " + SYNC_FILE + ".tmp " + SYNC_FILE
+                        + ProcessSync.readableConfigCommand(SYNC_FILE), 20);
             } catch (Throwable t) {
                 Log.w(TAG, "sync to system process failed: " + t);
             }

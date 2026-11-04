@@ -60,43 +60,39 @@ public class TodoProvider extends ContentProvider {
             long ts = extras.getLong("ts", System.currentTimeMillis());
             Log.i(TAG, "PROVIDER-CALL: sender=" + sender + " ts=" + ts);
             if (body == null || body.trim().isEmpty()) {
-                Log.i(TAG, "PROVIDER-CALL: 空正文，跳过");
-                return null;
+                return receipt("empty", 0, 0);
             }
-            // v3.0.0：发送方以显式参数传入（避免并发时号码与短信错配）
-            // v2.8.0：预检放宽为「含快递特征词」——提取与漏抓错题本判定都在 handle 内完成
-            // （原 lookLikePickupSms 要求形状 token 存在，会把"有特征词但文案无数字码"的
-            //   真漏抓样本提前短路，导致错题本永远收不到这类记录）
             if (!PickupExtractor.hasFeatureWords(sender, body)) {
-                Log.i(TAG, "PROVIDER-CALL: 非取件短信，跳过");
-                return null;
+                return receipt("not_pickup", 0, 0);
             }
-            java.util.List<String> wrote = TodoWriter.handle(getContext(), sender, body);
-            if (!wrote.isEmpty()) {
-                Log.i(TAG, "PROVIDER-CALL: 已写入待办 " + wrote);
-                // 通知（点击复制 + 打开便签）
-                Notifier.notifyCodes(getContext(), wrote, null);
-            } else {
-                // v3.1.0：写入失败/全部命中去重时给出反馈。
-                //   此前两条路径都静默——用户只看到「待办里什么都没有」，
-                //   既不知道是没抓到还是写失败，也无从排查（目标表不存在、
-                //   root 未授权、sqlite3 缺失…）。这里区分两种情况告知用户。
-                String dedup = TodoWriter.getLastDedupHits();
-                if (dedup != null && !dedup.trim().isEmpty()) {
-                    // 命中去重：本来就写过，不是故障，不打扰
-                    Log.i(TAG, "PROVIDER-CALL: 全部命中去重 " + dedup);
-                } else {
-                    String diag = TodoWriter.getLastWriteDiag();
-                    Log.e(TAG, "PROVIDER-CALL: 提取到取件码但写入失败: " + diag);
-                    Notifier.notifyWriteFailed(getContext(),
-                            diag == null || diag.trim().isEmpty() ? "原因未知" : diag);
-                }
+            // The App process is authoritative for rules and per-event database outcomes.
+            TodoWriter.HandleResult outcome = TodoWriter.handleDetailed(getContext(), sender, body);
+            if (!outcome.written.isEmpty()) {
+                Notifier.notifyCodes(getContext(), outcome.written, null);
             }
-            Bundle r = new Bundle();
-            r.putString("result", wrote.toString());
+            if (outcome.failedCount > 0) {
+                String diag = outcome.diagnostic;
+                Notifier.notifyWriteFailed(getContext(),
+                        diag == null || diag.trim().isEmpty() ? "原因未知" : diag);
+            }
+            Log.i(TAG, "PROVIDER-CALL: status=" + outcome.status
+                    + " codes=" + outcome.codeCount + " written=" + outcome.written.size()
+                    + " deduplicated=" + outcome.dedupCount + " failed=" + outcome.failedCount);
+            Bundle r = receipt(outcome.status, outcome.codeCount, outcome.written.size());
+            r.putInt("dedup_count", outcome.dedupCount);
+            r.putInt("failed_count", outcome.failedCount);
+            r.putString("result", outcome.written.toString()); // older callers
             return r;
         }
         return null;
+    }
+
+    private static Bundle receipt(String status, int codeCount, int writtenCount) {
+        Bundle r = new Bundle();
+        r.putString("status", status);
+        r.putInt("code_count", codeCount);
+        r.putInt("written_count", writtenCount);
+        return r;
     }
 
     @Override

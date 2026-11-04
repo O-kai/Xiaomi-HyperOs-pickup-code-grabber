@@ -35,6 +35,19 @@ python test/check_rules_consistency.py
 `version` / `minAppVersionCode` / `keywordAnchors` 三处对齐情况。
 退出码 `0` 表示一致，`1` 表示有问题（提交前请先修掉）。
 
+## 通知转发与文本读取契约测试
+
+```bash
+python3 test/test_notification_transport.py
+```
+
+需要 JDK 11+，不需要 Android SDK。脚本对真实的 `NotiRelay`、`TodoProvider`、
+`NotificationText`、`NotiEventWindow` 使用内存中的 Android/Xposed 替身：
+验证无回执不能报告成功、无代码通知走 Provider、布尔标记、返回状态及数量、
+展开文本/消息字段读取、长度限制和多重载去重。不会发通知或修改真实待办。
+
+这不是 system_server→Provider→SQLite 真机端到端验证，也不会证明某 ROM 能唤醒应用。
+
 ## 环境准备
 
 需要两样东西：

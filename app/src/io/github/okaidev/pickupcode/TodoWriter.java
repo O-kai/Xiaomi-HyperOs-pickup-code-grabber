@@ -51,14 +51,39 @@ public class TodoWriter {
     public static final int MODE_FULL = 1;
     public static final int MODE_CUSTOM = 2;
 
-    /** 入口：模块进程收到短信事件后处理一条短信 */
+    /** Per-event result; do not use global lastWriteDiag/lastDedupHits as an IPC receipt. */
+    public static final class HandleResult {
+        public final List<String> written;
+        public final int codeCount;
+        public final int dedupCount;
+        public final int failedCount;
+        public final String status;
+        public final String diagnostic;
+
+        private HandleResult(List<String> written, int codeCount, int dedupCount,
+                             int failedCount, String status, String diagnostic) {
+            this.written = written;
+            this.codeCount = codeCount;
+            this.dedupCount = dedupCount;
+            this.failedCount = failedCount;
+            this.status = status;
+            this.diagnostic = diagnostic;
+        }
+    }
+
+    /** Compatibility wrapper for SMS receivers and manual chain tests. */
     public static List<String> handle(Context ctx, String sender, String body) {
+        return handleDetailed(ctx, sender, body).written;
+    }
+
+    /** Structured event outcome for callers which need an acknowledgement. */
+    public static HandleResult handleDetailed(Context ctx, String sender, String body) {
         // v3.0.0：记录发送方，供用户规则的 senderContains 过滤使用
         // v3.0.0：发送方以显式参数一路传递到提取引擎（避免并发串号）
         // 黑名单预检（12306/银行/广告等）
         if (isBlacklisted(ctx, body)) {
             Log.i(TAG, "blacklist skip: " + body.substring(0, Math.min(body.length(), 60)));
-            return new ArrayList<>();
+            return new HandleResult(new ArrayList<>(), 0, 0, 0, "blacklisted", "");
         }
         List<String> codes = PickupExtractor.extract(sender, body);
         if (codes.isEmpty()) {
@@ -68,7 +93,7 @@ public class TodoWriter {
             if (PickupExtractor.hasFeatureWords(sender, body)) {
                 MissedSmsStore.record(ctx, sender, body);
             }
-            return codes;
+            return new HandleResult(codes, 0, 0, 0, "no_code", "");
         }
 
         String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date());
@@ -78,6 +103,9 @@ public class TodoWriter {
         String place = extractPlace(sender, body);
         String source = resolveSource(sender, body);
         StringBuilder dedupBuf = new StringBuilder();
+        int dedupCount = 0;
+        int failedCount = 0;
+        String failureDiagnostic = "";
 
         // v3.1.0：整个去重集合的读-改-写必须在同一个锁内。
         // 此前只把「改+写」放进锁里，而 `prefs.getStringSet("seen")` 的「读」留在锁外 ——
@@ -95,6 +123,7 @@ public class TodoWriter {
                 Log.i(TAG, "dedup skip: " + fingerprint);
                 if (dedupBuf.length() > 0) dedupBuf.append("; ");
                 dedupBuf.append(fingerprint);
+                dedupCount++;
                 continue;
             }
             seen.add(fingerprint);
@@ -104,6 +133,8 @@ public class TodoWriter {
                 wrote.add(code);
                 Log.i(TAG, "TODO OK: " + content);
             } else {
+                failedCount++;
+                failureDiagnostic = lastWriteDiag;
                 Log.e(TAG, "TODO FAIL: " + content);
                 // v3.1.0 修复：写入失败必须把指纹撤掉。
                 // 否则一次 su 授权超时 / sqlite3 异常，就会让这个取件码被去重永久挡掉——
@@ -128,7 +159,11 @@ public class TodoWriter {
                 .putInt("todo_mode", mode)
                 .apply();
         } // end synchronized
-        return wrote;
+        String status = failedCount > 0
+                ? (wrote.isEmpty() ? "write_failed" : "partial")
+                : (wrote.isEmpty() ? "deduplicated" : "written");
+        return new HandleResult(wrote, codes.size(), dedupCount, failedCount,
+                status, failureDiagnostic);
     }
 
     /** v3.1.0：去重集合读-改-写的锁（跨通道并发写入的唯一防线） */
