@@ -46,6 +46,8 @@ public class XposedEntry implements IXposedHookLoadPackage {
                 if ("android".equals(pkg) && lpparam.processName != null
                         && "android".equals(lpparam.processName)) {
                     NotiHook.install(lpparam.classLoader);
+                    // ColorOS：放行系统进程唤醒已冻结的模块 Provider（替代 KSU 上开不了的冻结免疫直写）
+                    ColorOsProviderWake.install(lpparam.classLoader);
                 }
             } else if (pkg.equals("com.android.providers.telephony")) {
                 hookSmsProvider(lpparam);             // S8：短信库写入兜底（网络短信也走这里）
