@@ -156,10 +156,14 @@ def main():
 
         if args.no_close:
             continue
+        # 注意：PR 对象没有 state_reason 字段（那是 issue 才有的），
+        # REST 的 pulls 接口也不接受它——传了会被忽略，读回来恒为 null。
+        # GitHub 上 PR 关闭就显示「closed this」，所以关闭理由必须写在评论正文里，
+        # 这也是每个 prN.md 开头都先写「结论」的原因。
         st, res = api("PATCH", "/repos/%s/pulls/%d" % (REPO, pr), token,
-                      {"state": "closed", "state_reason": reason})
+                      {"state": "closed"})
         if st == 200:
-            print("  ✓ 已关闭（state_reason=%s）" % reason)
+            print("  ✓ 已关闭（%s；理由见评论正文）" % reason)
         else:
             print("  ✗ 关闭失败 HTTP %s：%s" % (st, res))
 
