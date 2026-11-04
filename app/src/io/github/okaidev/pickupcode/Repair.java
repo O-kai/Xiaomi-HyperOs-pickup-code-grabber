@@ -243,14 +243,19 @@ public class Repair {
             Log.w("PICKUPDEBUG", "fixConfigLabels failed: " + clip(out, 160));
             return false;
         }
-        // 三个文件里只要还有一个不是 system_data_file，就认为没修好
+        // 按「实际存在的文件」核对：不存在的文件 ls -Z 不会输出行，
+        // 若按固定 3 个去比，全新安装（还没写过配置）会永远判定失败、
+        // 每次体检都白跑一次 chcon。
+        int present = 0;
         int good = 0;
         for (String line : out.split("\n")) {
+            if (!line.contains("u:object_r:")) continue;
+            present++;
             if (line.contains("system_data_file")) good++;
         }
-        boolean ok = good >= RuntimePaths.CONFIG_FILES.length;
+        boolean ok = present == 0 || good == present;
         Log.i("PICKUPDEBUG", "fixConfigLabels ok=" + ok + " (" + good + "/"
-                + RuntimePaths.CONFIG_FILES.length + ")\n" + clip(out, 300));
+                + present + " 存在)\n" + clip(out, 300));
         if (ok && ctx != null) {
             try {
                 ctx.getSharedPreferences("dedup", Context.MODE_PRIVATE).edit()

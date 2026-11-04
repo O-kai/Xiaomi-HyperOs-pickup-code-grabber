@@ -128,8 +128,11 @@ public class Diagnostics {
         }
         String all = stdoutOf(r);
         if (all.contains("No such file")) {
-            return new Check("配置快照", false,
-                    "文件还没生成 → 改动一次设置或点「点击体检」后会自动写入");
+            // 新装/还没触发过同步时文件本来就不存在——此时系统进程用编译内置规则，
+            // 属于【正常状态】，不能报红。报红会让刚装好的用户以为哪里坏了
+            // （而「体检全绿」是这个模块最要紧的心理预期）。
+            return new Check("配置快照", true,
+                    "还没有生成（首次写入待办或改动设置后自动创建，当前用内置规则）");
         }
         int good = 0;
         int total = RuntimePaths.CONFIG_FILES.length;
