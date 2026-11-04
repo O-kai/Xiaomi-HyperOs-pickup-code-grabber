@@ -149,6 +149,32 @@ public class Diagnostics {
                         + "表现为改了设置不生效。修复：再点一次「点击体检」会自动修正");
     }
 
+    /**
+     * ColorOS 的 Provider 唤醒门禁（v4.0.3，仅 ColorOS 显示）。
+     *
+     * <p>{@link ColorOsProviderWake} 的生效前提是「系统里真的有
+     * {@code ContentProviderHelperExtImpl} 这个类」。它在 system_server 里找不到
+     * 就静默跳过——静默本身是对的（HyperOS 上本该没有），但对 ColorOS 用户来说，
+     * 「静默跳过」和「生效了但没触发」从外面看完全一样，没法区分。
+     *
+     * <p>所以这里用「读 jar 条目名」做一次不需要 root 的确定性检查：
+     * 类在 → 说明适配目标还在；类不在 → 大概率是新版 ColorOS 改了类名，
+     * 唤醒放行根本不会生效，需要开发者适配。
+     */
+    private static Check checkColorOsWake() {
+        String jar = ColorOs.findGateJar();
+        if (jar != null) {
+            return new Check("ColorOS 唤醒", true,
+                    "已定位 Provider 门禁类（" + jar + "）✓ "
+                            + "冻结后由系统身份唤醒本模块的放行已随模块加载");
+        }
+        return new Check("ColorOS 唤醒", false,
+                "系统里找不到 " + ColorOs.GATE_CLASS_SIMPLE + " —— "
+                        + "可能是这版 ColorOS 改了类名，唤醒放行不会生效。"
+                        + "把这一行发给开发者即可适配（不影响短信与通知抓取，"
+                        + "只影响模块被冻结时能否被叫醒）");
+    }
+
     /** 从 ls -Z 的输出里取第一个标签，供提示用 */
     private static String guessLabel(String lsOut) {
         for (String line : lsOut.split("\n")) {
@@ -176,7 +202,15 @@ public class Diagnostics {
             // 这里借已建立的常驻通道补一次（只做一次，失败下次重试），
             // 放在检测之前，免得用户看到「刚体检失败、其实已经修好了」。
             try { Repair.fixConfigLabelsOnce(ctx); } catch (Throwable ignored) { }
+            // 「卸载前清理」会把开关文件删掉，而界面状态以偏好为准——
+            // 不对账的话会出现「显示开着、实际关闭」的静默失效。
+            try { Repair.ensureNotiFlagFile(ctx); } catch (Throwable ignored) { }
             out.add(checkConfigLabels());                   // v4.0.2 第十轮：SELinux 标签
+            // v4.0.3：只在 ColorOS / OPPO 系上加这一项。
+            // 别的系统根本没有这个门禁类，给所有人显示只会多一条无关的红字。
+            if (ColorOs.isColorOs()) {
+                out.add(checkColorOsWake());
+            }
         } else {
             out.add(new Check("sqlite3 部署", false, "需要先有 root 才能检测（见上一项）"));
             out.add(new Check("待办库访问", false, "需要先有 root 才能检测（见上一项）"));

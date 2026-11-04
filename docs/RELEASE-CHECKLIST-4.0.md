@@ -1,6 +1,6 @@
 # 4.0 发布检查清单（一次性推送到 GitHub）
 
-> 面向的操作：把本地 `release/4.0`（62 个提交，含 4.0 全套重构与社区 PR 移植）
+> 面向的操作：把本地 `release/4.0`（含 4.0 全套重构、社区 PR 移植与 4.0.3 收口）
 > 一次性推到 `main`，同时打 tag、发 Release、更新 README。
 >
 > **顺序不能乱**：先保证代码对，再动文档，最后推送——推送后再改文档会多出无意义的提交。
@@ -15,12 +15,12 @@ cd D:/project/WorkBuddyData/取件码助手/pickup-code-grabber-4.0
 # ① 回归全绿（14 套、493 项断言）
 bash tools/run_all_tests.sh
 
-# ② 版本号口径核对（必须是 4.0.2 / 402 两个字段，不要单体系推导）
+# ② 版本号口径核对（必须是 4.0.3 / 403 两个字段，不要单体系推导）
 cat version.properties
 
 # ③ 工作区干净、tag 指向 HEAD（本轮已重打，落后提交数应为 0）
 git status --short
-git rev-list --count v4.0.2..HEAD
+git rev-list --count v4.0.3..HEAD
 
 # ④ 真机冒烟（装最新 release 包后冷启动）
 #    期望：0 崩溃、0 次 su、完整体检 7 项全通过
@@ -33,11 +33,11 @@ git rev-list --count v4.0.2..HEAD
 | 文件 | 要做什么 |
 |---|---|
 | `README.md` | 4.0 的功能、截图、安装步骤、与 3.1.0 的差异。**这是唯一面向新用户的入口，必须是最新的** |
-| `CHANGELOG.md` | 已写到第十轮；确认顶部是 4.0.2 |
+| `CHANGELOG.md` | 顶部应有 `## [4.0.3]`；4.0.2 的轮次记录保留在下方 |
 | `docs/DECISIONS.md` | D-17（Java+UiKit，不用 Compose）已记；补 D-20 小组件资源 ID 规则 |
 | `docs/WIDGET-HYPEROS-2026-10-30.md` | 已补「资源 ID 决定是否重建」的机制 |
-| `docs/PR-REVIEW-2026-11-05.md` | PR 处置记录（已执行完毕，可标注结果） |
-| `docs/07-assessment.md` 等 9 月文档 | 属于历史档案，**不要删**，但可在 `docs/HISTORY.md` 里标注「4.0 之前的分析，部分结论已过时」 |
+| `docs/PR-REVIEW-2026-11-05.md` | PR 处置记录（已执行完毕，评论链接在内） |
+| `docs/legacy/` | 4.0 之前的 20 份文档已归档，带说明页；**不要删，也不要再往主目录搬** |
 
 > 酷安文章单独写，不进仓库。
 
@@ -53,7 +53,7 @@ HTTPS 走 Windows 凭据管理器，非交互环境下取不到密码；SSH 密�
 git push git@github.com:O-kai/Xiaomi-HyperOs-pickup-code-grabber.git release/4.0:main
 
 # 打标签（CI 会构建 debug APK 作为产物）
-git push git@github.com:O-kai/Xiaomi-HyperOs-pickup-code-grabber.git v4.0.2
+git push git@github.com:O-kai/Xiaomi-HyperOs-pickup-code-grabber.git v4.0.3
 ```
 
 **不要用 `--force`**：`origin/main` 是 `release/4.0` 的祖先，普通 push 就是快进。
@@ -63,8 +63,8 @@ git push git@github.com:O-kai/Xiaomi-HyperOs-pickup-code-grabber.git v4.0.2
 ## 3. 推送后
 
 - [ ] GitHub Actions 绿（`assembleDebug` 产物可下载）
-- [ ] 建 Release `v4.0.2`，挂**本地用生产 keystore 签名的 release APK**（CI 只出 debug）
-- [ ] Release 说明直接复用 CHANGELOG 的 4.0.2 段落
+- [ ] 建 Release `v4.0.3`，挂**本地用生产 keystore 签名的 release APK**（CI 只出 debug）
+- [ ] Release 说明直接复用 CHANGELOG 的 4.0.3 段落
 - [ ] 5 个 PR 已关闭（#14/#13/#12/#9 completed，#8 not_planned），无需再动
 - [ ] 如果需要 LSPosed 仓库镜像，再单独同步（本清单不含）
 

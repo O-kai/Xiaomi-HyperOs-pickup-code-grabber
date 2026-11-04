@@ -41,6 +41,10 @@ import java.util.List;
 public class LauncherActivity extends Activity {
 
     private static final String PREFS = "dedup";
+    /** v4.0.3：上次运行过的 versionCode（用来判断「这次是升级」） */
+    private static final String KEY_SEEN_VERSION_CODE = "seen_version_code";
+    /** v4.0.3：上次运行过的点分版本名（只用于提示文案） */
+    private static final String KEY_SEEN_VERSION_NAME = "seen_version_name";
     private static final String KEY_BACKEND = "backend_override";
     private static final String KEY_SYS_DIRECT = "sys_direct_write";
     private static final String REPO_URL = "https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber";
@@ -604,6 +608,92 @@ public class LauncherActivity extends Activity {
     }
 
     /**
+     * 升级后的一次性提示（v4.0.3）。
+     *
+     * <p><b>为什么需要</b>：本模块的抓取逻辑跑在 {@code system_server} 里，
+     * 由 LSPosed 在<b>进程启动时</b>注入。用户装完新版本不重启的话，
+     * 系统进程里跑的还是旧代码——新功能不生效、修好的 bug 也还在，
+     * 很容易被当成「更新没用」。这个提示只出现一次，说清楚就行。
+     *
+     * <p><b>怎么判断「是升级」</b>：只看偏好里的历史版本是不够的——
+     * 从没有这个键的旧版本（≤4.0.2）升上来时，键是空的，会被误判成首次安装。
+     * 所以再用 {@code lastUpdateTime - firstInstallTime} 兜一层：
+     * 明显大于 0 就说明这台机器上装过更早的版本。
+     *
+     * <p>首次安装不提示（没有「升级」这回事）；点关闭后记住当前版本，不再出现。
+     */
+    private void maybeAddUpgradeNotice(LinearLayout box) {
+        final int cur = AppVersion.code(this);
+        if (cur <= 0) return;
+        final String curName = AppVersion.dotted(this);
+
+        android.content.SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        final int seen = sp.getInt(KEY_SEEN_VERSION_CODE, 0);
+        final String seenName = sp.getString(KEY_SEEN_VERSION_NAME, "");
+
+        boolean upgraded = false;
+        if (seen == 0) {
+            // 没有历史记录：区分「首次安装」与「从旧版本升上来（旧版本没写过这个键）」
+            try {
+                android.content.pm.PackageInfo pi = getPackageManager()
+                        .getPackageInfo(getPackageName(), 0);
+                upgraded = pi.lastUpdateTime - pi.firstInstallTime > 60_000L;
+            } catch (Throwable ignored) { }
+            if (!upgraded) {
+                sp.edit().putInt(KEY_SEEN_VERSION_CODE, cur)
+                        .putString(KEY_SEEN_VERSION_NAME, curName).apply();
+                return;
+            }
+        } else if (seen >= cur) {
+            return;
+        }
+
+        final String head = (seenName == null || seenName.isEmpty())
+                ? "已更新到 V" + curName
+                : "V" + seenName + " → V" + curName;
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setBackground(UiKit.bg(P.chipBg, this, 14));
+        card.setPadding(dp(14), dp(11), dp(8), dp(11));
+
+        ImageView ic = UiKit.icon(this, R.drawable.ic_refresh, 18, P.accentInk);
+        card.addView(ic);
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        clp.setMargins(dp(10), 0, dp(6), 0);
+
+        TextView t = UiKit.text(this, head + " · 建议重启一次", 13f, P.accentInk);
+        t.setTypeface(null, Typeface.BOLD);
+        col.addView(t);
+
+        TextView sub = UiKit.text(this,
+                "抓取逻辑跑在系统进程里，重启手机后新代码才会生效", 11.5f, P.label);
+        sub.setLineSpacing(dp(1), 1f);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.setMargins(0, dp(3), 0, 0);
+        col.addView(sub, slp);
+        card.addView(col, clp);
+
+        TextView close = UiKit.text(this, "✕", 13f, P.muteInk);
+        close.setGravity(Gravity.CENTER);
+        close.setPadding(dp(10), dp(8), dp(10), dp(8));
+        close.setOnClickListener(v -> {
+            sp.edit().putInt(KEY_SEEN_VERSION_CODE, cur)
+                    .putString(KEY_SEEN_VERSION_NAME, curName).apply();
+            box.removeView(card);
+        });
+        card.addView(close);
+
+        box.addView(card, UiKit.cardLp(this, 12));
+    }
+
+    /**
      * 首页内容。simple=true 时追加「反馈与关于」卡片，并去掉底栏预留空间。
      */
     private View buildHomeContent(boolean simple) {
@@ -618,6 +708,9 @@ public class LauncherActivity extends Activity {
 
         // 4.0：待取件优先于体检/设置，首页第一张卡就是本地取件库。
         buildPickupCard(box);
+
+        // v4.0.3：升级后的一次性提示，插在状态卡正上方
+        maybeAddUpgradeNotice(box);
 
         // 状态卡
         heroCard = new LinearLayout(this);
@@ -1646,9 +1739,11 @@ public class LauncherActivity extends Activity {
         // sqlite3 与依赖库现在装在应用私有目录，卸载时系统会一起删掉；
         // 但旧版本把它们放在 /data/local/tmp（应用数据之外），
         // 升级上来的用户那里还留着约 1.5MB。这里手动清一次。
-        aboutCard.addView(toolRow(R.drawable.ic_refresh, "清理旧版本残留",
-                "删除旧版留在系统临时目录的 sqlite3 与依赖库（约 1.5MB）",
-                v -> confirmCleanupLegacy()));
+        // v4.0.3：原来这条只叫「清理旧版本残留」，现在把「卸载前清理」也收进来，
+        // 但不新增分组/按钮——设置页仍然只有两组，这条也只是一行。
+        aboutCard.addView(toolRow(R.drawable.ic_refresh, "清理与卸载",
+                "旧版本残留 · 卸载后会在手机上留下什么",
+                v -> showCleanupDialog()));
         box.addView(aboutCard, UiKit.cardLp(this, 0f));
 
         return sv;
@@ -3200,29 +3295,71 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * 清理旧版本残留（v4.0.2 第八轮）。
+     * 「清理与卸载」主弹窗（v4.0.3）。
      *
-     * <p>sqlite3 与依赖库现在装在应用私有目录，卸载 App 时由系统一起删掉；
-     * 但旧版本把它们放在 /data/local/tmp/pickup_sqlite（应用数据之外），
-     * 升级上来的用户那里还留着约 1.5MB。这里给一个明确的清理入口。
+     * <p>把两件相关但不同的事放在同一个入口下：
+     * <ul>
+     *   <li><b>清理旧版本残留</b>——升级上来的用户，旧目录里还留着 1.5MB 的二进制；</li>
+     *   <li><b>卸载前说明</b>——卸载后到底会留下什么，要不要在卸载前手动清一次。</li>
+     * </ul>
+     *
+     * <p>为什么不拆成两行：这两件事都属于「低频、点一次就完」的操作，
+     * 拆开会让设置页多一个看起来很有内容的入口，反而诱导用户去点。
+     * 现在只占一行，点开才展开说明。
      */
-    private void confirmCleanupLegacy() {
-        UiKit.dialog(this, P, R.drawable.ic_refresh, "清理旧版本残留",
-                "旧版本的 sqlite3 可执行文件与依赖库放在系统临时目录"
+    private void showCleanupDialog() {
+        UiKit.dialog(this, P, R.drawable.ic_refresh, "清理与卸载",
+                "旧版本把 sqlite3 与依赖库放在系统临时目录"
                         + "（/data/local/tmp/pickup_sqlite），卸载 App 时系统不会清理，"
                         + "会一直占着约 1.5MB。\n\n"
-                        + "新版本已改到应用私有目录，卸载时会自动删除。"
-                        + "这里只清理旧版本留下的那部分。\n\n"
-                        + "跨进程同步用的几个 KB 配置文本会保留——系统进程要靠它读设置。",
+                        + "新版本已经改到应用私有目录，卸载时会随应用数据一起删除。"
+                        + "\n\n下面两个操作都只影响这个旧目录，不动你的取件记录。",
                 null, 0,
-                UiKit.primary("确认清理", () -> {
+                UiKit.primary("清理旧版本残留", this::runCleanupLegacy),
+                UiKit.ghost("卸载前说明", this::showUninstallInfo));
+    }
+
+    /** 执行旧版本残留清理（只删二进制，保留配置——还在用的用户需要它们） */
+    private void runCleanupLegacy() {
+        Toast.makeText(this, "正在清理…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final String msg = Repair.cleanupLegacy(this);
+            runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());
+        }).start();
+    }
+
+    /**
+     * 卸载后残留说明（v4.0.3）。
+     *
+     * <p>要回答三个问题：系统会自动删什么、还会留下什么、为什么不能一起删。
+     * 用户明确要求「所有的情况都表达清楚」——所以把三个文件连路径一起列出来，
+     * 而不是只说「会留几 KB」。
+     */
+    private void showUninstallInfo() {
+        UiKit.dialog(this, P, R.drawable.ic_refresh, "卸载会留下什么",
+                "卸载 App 时，系统会自动删除：\n"
+                        + "· 应用私有目录里的全部内容——sqlite3、依赖库、"
+                        + "本地取件记录、所有设置\n"
+                        + "· 桌面上的小组件\n\n"
+                        + "卸载后仍会留下（约 5KB，3 个文本文件，都在 "
+                        + RuntimePaths.SYNC_DIR + "）：\n"
+                        + "· app_state.json　　规则与通知白名单\n"
+                        + "· enable_noti_hook　通知通道开关\n"
+                        + "· user_rules.json　　用户规则\n\n"
+                        + "为什么不能一起删：抓取时是系统进程去读这些配置，"
+                        + "而它进不去应用私有目录，只能放在这个公共位置。\n\n"
+                        + "想彻底不留，就在卸载之前点下面的按钮。"
+                        + "清掉之后通知抓取会先失效——做一次体检、或标记一次已取，"
+                        + "配置就会自动重建。",
+                null, 0,
+                UiKit.primary("彻底清理（含配置）", () -> {
                     Toast.makeText(this, "正在清理…", Toast.LENGTH_SHORT).show();
                     new Thread(() -> {
-                        final String msg = Repair.cleanupLegacy(this);
+                        final String msg = Repair.purgeSyncDir(this);
                         runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());
                     }).start();
                 }),
-                UiKit.ghost("取消", null));
+                UiKit.ghost("关闭", null));
     }
 
     private void openUrl(String url) {

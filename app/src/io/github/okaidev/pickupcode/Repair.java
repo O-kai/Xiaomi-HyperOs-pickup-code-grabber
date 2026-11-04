@@ -194,6 +194,42 @@ public class Repair {
         }
     }
 
+    /**
+     * 彻底清空跨进程同步目录（v4.0.3，「卸载前清理」用）。
+     *
+     * <p>和 {@link #cleanupLegacy} 的区别：那个只删旧版本的二进制、保留配置，
+     * 因为还在用的用户需要它们；这个是把目录整个清空，面向「马上就卸载」的场景。
+     *
+     * <p>只删已知的三个文件名再 {@code rmdir}（不存在的就跳过），
+     * 不用 {@code rm -rf} —— 万一常量写错，也不会连带删掉别的目录。
+     *
+     * <p>删完会记一个「待同步」标记：如果用户其实还想继续用，
+     * 下次任何需要 root 的动作都会把配置重新写回来（自愈）。
+     *
+     * @return 人话结果，可直接展示
+     */
+    public static String purgeSyncDir(Context ctx) {
+        StringBuilder sb = new StringBuilder();
+        for (String f : RuntimePaths.CONFIG_FILES) {
+            sb.append("rm -f ").append(f).append("; ");
+        }
+        sb.append("rmdir ").append(RuntimePaths.SYNC_DIR).append(" 2>/dev/null; ");
+        sb.append("ls ").append(RuntimePaths.SYNC_DIR).append(" 2>&1 | head -5; ");
+        sb.append("echo PURGE_DONE");
+
+        String[] r = Diagnostics.suExecPublic(sb.toString(), 20);
+        String out = r == null ? "" : (r[0] == null ? "" : r[0]);
+        if (!out.contains("PURGE_DONE")) {
+            return "清理失败（需要 root）：" + clip(out, 120);
+        }
+        Log.i("PICKUPDEBUG", "purgeSyncDir done: " + clip(out, 200));
+        // 万一用户之后还想继续用：标记待同步，下次用到 root 时会自动重建配置
+        ProcessSync.markPending(ctx);
+        return "已清空同步目录。\n卸载 App 后不会在 /data/local/tmp 留下任何文件。"
+                + "\n\n如果之后还要继续用：随便做一次需要 root 的操作"
+                + "（比如标记已取），配置会自动重建。";
+    }
+
     // ================================================================
     //  配置快照的可读性（SELinux 标签）
     // ================================================================
@@ -263,6 +299,36 @@ public class Repair {
             } catch (Throwable ignored) { }
         }
         return ok;
+    }
+
+    /**
+     * 通知开关文件丢了就按本地偏好补回来（v4.0.3）。
+     *
+     * <p><b>为什么需要</b>：设置页的开关状态以本地偏好为准，而真正的开关是
+     * {@code /data/local/tmp/pickup_sqlite/enable_noti_hook} 这个文件。
+     * 「卸载前清理」会把它删掉——之后偏好仍写着「开」，界面显示开着，
+     * 实际 system_server 读不到文件就当作关闭，**通知抓取静默失效**。
+     *
+     * <p>这里在每次完整体检（已有 root 通道）时对一次账：文件不在就按偏好写回去。
+     * 重建是幂等的，文件在就直接跳过，不会多跑命令。
+     */
+    public static void ensureNotiFlagFile(Context ctx) {
+        if (ctx == null || !RootShell.isReady()) return;
+        try {
+            String probe = RootShell.exec(
+                    "test -f " + RuntimePaths.FLAG_FILE + " && echo FLAG_YES || echo FLAG_NO", 6000);
+            if (probe == null || probe.contains("FLAG_YES")) return;
+            boolean on = ctx.getSharedPreferences("dedup", Context.MODE_PRIVATE)
+                    .getBoolean("noti_hook", false);
+            String v = on ? "1" : "0";
+            RootShell.exec("mkdir -p " + RuntimePaths.SYNC_DIR + "; "
+                    + "echo " + v + " > " + RuntimePaths.FLAG_FILE + "; "
+                    + "chmod 644 " + RuntimePaths.FLAG_FILE
+                    + ProcessSync.readableConfigCommand(RuntimePaths.FLAG_FILE), 10000);
+            Log.i("PICKUPDEBUG", "ensureNotiFlagFile: recreated with " + v);
+        } catch (Throwable t) {
+            Log.w("PICKUPDEBUG", "ensureNotiFlagFile failed: " + t);
+        }
     }
 
     /**

@@ -34,7 +34,7 @@ public final class AppVersion {
     }
 
     /** 读不到 PackageManager 时的兜底版本号 */
-    private static final String FALLBACK = "4.0.2";
+    private static final String FALLBACK = "4.0.3";
 
     /**
      * 点分版本号，如 {@code 4.0.2}。
