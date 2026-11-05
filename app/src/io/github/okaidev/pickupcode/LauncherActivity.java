@@ -1132,7 +1132,7 @@ public class LauncherActivity extends Activity {
         // v4.0 收口：「需要重启」这件事原本在开头说一遍、末尾又说一遍，
         // 合并到末尾那条提示里说一次就够——同一件事说两遍只会让人以为是两件事。
         String introText =
-                "下方 App 收到含取件码的通知时，会被自动读取并写入待办。\n"
+                "下方 App 收到含取件码的通知时，会被自动读取并按你的写入目标保存。\n"
                         + "短信通道不受此限制：任何号码的取件短信都会识别。\n"
                         + "识别规则与短信通道共用一套规则集。";
         android.text.SpannableString introSp = new android.text.SpannableString(introText);
@@ -1531,7 +1531,7 @@ public class LauncherActivity extends Activity {
                         + "常见取件短信写法，绝大多数情况开箱即用，不需要在这里添加任何东西。\n\n"
                         + "只有当你遇到「官方规则认不出、但确实是取件短信」的情况时，"
                         + "才需要在这里为那个驿站单独写一条规则。\n\n"
-                        + "如果不确定怎么填，建议先到「设置 → 排查」运行排查向导，"
+                        + "如果不确定怎么填，建议先到「首页 → 状态卡 → 进入排查向导」走一遍，"
                         + "比自行修改更稳妥。",
                 12.5f, UiKit.INK3);
         advNote.setLineSpacing(dp(3), 1.15f);
@@ -1690,7 +1690,7 @@ public class LauncherActivity extends Activity {
         // 4.0：界面模式切换（简洁 / 进阶），放在基础设置第一位
         TextView modeValue = UiKit.value(this, P, "进阶");
         LinearLayout modeRow = UiKit.row(this, P, R.drawable.ic_grid, "界面模式",
-                "简洁：一页包含规则与写入格式；进阶：四个页面分区", modeValue);
+                "简洁一页看完，进阶分四页", modeValue);
         modeRow.setOnClickListener(v -> showModeSwitchDialog());
         perCard.addView(modeRow);
         perCard.addView(UiKit.divider(this, P));
@@ -1700,7 +1700,7 @@ public class LauncherActivity extends Activity {
         // 记录关了它没有内容，Provider 也已经被停用，点进去只会一脸问号。
         if (LocalRecord.isOn(this)) {
             perCard.addView(toolRow(R.drawable.ic_home, "桌面小组件",
-                    "字号、是否显示地点、最多条数",
+                    "字号、显示内容与隐私",
                     v -> startActivity(new Intent(this, WidgetSettingsActivity.class))));
         }
 
@@ -1810,7 +1810,7 @@ public class LauncherActivity extends Activity {
     /** 「检查更新」行的副标题：说明自动检查状态，点行立即检查 */
     private String updateLabel() {
         return NetPolicy.autoNetAllowed(this)
-                ? "自动检查已开启（3 天一次）· 点此立即检查"
+                ? "自动检查已开启（3 天一次）· 点此检查"
                 : "自动检查已关闭 · 点此手动检查一次";
     }
 
@@ -1839,7 +1839,8 @@ public class LauncherActivity extends Activity {
                         + "   （列表底部、不带推荐角标的那一项），再加：\n"
                         + "   电话、短信、com.android.providers.telephony\n"
                         + "   小米设备另勾「小米笔记」\n\n"
-                        + "2. 收到取件短信后自动写入待办（一码一条，新码置顶）\n\n"
+                        + "2. 收到取件短信后自动保存：系统待办里一码一条、新码置顶，\n"
+                        + "   App 内「待取件」同步出现，桌面小组件跟着刷新\n\n"
                         + "3. 通知可点击复制取件码；通知上「已取件」可一键勾选\n\n"
                         + "4. 需要 root（Magisk / KernelSU）授权一次；\n"
                         + "   sqlite3 缺失时首页会出现「一键部署」按钮\n\n"
@@ -2352,7 +2353,7 @@ public class LauncherActivity extends Activity {
         // v4.7：合作者改成编号列表，一行一个角色，格式统一，不再挤成一团
         UiKit.dialog(this, P, R.drawable.ic_info, "关于模块",
                 "取件码助手 " + appVersionLabel() + "\n"
-                        + "自动提取快递取件码并写入待办（小米笔记 / ColorOS 日历·便签）\n\n"
+                        + "自动提取快递取件码，写入系统待办，并在 App 内留一份可查的记录\n\n"
                         + "【作者】\n"
                         + "欧锴（O-kai）— 项目发起与主要开发\n\n"
                         + "【合作者】\n"
@@ -3141,7 +3142,7 @@ public class LauncherActivity extends Activity {
 
         StringBuilder sb = new StringBuilder();
         sb.append("按下面顺序做，每步做完回到这里看是否变成「已通过」。\n")
-          .append("全部通过后，收到取件短信就会自动写入待办。\n\n");
+          .append("全部通过后，收到取件短信就会按你的写入目标自动保存。\n\n");
 
         String[] howTo = {
                 "在 LSPosed 里启用本模块，并勾选作用域「Android 系统」",
@@ -3188,7 +3189,7 @@ public class LauncherActivity extends Activity {
             int total = UserRules.loadAll(this).size();
             int enabled = 0;
             for (UserRules.Rule r : UserRules.loadAll(this)) if (r.enabled) enabled++;
-            if (total == 0) return "官方规则没覆盖到的短信？可为自家驿站单独写一条（当前 0 条）";
+            if (total == 0) return "官方规则没覆盖到的短信？可为自家驿站单独写一条";
             return "共 " + total + " 条，已启用 " + enabled + " 条｜" + (on ? "已开启" : "已关闭");
         } catch (Throwable t) {
             return "为自家驿站 / 学校自提柜写专属提取规则";
