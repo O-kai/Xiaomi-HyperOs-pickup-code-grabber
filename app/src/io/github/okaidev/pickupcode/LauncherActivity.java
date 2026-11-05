@@ -48,7 +48,14 @@ public class LauncherActivity extends Activity {
     private static final String KEY_SYS_DIRECT = "sys_direct_write";
     private static final String REPO_URL = "https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber";
     private static final String ISSUES_URL = REPO_URL + "/issues";
-    private static final String COOLAPK_URL = "https://www.coolapk.com/feed/73558591";
+    /**
+     * 开发者的酷安个人主页。
+     *
+     * <p>v4.0.3 第二轮：原先指向一个具体帖子（/feed/73558591）——
+     * 帖子会沉，链接也会随版本失效，新用户点进去可能看到几年前的动态。
+     * 个人主页长期有效，也不会因为换版本而失效。
+     */
+    private static final String COOLAPK_URL = "https://coolapk.com/u/1222904";
     private static final String CHANGELOG_URL = REPO_URL + "/blob/main/CHANGELOG.md";
     /** 黑名单默认关键词（恢复默认时回填用；唯一来源在 TodoWriter） */
     private static final String BLACKLIST_DEFAULT = TodoWriter.DEFAULT_BLACKLIST;
@@ -920,28 +927,21 @@ public class LauncherActivity extends Activity {
         box.addView(ctCard, UiKit.cardLp(this, 12));
 
         if (simple) {
-            // v4.0.3 第二轮：原来这里是两张卡——「反馈与支持」（点开还要再套一层弹窗）
-            // 和「进阶模式」。简洁模式本来就该「一页看完」，套娃和碎卡片都是多余的。
+            // v4.0.3 第二轮：简洁模式底部只留一个入口。
             //
-            // 现在合成一张「更多选项」，几项直接平铺：
-            //   错题本 / QQ 群 / 酷安 / 打赏作者 / 进阶模式（最末）
-            // 进阶模式是「离开简洁模式」的动作，放在页尾最符合导航直觉。
-            box.addView(UiKit.groupLabel(this, P, "更多选项"));
+            // 上一版把 5 条次要功能（错题本 / QQ 群 / 酷安 / 打赏 / 进阶模式）
+            // 直接摊在首页最下面，有两点不好：
+            //   · 用户得滚过整张写入格式卡才看得到，等于「藏起来了」；
+            //   · 它们全是低频操作，却把「一页看完」的简洁模式又拉长了。
+            // 现在收进一个「更多选项」弹窗，首页只留一个和「一键链路测试」
+            // 同样分量的入口。
             LinearLayout moreCard = UiKit.card(this, P);
-            moreCard.addView(buildMissedRow());
-            moreCard.addView(UiKit.divider(this, P));
-            moreCard.addView(toolRow(R.drawable.ic_phone, "开发者 QQ 群",
-                    "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
-            moreCard.addView(UiKit.divider(this, P));
-            moreCard.addView(toolRow(R.drawable.ic_chat, "酷安发布帖",
-                    "在酷安帖子下留言", v -> openUrl(COOLAPK_URL)));
-            moreCard.addView(UiKit.divider(this, P));
-            moreCard.addView(toolRow(R.drawable.ic_heart, "打赏作者",
-                    "纯自愿，不影响任何功能",
-                    v -> startActivity(new Intent(this, DonateActivity.class))));
-            moreCard.addView(UiKit.divider(this, P));
-            moreCard.addView(toolRow(R.drawable.ic_grid, "进阶模式",
-                    "更多规则、来源与设置", v -> showModeSwitchDialog()));
+            moreCard.setBackground(UiKit.bg(P.accentSoft, this, 18));
+            LinearLayout moreBtn = toolRow(R.drawable.ic_grid, "更多选项",
+                    "反馈、打赏与更多设置",
+                    v -> showMoreOptionsDialog());
+            moreBtn.setPadding(dp(16), dp(13), dp(16), dp(13));
+            moreCard.addView(moreBtn);
             box.addView(moreCard, UiKit.cardLp(this, 12));
         }
 
@@ -1784,8 +1784,8 @@ public class LauncherActivity extends Activity {
         aboutCard.addView(toolRow(R.drawable.ic_phone, "开发者 QQ 群",
                 "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
         aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_chat, "酷安发布帖",
-                "在酷安帖子下留言", v -> openUrl(COOLAPK_URL)));
+        aboutCard.addView(toolRow(R.drawable.ic_globe, "开发者酷安主页",
+                "在酷安留言找作者", v -> openUrl(COOLAPK_URL)));
         aboutCard.addView(UiKit.divider(this, P));
         // v4.0.2 第八轮：卸载残留清理。
         //
@@ -2243,6 +2243,42 @@ public class LauncherActivity extends Activity {
         }
     }
 
+    /**
+     * 简洁模式的「更多选项」。
+     *
+     * <p>v4.0.3 第二轮：这些原本摊在首页最下面——5 行卡片，用户得滚过整张
+     * 写入格式卡才看得到，等于「藏起来了」；而它们全是低频操作。
+     * 收进一个弹窗后，首页只留一个和「一键链路测试」同样分量的入口。
+     *
+     * <p>顺序：打赏在最前（用户要求，与进阶设置页把打赏提到最上方一致），
+     * 之后是反馈 / 联系作者 / 关于，最后是「进阶模式」——
+     * 它是切换形态的动作，放最末符合导航直觉。
+     */
+    private void showMoreOptionsDialog() {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        wrap.addView(toolRow(R.drawable.ic_heart, "打赏作者",
+                "纯自愿，不影响任何功能",
+                v -> startActivity(new Intent(this, DonateActivity.class))));
+        wrap.addView(UiKit.divider(this, P));
+        wrap.addView(buildMissedRow());
+        wrap.addView(UiKit.divider(this, P));
+        wrap.addView(toolRow(R.drawable.ic_phone, "开发者 QQ 群",
+                "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
+        wrap.addView(UiKit.divider(this, P));
+        wrap.addView(toolRow(R.drawable.ic_globe, "开发者酷安主页",
+                "在酷安留言找作者", v -> openUrl(COOLAPK_URL)));
+        wrap.addView(UiKit.divider(this, P));
+        wrap.addView(toolRow(R.drawable.ic_info, "关于模块",
+                appVersionLabel() + " · 作者 欧锴（O-kai）", v -> showAboutDialog()));
+        wrap.addView(UiKit.divider(this, P));
+        wrap.addView(toolRow(R.drawable.ic_grid, "进阶模式",
+                "更多规则、来源与设置", v -> showModeSwitchDialog()));
+
+        UiKit.dialog(this, P, R.drawable.ic_grid, "更多选项", null, wrap, 0);
+    }
+
     // ================================================================
     //  事件：更新 / 反馈 / 关于
     // ================================================================
@@ -2327,7 +2363,7 @@ public class LauncherActivity extends Activity {
                         + "3. Seven2023Six — 界面布局重构\n"
                         + "   四 Tab 结构、UiKit 设计系统、矢量图标体系\n\n"
                         + "LSPosed 模块仓库已上架，酷安同步更新\n"
-                        + "遇到问题欢迎附「复制 JSON 诊断报告」反馈", null,
+                        + "遇到问题欢迎到 QQ 群或酷安主页找作者", null,
                 UiKit.primary("知道了", null),
                 UiKit.ghost("用户协议", this::showAgreementDialog),
                 UiKit.ghost("更新日志", () -> openUrl(CHANGELOG_URL)));
@@ -3361,7 +3397,7 @@ public class LauncherActivity extends Activity {
         UiKit.chooser(this, P, R.drawable.ic_chat, "联系作者",
                 new CharSequence[]{
                         "QQ 群：901543676（复制群号）",
-                        "酷安发布帖"
+                        "酷安（开发者主页）"
                 }, -1, which -> {
                     if (which == 0) copyQqGroup();
                     else openUrl(COOLAPK_URL);
@@ -3376,7 +3412,7 @@ public class LauncherActivity extends Activity {
                 String where = Diagnostics.exportAndShare(this, report);
                 runOnUiThread(() -> Toast.makeText(this,
                         "报告已生成：" + where + "（已自动脱敏）\n"
-                                + "反馈渠道：QQ 群 901543676（备注「取件码助手」）/ GitHub Issues / 酷安帖子留言",
+                                + "反馈渠道：QQ 群 901543676（备注「取件码助手」）/ 酷安开发者主页",
                         Toast.LENGTH_LONG).show());
             } catch (Throwable t) {
                 runOnUiThread(() -> Toast.makeText(this,
