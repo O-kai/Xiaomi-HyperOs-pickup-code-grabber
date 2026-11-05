@@ -33,7 +33,7 @@ POST /repos/Xposed-Modules-Repo/io.github.okaidev.pickupcode/releases
 
 **为什么以前能发？** 因为以前用的是 **classic token**（`ghp_`，40 位）。
 classic token 不需要组织批准，直接继承协作者权限。那个 token 在
-`D://project//_credentials//gh-token.txt`，现在已经失效（`Bad credentials`）。
+旧凭据文件（`_credentials` 目录下的 `gh-token.txt`）现在已经失效（`Bad credentials`）。
 
 > 顺带纠正一个印象：镜像仓库**没有**自动同步。`git log` 里每次同步
 > （v2.5.1 / v2.6.0 / v2.7.0 …）的提交人都是 O-kai 本人、时间都对得上发版日，
