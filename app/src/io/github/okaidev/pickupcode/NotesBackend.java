@@ -168,6 +168,17 @@ public class NotesBackend {
     }
 
     /**
+     * 云同步所属的账号体系。
+     *
+     * <p>用来向用户解释「系统待办为什么值得开着」：它写进的是系统级的库，
+     * 会跟着这个账号同步到同账号的其他设备；而 App 内部的记录只在本机。
+     * 小米是小米账号，ColorOS 是 OPPO 账号（HeyTap 云服务）。
+     */
+    public static String cloudAccountName() {
+        return isMiuiRom() ? "小米账号" : "OPPO 账号";
+    }
+
+    /**
      * 本机可选的「待办类」目标（不含小组件）。
      *
      * <p>小米只有小米笔记待办；ColorOS 有两个——日历待办与便签笔记。

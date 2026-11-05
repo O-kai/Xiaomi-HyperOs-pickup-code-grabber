@@ -61,6 +61,22 @@ public class ExtractorRules {
     public List<String> byLookaheadWords = new ArrayList<>();
     /** 追加特征词（不替换内置词表，供热更新扩充新驿站品牌） */
     public List<String> extraFeatureWords = new ArrayList<>();
+    /**
+     * 「纯状态通知」短语：命中即整条判定为不是取件短信（v9 规则集新增）。
+     *
+     * <p>为什么需要单独一张表：电商平台会推「商品待取件提醒」「订单发货通知」
+     * 「商品派送通知」这类消息——它们含「取件／快递／驿站」等特征词，
+     * 但**根本不给取件凭据**，只是告诉你「有件了／在送了」。
+     * 用特征词表拦不住（这些词真的出现在正文里），用 negativeKeywords 也不行
+     * （那只在弱兜底阶段生效，且要求无强锚点）。
+     *
+     * <p>所以单独做一层「整条短信级别」的否决：命中这里任何一个短语，
+     * 就直接当作非取件短信，不进提取、不进错题本、不写待办、不发通知。
+     *
+     * <p>词条刻意用**带平台的完整标题**（「商品待取件提醒」而不是「待取件提醒」）：
+     * 「待取件提醒」是菜鸟驿站真实取件短信的常见标题，绝不能整条排除。
+     */
+    public List<String> notifyOnlyPhrases = new ArrayList<>();
 
     // 编译后的 Pattern 缓存
     public transient Pattern patternKeyword;
@@ -75,6 +91,8 @@ public class ExtractorRules {
     public transient Pattern patternPlaceFallback;
     /** v3/v4：负向排除正则（无强锚点时命中即整体阻断） */
     public transient Pattern patternNegative;
+    /** v9：纯状态通知正则（命中即整条不是取件短信） */
+    public transient Pattern patternNotifyOnly;
     /** v4：URL 区间（其中的数字一律不是取件码） */
     public transient Pattern patternUrl;
     /** v4：掩码手机号（如 159****6739） */
@@ -112,6 +130,7 @@ public class ExtractorRules {
         r.excludeTailPhrases = asList(GeneratedRules.EXCLUDE_TAIL_PHRASES);
         r.excludeHeadWords = asList(GeneratedRules.EXCLUDE_HEAD_WORDS);
         r.extraFeatureWords = asList(GeneratedRules.EXTRA_FEATURE_WORDS);
+        r.notifyOnlyPhrases = asList(GeneratedRules.NOTIFY_ONLY_PHRASES);
         r.compile();
         return r;
     }
@@ -170,6 +189,7 @@ public class ExtractorRules {
         List<String> byLook = jsonArrayToList(obj.optJSONArray("byLookaheadWords"));
         r.byLookaheadWords = byLook.isEmpty() ? fallback.byLookaheadWords : byLook;
         r.extraFeatureWords = jsonArrayToList(obj.optJSONArray("extraFeatureWords"));
+        r.notifyOnlyPhrases = jsonArrayToList(obj.optJSONArray("notifyOnlyPhrases"));
 
         r.compile();
         return r;
@@ -198,6 +218,7 @@ public class ExtractorRules {
             obj.put("excludeHeadWords", listToJsonArray(excludeHeadWords));
             obj.put("byLookaheadWords", listToJsonArray(byLookaheadWords));
             obj.put("extraFeatureWords", listToJsonArray(extraFeatureWords));
+            obj.put("notifyOnlyPhrases", listToJsonArray(notifyOnlyPhrases));
 
             return obj.toString(2);
         } catch (Throwable t) {
@@ -286,6 +307,12 @@ public class ExtractorRules {
             patternNegative = Pattern.compile(String.join("|", negativeKeywords));
         } else {
             patternNegative = null;
+        }
+        // v9：纯状态通知（电商发货/派送/待取件提醒）——整条否决，不参与后续提取
+        if (notifyOnlyPhrases != null && !notifyOnlyPhrases.isEmpty()) {
+            patternNotifyOnly = Pattern.compile(String.join("|", notifyOnlyPhrases));
+        } else {
+            patternNotifyOnly = null;
         }
     }
 

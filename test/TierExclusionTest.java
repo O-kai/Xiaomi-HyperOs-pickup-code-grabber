@@ -79,7 +79,65 @@ public class TierExclusionTest {
         expect("长数字码", "【某】取件码267961已生成", "267961");
         expect("无锚点靠上下文", "【兔喜生活】请凭552577至同兴冠寓3号楼1号兔喜快递柜取件", "552577");
 
+        // v9：纯状态通知（电商只说「有件 / 在送」，不给取件凭据）。
+        // 样本来自真机错题本，全部是拼多多通知；以前它们会被当成「疑似漏抓」记下来。
+        System.out.println("-- v9 纯状态通知：含特征词但没凭据，整条不是取件短信 --");
+        expect("拼多多·待取件提醒",
+                "商品待取件提醒\n您的商品已存放至菜鸟驿站代收点，请凭手机号及时取件，今日共2个快递待取。", "(空)");
+        expect("拼多多·发货通知",
+                "订单发货通知\n神经蛙 ，您购买的商品已通过申通快递发货。", "(空)");
+        expect("拼多多·派送通知",
+                "商品派送通知\n神经蛙 ，您的商品正由圆通快递派送中。 请注意查收。服饰洗涤后不支持无理由退货。", "(空)");
+        expect("拼多多·超时未取",
+                "商品待取件提醒\n您的商品在代收点已超1天未取。若取件遇到问题请联系快递员，今日共1个快递待取。", "(空)");
+
+        // 这一条是上面那条规则的护栏：只排除「商品待取件提醒」这种电商标题，
+        // 不能把驿站真实取件短信里更常见的「待取件提醒」一起误杀。
+        System.out.println("-- v9 反向保护：驿站真实「待取件提醒」不能被误杀 --");
+        expect("菜鸟·待取件提醒",
+                "【菜鸟驿站】待取件提醒：您的包裹已到江南绿城西门，取件码 12-3-4567", "12-3-4567");
+        expect("丰巢·待取提醒",
+                "【丰巢】待取件提醒：您的包裹已到丰巢智能柜，取件码 33-2-1188", "33-2-1188");
+
+        // 错题本的入口用的是 hasFeatureWords（比 extract 更宽），
+        // 纯状态通知必须在这一层就被挡住，否则错题本还是会被灌满。
+        System.out.println("-- v9 错题本门禁：纯状态通知不得进入「疑似漏抓」 --");
+        expectNotPickup("拼多多·待取件提醒",
+                "商品待取件提醒\n您的商品已存放至菜鸟驿站代收点，请凭手机号及时取件，今日共2个快递待取。");
+        expectNotPickup("拼多多·发货通知",
+                "订单发货通知\n神经蛙 ，您购买的商品已通过申通快递发货。");
+        expectNotPickup("拼多多·派送通知",
+                "商品派送通知\n神经蛙 ，您的商品正由圆通快递派送中。 请注意查收。");
+        expectNotPickup("拼多多·超时未取",
+                "商品待取件提醒\n您的商品在代收点已超1天未取。若取件遇到问题请联系快递员，今日共1个快递待取。");
+        expectPickup("真实取件短信",
+                "【菜鸟驿站】待取件提醒：您的包裹已到江南绿城西门，取件码 12-3-4567");
+
         System.out.println("   语义排除: PASS=" + pass + " FAIL=" + fail);
         if (fail > 0) System.exit(1);
+    }
+
+    /** hasFeatureWords 必须为 false（纯状态通知连错题本都不该进） */
+    private static void expectNotPickup(String label, String body) {
+        boolean got = PickupExtractor.hasFeatureWords(null, body);
+        if (!got) {
+            pass++;
+            System.out.println("  ok   " + label + "  -> 非取件");
+        } else {
+            fail++;
+            System.out.println("  FAIL " + label + " 期望=非取件 实际=被当成取件短信");
+        }
+    }
+
+    /** hasFeatureWords 必须为 true（真实取件短信不能被误杀） */
+    private static void expectPickup(String label, String body) {
+        boolean got = PickupExtractor.hasFeatureWords(null, body);
+        if (got) {
+            pass++;
+            System.out.println("  ok   " + label + "  -> 取件短信");
+        } else {
+            fail++;
+            System.out.println("  FAIL " + label + " 期望=取件短信 实际=非取件");
+        }
     }
 }

@@ -104,6 +104,7 @@ tasks.register('generateRules') {
                 ['EXCLUDE_TAIL_PHRASES', 'excludeTailPhrases'],
                 ['EXCLUDE_HEAD_WORDS', 'excludeHeadWords'],
                 ['EXTRA_FEATURE_WORDS', 'extraFeatureWords'],
+                ['NOTIFY_ONLY_PHRASES', 'notifyOnlyPhrases'],
         ]
         arrays.each { pair ->
             sb.append('    public static final String[] ' + pair[0] + ' = { ' + escArray(pair[1]) + ' };\n')

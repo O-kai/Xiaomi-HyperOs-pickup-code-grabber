@@ -87,6 +87,7 @@ ARRAYS = [
     ("EXCLUDE_TAIL_PHRASES", "excludeTailPhrases"),
     ("EXCLUDE_HEAD_WORDS", "excludeHeadWords"),
     ("EXTRA_FEATURE_WORDS", "extraFeatureWords"),
+    ("NOTIFY_ONLY_PHRASES", "notifyOnlyPhrases"),
 ]
 
 

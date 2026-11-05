@@ -282,6 +282,9 @@ public class PickupExtractor {
         if (UserRules.tryMatch(userRuleCache, sender, body) != null) return true;
         ExtractorRules r = activeRules;
         if (r == null || r.patternFeature == null || r.patternAnyToken == null) return false;
+        // v9：纯状态通知（电商「商品待取件提醒 / 订单发货通知 / 商品派送通知」）
+        // 含特征词却不给凭据，整条不是取件短信
+        if (r.patternNotifyOnly != null && r.patternNotifyOnly.matcher(body).find()) return false;
         if (!r.patternFeature.matcher(body).find()) return false;
         return r.patternAnyToken.matcher(body).find();
     }
@@ -302,7 +305,11 @@ public class PickupExtractor {
         if (body == null || body.isEmpty()) return false;
         if (UserRules.tryMatch(userRuleCache, sender, body) != null) return true;
         ExtractorRules r = activeRules;
-        return r != null && r.patternFeature != null && r.patternFeature.matcher(body).find();
+        if (r == null || r.patternFeature == null) return false;
+        // v9：纯状态通知整条否决。这一层是错题本的入口——
+        // 不拦的话「拼多多：今日共2个快递待取」这类会天天进来当「疑似漏抓」。
+        if (r.patternNotifyOnly != null && r.patternNotifyOnly.matcher(body).find()) return false;
+        return r.patternFeature.matcher(body).find();
     }
 
     /** 提取全部取件码（使用当前活跃规则，无发送方上下文） */
@@ -443,6 +450,11 @@ public class PickupExtractor {
         }
 
         // ===== Tier0-A：快递特征门禁 =====
+        // v9：先过「纯状态通知」否决——这类消息含特征词但没有凭据，
+        // 直接调 extract()（链路测试/体检）时也必须拦下。
+        if (r.patternNotifyOnly != null && r.patternNotifyOnly.matcher(body).find()) {
+            return new ArrayList<>(result);
+        }
         if (r.patternFeature == null || !r.patternFeature.matcher(body).find()) {
             return new ArrayList<>(result);
         }
