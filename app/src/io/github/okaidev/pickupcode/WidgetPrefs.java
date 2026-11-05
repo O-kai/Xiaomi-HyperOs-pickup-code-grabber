@@ -185,7 +185,9 @@ public final class WidgetPrefs {
             return sp.getBoolean(KEY_SHOW_CODE, true);
         }
         boolean show = !sp.getBoolean(KEY_HIDE_CODE, false);
-        sp.edit().putBoolean(KEY_SHOW_CODE, show).apply();
+        // 迁移完就把旧键删掉：两个语义相反的键同时留在文件里，
+        // 以后排查「配置快照」的人还得先猜以哪个为准。
+        sp.edit().putBoolean(KEY_SHOW_CODE, show).remove(KEY_HIDE_CODE).apply();
         return show;
     }
 
