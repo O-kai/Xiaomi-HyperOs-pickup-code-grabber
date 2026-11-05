@@ -920,25 +920,29 @@ public class LauncherActivity extends Activity {
         box.addView(ctCard, UiKit.cardLp(this, 12));
 
         if (simple) {
-            // v4.0.1：简洁模式的底部结构（顺序按用户要求调整）
-            //   倒数第二：反馈与支持
-            //   最底下：进阶模式入口（点击弹窗确认，与进阶→简洁一致）
+            // v4.0.3 第二轮：原来这里是两张卡——「反馈与支持」（点开还要再套一层弹窗）
+            // 和「进阶模式」。简洁模式本来就该「一页看完」，套娃和碎卡片都是多余的。
             //
-            // v4.0 收口：原先这里是「提交问题到 GitHub」+「加入开发者 QQ 群」两行，
-            // 与进阶模式的设置重复（同一个去处摆两次）。现在收成一个入口，
-            // 弹窗内容与进阶模式「反馈与支持」完全一致。
-            LinearLayout fb = UiKit.card(this, P);
-            fb.addView(toolRow(R.drawable.ic_chat, "反馈与支持",
-                    "诊断报告 · 错题本 · GitHub · QQ 群 · 酷安",
-                    v -> showFeedbackSupportDialog()));
-            box.addView(fb, UiKit.cardLp(this, 12));
-
-            // 进阶模式入口放在最末位：它是「离开简洁模式」的动作，
-            // 放在页面最下方才符合「页尾导航」的直觉。
-            LinearLayout more = UiKit.card(this, P);
-            more.addView(toolRow(R.drawable.ic_grid, "进阶模式",
+            // 现在合成一张「更多选项」，几项直接平铺：
+            //   错题本 / QQ 群 / 酷安 / 打赏作者 / 进阶模式（最末）
+            // 进阶模式是「离开简洁模式」的动作，放在页尾最符合导航直觉。
+            box.addView(UiKit.groupLabel(this, P, "更多选项"));
+            LinearLayout moreCard = UiKit.card(this, P);
+            moreCard.addView(buildMissedRow());
+            moreCard.addView(UiKit.divider(this, P));
+            moreCard.addView(toolRow(R.drawable.ic_phone, "开发者 QQ 群",
+                    "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
+            moreCard.addView(UiKit.divider(this, P));
+            moreCard.addView(toolRow(R.drawable.ic_chat, "酷安发布帖",
+                    "在酷安帖子下留言", v -> openUrl(COOLAPK_URL)));
+            moreCard.addView(UiKit.divider(this, P));
+            moreCard.addView(toolRow(R.drawable.ic_heart, "打赏作者",
+                    "纯自愿，不影响任何功能",
+                    v -> startActivity(new Intent(this, DonateActivity.class))));
+            moreCard.addView(UiKit.divider(this, P));
+            moreCard.addView(toolRow(R.drawable.ic_grid, "进阶模式",
                     "更多规则、来源与设置", v -> showModeSwitchDialog()));
-            box.addView(more, UiKit.cardLp(this, 12));
+            box.addView(moreCard, UiKit.cardLp(this, 12));
         }
 
         return sv;
@@ -1771,10 +1775,17 @@ public class LauncherActivity extends Activity {
         aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_github, "项目主页",
                 "GitHub · 仓库、更新日志与 Issue", v -> openUrl(REPO_URL)));
+        // v4.0.3 第二轮：原来这里是一个「反馈与支持」入口，点开再套一层弹窗，
+        // 弹窗里还有「复制 JSON 诊断报告」和「GitHub Issues」。用户的要求是：
+        // 那两项都去掉，剩下的三项直接平铺——设置页里不必再套一层。
         aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_chat, "反馈与支持",
-                "诊断报告 · 错题本 · GitHub · QQ 群 · 酷安",
-                v -> showFeedbackSupportDialog()));
+        aboutCard.addView(buildMissedRow());
+        aboutCard.addView(UiKit.divider(this, P));
+        aboutCard.addView(toolRow(R.drawable.ic_phone, "开发者 QQ 群",
+                "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
+        aboutCard.addView(UiKit.divider(this, P));
+        aboutCard.addView(toolRow(R.drawable.ic_chat, "酷安发布帖",
+                "在酷安帖子下留言", v -> openUrl(COOLAPK_URL)));
         aboutCard.addView(UiKit.divider(this, P));
         // v4.0.2 第八轮：卸载残留清理。
         //
@@ -2193,47 +2204,43 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * 反馈与支持：把所有"要跳出去"的去处收在一处。
+     * 「疑似漏抓错题本」这一行（v4.0.3 第二轮：从弹窗里搬出来，直接平铺）。
      *
-     * <p>v4.0 收口：诊断报告、错题本、sqlite3 自检、GitHub、QQ 群、酷安
-     * 原先是 6 个散落入口（设置里 4 个 + 简洁模式 2 个），现在统一到这里。
+     * <p>副标题里的条数会随清空变化，所以这里把「清空后刷新自己」的回调
+     * 直接绑在行上——外层页面<strong>不能</strong>靠 {@link #rebuildUi()}
+     * 来刷新：那个方法是 recreate()，会把正在显示的对话框一起销毁，
+     * 用户点完「确认清空」会莫名其妙回到上一页。
      */
-    private void showFeedbackSupportDialog() {
-        int missed = 0;
-        try { missed = MissedSmsStore.getAll(this).size(); } catch (Throwable ignored) { }
-
-        LinearLayout wrap = new LinearLayout(this);
-        wrap.setOrientation(LinearLayout.VERTICAL);
-
-        addSupportRow(wrap, R.drawable.ic_file, "复制 JSON 诊断报告",
-                "机器可读格式，贴到 Issue 代码块更方便", v -> exportDiagJson());
-        wrap.addView(UiKit.divider(this, P));
-        addSupportRow(wrap, R.drawable.ic_notebook, "疑似漏抓错题本",
-                "当前 " + missed + " 条 · 一键脱敏复制上报", v -> showMissedSmsDialog());
-        // v4.0.3：删掉「sqlite3 自检与修复」。
-        // 用户理由：这个和能力重复——sqlite3 有问题时，「点击体检」里的
-        // 「sqlite3 部署」项就会报红，并直接给出「一键部署」按钮。
-        // 单独留一个自检入口只是让反馈弹窗看起来更复杂。
-        wrap.addView(UiKit.divider(this, P));
-        addSupportRow(wrap, R.drawable.ic_github, "GitHub Issues",
-                "反馈漏抓、写入失败等问题", v -> openUrl(ISSUES_URL));
-        wrap.addView(UiKit.divider(this, P));
-        addSupportRow(wrap, R.drawable.ic_phone, "开发者 QQ 群",
-                "901543676 · 进群备注「取件码助手」", v -> copyQqGroup());
-        wrap.addView(UiKit.divider(this, P));
-        addSupportRow(wrap, R.drawable.ic_chat, "酷安发布帖",
-                "在酷安帖子下留言", v -> openUrl(COOLAPK_URL));
-
-        UiKit.dialog(this, P, R.drawable.ic_chat, "反馈与支持",
-                "遇到问题时，可以带上「复制 JSON 诊断报告」的内容一起反馈，作者能少走弯路。",
-                wrap, 0);
+    private LinearLayout buildMissedRow() {
+        final LinearLayout row = toolRow(R.drawable.ic_notebook, "疑似漏抓错题本",
+                missedSub(missedCount()), null);
+        // 点击事件单独设：toolRow 的参数里不能再引用 row 自己（「可能尚未初始化」）
+        row.setOnClickListener(v -> showMissedSmsDialog(
+                () -> setRowSub(row, missedSub(missedCount()))));
+        return row;
     }
 
-    private void addSupportRow(LinearLayout parent, int iconRes, String title, String sub,
-                               View.OnClickListener cb) {
-        LinearLayout r = UiKit.row(this, P, iconRes, title, sub, UiKit.chevron(this, P));
-        r.setOnClickListener(cb);
-        parent.addView(r);
+    /** 错题本当前条数（读失败时按 0，不让一行副标题把页面拖崩） */
+    private int missedCount() {
+        try {
+            return MissedSmsStore.getAll(this).size();
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private static String missedSub(int n) {
+        return "当前 " + n + " 条 · 一键脱敏复制上报";
+    }
+
+    /** 就地改某一行的副标题（行结构固定：图标 / 文字列 / 右侧箭头） */
+    private void setRowSub(LinearLayout row, String text) {
+        if (row == null || text == null) return;
+        try {
+            LinearLayout col = (LinearLayout) row.getChildAt(1);
+            ((TextView) col.getChildAt(1)).setText(text);
+        } catch (Throwable ignored) {
+        }
     }
 
     // ================================================================
@@ -3230,7 +3237,15 @@ public class LauncherActivity extends Activity {
     }
 
     /** v2.8.0：疑似漏抓错题本（菜单入口 → 现在挂在「规则 → 工具」） */
-    private void showMissedSmsDialog() {
+    /**
+     * 疑似漏抓错题本详情。
+     *
+     * @param onCleared 清空成功后的回调。外层那一行显示的「当前 N 条」是
+     *                  构建时算好的静态文字，清空后必须靠这个回调就地更新——
+     *                  外层页面不能 recreate（会把本对话框一起销毁，
+     *                  用户点完「确认清空」会莫名其妙回到上一页）。
+     */
+    private void showMissedSmsDialog(Runnable onCleared) {
         List<MissedSmsStore.Sample> list = MissedSmsStore.getAll(this);
         boolean enabled = MissedSmsStore.isEnabled(this);
 
@@ -3275,7 +3290,9 @@ public class LauncherActivity extends Activity {
         body.setLineSpacing(dp(3), 1.15f);
         wrap.addView(body);
 
-        UiKit.dialog(this, P, R.drawable.ic_notebook, "疑似漏抓错题本（" + list.size() + " 条）",
+        // 先声明再赋值：清空后要能关掉这一层，而 lambda 里需要引用它自己。
+        final android.app.Dialog[] outer = new android.app.Dialog[1];
+        outer[0] = UiKit.dialog(this, P, R.drawable.ic_notebook, "疑似漏抓错题本（" + list.size() + " 条）",
                 null, wrap, 0,
                 UiKit.primary("复制上报文本", () -> {
                     String report = MissedSmsStore.formatReport(list);
@@ -3294,6 +3311,11 @@ public class LauncherActivity extends Activity {
                         UiKit.primary("确认清空", () -> {
                             MissedSmsStore.clear(this);
                             Toast.makeText(this, "错题本已清空 ✓", Toast.LENGTH_SHORT).show();
+                            // 顺序不能反：先刷新外层那行的条数，再关掉详情页。
+                            // 反过来的话用户先看到「当前 0 条」的旧数字，才看到它变，
+                            // 正是这个 bug 最初的样子。
+                            if (onCleared != null) onCleared.run();
+                            if (outer[0] != null) outer[0].dismiss();
                         }),
                         UiKit.ghost("取消", null))));
     }
@@ -3329,15 +3351,19 @@ public class LauncherActivity extends Activity {
         }
     }
 
+    /**
+     * 反馈渠道选择（排查向导失败时的出口）。
+     *
+     * <p>v4.0.3 第二轮：去掉了 GitHub Issues——设置页那个独立入口已经删掉，
+     * 这里再留一个入口就等于「删了又没删」。现在只留 QQ 群和酷安两个。
+     */
     private void showFeedbackChannels() {
-        UiKit.chooser(this, P, R.drawable.ic_chat, "选择反馈渠道",
+        UiKit.chooser(this, P, R.drawable.ic_chat, "联系作者",
                 new CharSequence[]{
                         "QQ 群：901543676（复制群号）",
-                        "GitHub Issues",
                         "酷安发布帖"
                 }, -1, which -> {
                     if (which == 0) copyQqGroup();
-                    else if (which == 1) openUrl(ISSUES_URL);
                     else openUrl(COOLAPK_URL);
                 });
     }
@@ -3428,56 +3454,6 @@ public class LauncherActivity extends Activity {
                 }
             }
         } catch (Throwable ignored) { }
-    }
-
-    /** 生成 JSON 版诊断报告并复制到剪贴板 */
-    private void exportDiagJson() {
-        Toast.makeText(this, "正在生成 JSON 诊断…（含体检与日志，约 5-15 秒）", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            String json;
-            try {
-                json = Diagnostics.collectReportJson(this);
-            } catch (Throwable t) {
-                json = "{\"error\":\"" + t.getMessage() + "\"}";
-            }
-            final String j = json;
-            android.util.Log.i("PICKUPDEBUG", "DIAG JSON bytes=" + j.length()
-                    + " head=" + j.substring(0, Math.min(120, j.length())));
-            // 同时存一份文件：反馈时可以直接把文件拖进 Issue
-            String saved = "";
-            try {
-                java.io.File dir = getExternalFilesDir(null);
-                if (dir != null) {
-                    java.io.File d = new java.io.File(dir, "diagnostics");
-                    d.mkdirs();
-                    String ts = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.CHINA)
-                            .format(new java.util.Date());
-                    java.io.File out = new java.io.File(d, "pickup-diag-" + ts + ".json");
-                    java.io.Writer os = new java.io.OutputStreamWriter(
-                            new java.io.FileOutputStream(out), "UTF-8");
-                    try {
-                        os.write(j);
-                    } finally {
-                        os.close();
-                    }
-                    saved = out.getAbsolutePath();
-                }
-            } catch (Throwable ignored) { }
-            final String savedPath = saved;
-            runOnUiThread(() -> {
-                try {
-                    ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    cm.setPrimaryClip(ClipData.newPlainText("pickup-diag-json", j));
-                    String extra = savedPath.isEmpty() ? ""
-                            : "\n已保存：" + savedPath;
-                    Toast.makeText(this,
-                            "JSON 诊断报告已复制（约 " + (j.length() / 1024) + " KB）" + extra
-                                    + "\n粘贴到 GitHub Issue 的代码块里即可", Toast.LENGTH_LONG).show();
-                } catch (Throwable t) {
-                    Toast.makeText(this, "复制失败：" + t.getMessage(), Toast.LENGTH_LONG).show();
-                }
-            });
-        }).start();
     }
 
     /**
