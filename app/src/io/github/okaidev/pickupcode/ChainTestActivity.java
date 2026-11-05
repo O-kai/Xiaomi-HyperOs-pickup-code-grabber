@@ -87,8 +87,8 @@ public class ChainTestActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("验证「短信进来 → 识别 → 写入待办」整条链路是否正常\n"
-                + "不消耗短信 · 不产生费用 · 测试记录可随时删除");
+        sub.setText("验证「短信进来 → 识别 → 写入」整条链路是否正常\n"
+                + "不消耗短信 · 不产生费用 · 写进去的是真实记录，点「✓ 取件」即可清掉");
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         sub.setTextColor(UiKit.INK3);
         sub.setLineSpacing(dp(3), 1.0f);
@@ -276,9 +276,11 @@ public class ChainTestActivity extends Activity {
         note.setText(hit
                 ? (hitUserRule != null
                     ? "识别成功（由你的自定义规则「" + hitUserRule + "」匹配）。\n\n"
-                        + "下一步可写入待办，验证完整链路（去重 + 通知）。"
+                        + "下一步会像真实短信一样走完整链路：按你设的写入目标写待办、"
+                        + "记进 App 的「待取件」，桌面小组件也会跟着刷新。"
                     : "识别成功（由官方规则集匹配）。\n\n"
-                        + "下一步可写入待办，验证完整链路（去重 + 通知）。")
+                        + "下一步会像真实短信一样走完整链路：按你设的写入目标写待办、"
+                        + "记进 App 的「待取件」，桌面小组件也会跟着刷新。")
                 : "没能识别到取件码。\n\n"
                 + "可能是短信模板较特殊，官方规则没覆盖到。\n"
                 + "这正是「用户自定义规则」该出手的场景。\n"
@@ -294,7 +296,7 @@ public class ChainTestActivity extends Activity {
         if (hit) {
             // v3.1.1：写入已移到后台线程，这里先把按钮置灰并改成"写入中"，
             // 否则长达数秒的 su+sqlite3 期间按钮毫无反馈，用户会以为"点了没反应"
-            page.addView(btn("③ 写入待办（验证完整链路）", UiKit.OK, v -> {
+            page.addView(btn("③ 写入（验证完整链路）", UiKit.OK, v -> {
                 v.setEnabled(false);
                 ((TextView) v).setText("⏳ 正在写入…（su + sqlite3，可能需数秒）");
                 doWrite(sms, sender);
@@ -372,8 +374,14 @@ public class ChainTestActivity extends Activity {
                 extras.putString("sender", sender != null ? sender : "chain-test");
                 extras.putString("body", sms);
                 extras.putLong("ts", System.currentTimeMillis());
-                // 4.0：链路测试记录标记为 test，避免进入本地待取件/小组件。
-                extras.putBoolean("test", true);
+                // v4.0.3 第二轮：不再标记 test。
+                //
+                // 原来这里传 true，Provider 会把记录写成 is_test=1，而本地库的
+                // 所有查询都带 `is_test = 0`——于是「待办里有了、App 里看不见」。
+                // 用户的原话是「链路测试应该跟真实收到短信后的完整链路一样」：
+                // 内部记录和桌面小组件也是这条链路的一部分，跳过它们等于只验证了一半。
+                // 所以现在测试事件和真实短信走完全相同的分支，包括首页「待取件」和小组件。
+                extras.putBoolean("test", false);
                 android.os.Bundle res = getContentResolver().call(
                         android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
                         "onSms", null, extras);
@@ -416,13 +424,27 @@ public class ChainTestActivity extends Activity {
             String diag = TodoWriter.getLastWriteDiag();
             if (diag.length() > 160) diag = diag.substring(0, 160) + "…";
             title = "写入未成功";
-            msg = "解析出了取件码，但写入待办这步没通过。\n\n可能原因：\n" + diag
+            msg = "解析出了取件码，但写入这步没通过。\n\n可能原因：\n" + diag
                     + "\n\n可回主界面点「规则 → 排查问题向导」按向导定位。";
         } else {
             title = "全链路已跑通";
+            // v4.0.3 第二轮：写入目标现在是两处（系统待办 + 软件内部记录），
+            // 结果文案要按用户实际勾选说清楚「这条到底落在哪」，
+            // 不能一律说「已写入待办」——只留内部记录的人会去笔记里找一个不存在的待办。
+            boolean hasTodo = !NotesBackend.todoTargets(this).isEmpty();
+            boolean hasLocal = NotesBackend.localSelected(this);
+            String where;
+            if (hasTodo && hasLocal) {
+                where = "系统待办里已经有这条，App 的「待取件」和桌面小组件也同步了。";
+            } else if (hasTodo) {
+                where = "系统待办里已经有这条（你关掉了软件内部记录，App 里不会留）。";
+            } else {
+                where = "这条只记进了 App 的「待取件」——你关掉了系统待办，桌面小组件也同步了。";
+            }
             msg = "解析：通过　识别：通过　写入：通过　去重：通过　通知：通过\n\n"
-                    + "整条链路工作正常。以后收到真实取件短信会自动写进待办，\n"
-                    + "这条测试记录可随时删除。\n\n已写入：" + wrote;
+                    + "整条链路工作正常。" + where + "\n"
+                    + "它和真实短信写进来的记录没有区别：点行尾的「✓ 取件」就能标记掉。\n\n"
+                    + "已写入：" + wrote;
         }
         // v3.0.0：第 3 步同样整页显示，与前两步布局一致
         LinearLayout page = pageBase();

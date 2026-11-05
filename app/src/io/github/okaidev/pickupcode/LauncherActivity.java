@@ -123,7 +123,17 @@ public class LauncherActivity extends Activity {
      * 现在把总高收短、实底比例降到 42%（132 × 0.42 ≈ 55dp，足够盖住底栏本体），
      * 上方留出更长的渐隐带——内容是「淡进」底栏的，而不是撞上一堵色墙。
      */
+    /** 底栏渐隐遮罩的高度（dp）——只影响视觉，不影响滚动 */
     private static final int NAV_SCRIM_DP = 132;
+    /**
+     * 页面内容的底部留白（dp）。必须比遮罩更高：
+     * 留白只是「能滚多远」，遮罩是「盖住多高」，两者相等时最后一行的下边缘
+     * 正好抵在遮罩上沿，手指点下去会先被底栏接走。
+     *
+     * <p>v4.0.3 第二轮实测：留白沿用 132dp 时，首页的「一键链路测试」
+     * 滚到底只露出半行、点不到。加到 176dp 后完整露出。
+     */
+    private static final int NAV_CONTENT_BOTTOM_DP = 176;
     /** 简洁模式右上角的「进阶模式 ›」入口。 */
     private TextView modeSwitch;
 
@@ -601,12 +611,12 @@ public class LauncherActivity extends Activity {
         sv.setHorizontalScrollBarEnabled(false);
         sv.setFillViewport(true);
         sv.setClipToPadding(false);
-        // 底部留出底栏高度 + 呼吸空间，保证最后一张卡能完整滚到遮罩上方
-        // 底部预留必须【不小于】底栏渐隐遮罩的高度（NAV_SCRIM_DP）。
-        // 之前这里写死 148dp，而遮罩是 188dp——于是最后一张卡片（首页的「一键链路测试」）
+        // 底部留出底栏高度 + 呼吸空间，保证最后一张卡能完整滚到遮罩上方。
+        // 留白要比遮罩更高一截（见 NAV_CONTENT_BOTTOM_DP 的说明）——
+        // 之前两者都取 NAV_SCRIM_DP，最后一张卡片（首页的「一键链路测试」）
         // 滚到底时仍然压在遮罩下面，看起来像被底栏吞掉一半，也点不到。
         // 内容越长（待取件卡片 + 写入格式编辑器都展开）越容易撞上。
-        sv.setPadding(dp(18), dp(4), dp(18), bottomSafePadding(NAV_SCRIM_DP));
+        sv.setPadding(dp(18), dp(4), dp(18), bottomSafePadding(NAV_CONTENT_BOTTOM_DP));
         return sv;
     }
 
@@ -904,7 +914,7 @@ public class LauncherActivity extends Activity {
         LinearLayout ctCard = UiKit.card(this, P);
         ctCard.setBackground(UiKit.bg(P.accentSoft, this, 18));
         chainTestBtn = toolRow(R.drawable.ic_flask, "一键链路测试",
-                "验证「收到短信 → 写入待办」整条链路是否通", v -> precheckThenOpenChainTest());
+                "验证「收到短信 → 写入」整条链路是否通", v -> precheckThenOpenChainTest());
         chainTestBtn.setPadding(dp(16), dp(13), dp(16), dp(13));
         ctCard.addView(chainTestBtn);
         box.addView(ctCard, UiKit.cardLp(this, 12));
