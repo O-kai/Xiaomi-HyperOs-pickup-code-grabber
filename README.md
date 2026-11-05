@@ -256,7 +256,7 @@ CI 只产出 debug 包。改完规则可以跑 `bash tools/run_all_tests.sh`（1
   ColorOS 17 / Android 16 上的参数校验、冻结后的 Provider 唤醒放行、CI 修复、短信 Hook 类名适配。
   这几份 PR 的诊断质量很高，4.0.3 已逐条移植（见 [`docs/PR-REVIEW-2026-11-05.md`](docs/PR-REVIEW-2026-11-05.md)）。
 - [@Seven2023Six](https://github.com/Seven2023Six) —— 界面重构提案与讨论，其中不少判断被 4.0 的 UI 采纳。
-- [@Vv-Ww](https://github.com/Vv-Ww) —— 早期 ColorOS 16 适配（写入侧），v2.7.0 起整合进本仓库。
+- [@VWV2005](https://github.com/VWV2005) —— 早期 ColorOS 16 适配（写入侧），v2.7.0 起整合进本仓库。
 - 以及所有提过 issue、贴过日志的人——这个模块的很多修复都是从一行日志开始的。
 
 ---
