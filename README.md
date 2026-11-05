@@ -12,20 +12,25 @@
 一个跑在 **LSPosed** 上的取件码聚合模块：从短信和 App 通知里认出取件码，
 存进本地库，顺手同步到系统待办，并给桌面一个小部件。
 
+取件码原本散在驿站短信、快递柜通知、电商 App 的推送里，格式还各不相同；
+取件时翻半天，过期了才发现。这个模块把它们收拢到一处——**收到就记下，要用时一眼看到**。
+
 </div>
 
 <p align="center">
   <img src="docs/screenshots/home.png" width="23%" />
   <img src="docs/screenshots/records.png" width="23%" />
+  <img src="docs/screenshots/simple.png" width="23%" />
   <img src="docs/screenshots/settings.png" width="23%" />
 </p>
 <p align="center">
   <img src="docs/screenshots/widget.png" width="52%" />
 </p>
+<p align="center"><sub>首页 · 取件记录 · 简洁模式 · 设置 · 桌面小组件</sub></p>
 
 <div align="center">
 
-📱 [酷安发布帖](https://www.coolapk.com/feed/73558591) · 🧩 [LSPosed 模块仓库](https://github.com/Xposed-Modules-Repo/io.github.okaidev.pickupcode) · 💬 开发者 QQ 群 **901543676**（备注「取件码助手」）
+📱 [酷安（开发者主页）](https://coolapk.com/u/1222904) · 🧩 [LSPosed 模块仓库](https://github.com/Xposed-Modules-Repo/io.github.okaidev.pickupcode) · 💬 开发者 QQ 群 **901543676**（备注「取件码助手」）
 
 </div>
 
@@ -83,8 +88,12 @@
 外观设置里「显示取件码」是上级开关：关掉后整行收起，只显示「N 个待取 · M 个已取」；
 「显示取件地点」在它下面，码不显示时这一项自动失效（保留你的选择，重新打开码就恢复）。点标题进 App。
 
-**设置** —— 界面模式（简洁 / 进阶）、桌面小组件、外观（四套配色，图标跟着换）、
-模糊效果、取件提醒、检查更新；关于里有版本、项目主页、反馈与支持、清理与卸载。
+**简洁模式** —— 首页只有待取件、规则集、写入目标与格式、链路测试，外加一个「更多选项」入口。
+适合只想「看码、取件」的人：不用在四个 Tab 之间找东西。
+想要更多规则、来源和外观设置，点「更多选项 → 进阶模式」随时切回来，数据完全共享。
+
+**设置（进阶模式）** —— 界面模式、桌面小组件、外观（四套配色，图标跟着换）、
+模糊效果、取件提醒、检查更新；关于里有版本、项目主页、错题本、QQ 群、酷安主页、清理与卸载。
 
 **写入目标有两处，默认都开。**
 
@@ -132,7 +141,8 @@
 点状态卡 → 点击体检。多数是作用域漏了「Android 系统」，或者装完没重启。
 
 **通知抓不到**
-「通知提取」页确认开关开着、对应 App 在白名单里。抖音、菜鸟、丰巢、京东、淘宝默认都在。
+「通知提取」页确认开关开着、对应 App 在白名单里。菜鸟、菜鸟裹裹、京东、淘宝、拼多多、
+顺丰、丰巢、抖音默认都在；不在列表里的 App 可以从已安装应用里自己加。
 
 **提示写入失败**
 写入系统待办需要 root。看体检里「root 授权」「待办库访问」两项的说明；
@@ -171,13 +181,16 @@
 - **抓取依赖 LSPosed**，模块更新后必须重启手机才生效（App 会提示一次）。
 - **HyperOS 会忽略 `requestPinAppWidget`**，「重新添加小组件」不一定能自动弹出添加框，
   需要手动长按桌面添加。
-- **跨设备互联、ColorOS 16 的 4.0 新适配路径**：未实机验证。
+- **软件内部记录只在本机。** 要跨设备看，得开着「系统待办」——它跟着
+  小米账号 / OPPO 账号的云同步走，同账号的平板、另一台手机也能收到。
+- **ColorOS 16 的 4.0 新适配路径**（`ColorOsProviderWake`、配置文件的 SELinux 标签、
+  日历待办与便签双库同时写）维护者没有实机验证，用 ColorOS 的话欢迎带日志反馈。
 
 ---
 
 ## 版本与更新
 
-当前 **V4.0.3**（`versionCode 403`），提取规则集 **v8**。
+当前 **V4.0.3**（`versionCode 403`），提取规则集 **v9**。
 
 ```
 V<大版本>.<小版本>.<修复版本>
@@ -219,7 +232,7 @@ cd Xiaomi-HyperOs-pickup-code-grabber
 ```
 
 需要 JDK 17 + Android SDK（compileSdk 34）。正式包由维护者用生产 keystore 签名后发布，
-CI 只产出 debug 包。改完规则可以跑 `bash tools/run_all_tests.sh`（14 套、493 项断言）。
+CI 只产出 debug 包。改完规则可以跑 `bash tools/run_all_tests.sh`（14 套、511 项断言）。
 
 ---
 
