@@ -111,3 +111,23 @@ tag `403-4.0.3` 已经存在，页面会自动选中。
    顶部版本变成 4.0.3、简介变成「自动提取取件码：App 内记一份、首页待取件、桌面小组件，
    可同步进系统待办」就算成功（机器人 5~60 分钟）。
 2. 手机上的 LSPosed → 模块 → 取件码助手 → 应能看到 4.0.3 与更新按钮。
+
+---
+
+## 可选：仓库门面还有两处 token 改不了
+
+改这两个需要 token 有 **Administration: Read and write**（现在只有 Contents）。
+不急，但现在的简介还停留在 3.x 的说法。
+
+**About（右上角齿轮 → Edit）**
+
+| 字段 | 填什么 |
+|---|---|
+| Description | `取件码助手 · LSPosed 模块：从短信与 App 通知里提取取件码，App 内留一份、桌面小组件常驻，可写进系统待办（小米 / ColorOS）。零短信权限，全程本地。` |
+| Website | `https://modules.lsposed.org/module/io.github.okaidev.pickupcode` |
+| Topics | `hyperos` `coloros` `lsposed` `xposed` `magisk` `miui` `android` `pickup-code` `sms` `xiaomi-notes` `xposed-module` |
+
+**Wiki / Projects 两个空标签**：Settings → Features → 取消勾选 Wikis 与 Projects。
+现在仓库顶部有这两个空页面，点进去什么都没有。
+
+> 如果愿意给 token 补 **Administration: Read and write**，这两处我也能一次性改完。
