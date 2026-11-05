@@ -100,41 +100,26 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             R.id.widget_done_10, R.id.widget_done_11, R.id.widget_done_12
     };
 
-    /**
-     * 桌面上还有没有本模块的小组件（v4.0.3）。
-     *
-     * <p>「仅桌面小组件」这个写入模式必须建立在「组件真的在」的基础上：
-     * 没有组件还选它，取件码就只躺在 App 里，用户表面上什么也看不到。
-     */
-    public static boolean hasWidget(Context context) {
-        return WidgetPresence.has(context);
-    }
+    // v4.0.3 第二轮：原来的 hasWidget() 只剩转调 WidgetPresence，
+    // 而且调用方已改用 WidgetPresence.has()，这里删掉避免两套入口。
 
     /**
-     * 最后一个组件被移除时，把「仅小组件」写入模式回落掉。
+     * 最后一个组件被移除时什么都不用做（v4.0.3 第二轮）。
      *
-     * <p>不回落会留下一个谁都看不懂的状态：既不写待办、桌面上也没有组件，
-     * 新到的取件码只剩 App 里能看到。
+     * <p>旧模型里「仅桌面小组件」是一个写入目标，组件被删就得回落到待办；
+     * 新模型下写入目标只有「待办」和「软件内部记录」，小组件只是本地记录的
+     * 展示投影——它被删掉不影响任何写入行为，App 内的一切照旧。
      */
     @Override
     public void onDeleted(Context context, int[] appWidgetIds) {
         super.onDeleted(context, appWidgetIds);
-        try {
-            NotesBackend.dropWidgetOnlyIfNoWidget(context);
-        } catch (Throwable t) {
-            Log.w(TAG, "onDeleted fallback failed: " + t);
-        }
+        Log.i(TAG, "WIDGET deleted: n=" + (appWidgetIds == null ? 0 : appWidgetIds.length));
     }
 
-    /** 最后一个组件移除后系统也会回调这里，同上 */
     @Override
     public void onDisabled(Context context) {
         super.onDisabled(context);
-        try {
-            NotesBackend.dropWidgetOnlyIfNoWidget(context);
-        } catch (Throwable t) {
-            Log.w(TAG, "onDisabled fallback failed: " + t);
-        }
+        Log.i(TAG, "WIDGET disabled (last instance removed)");
     }
 
     @Override
@@ -270,7 +255,60 @@ public class PickupWidgetProvider extends AppWidgetProvider {
      * （行高是否均匀、内容是否填满），而不是只有一个空状态。
      */
     static RemoteViews buildForDiag(Context ctx, PickupRepository.PendingSnapshot snap) {
-        return build(ctx, -1, snap == null ? sampleSnapshot() : snap, Collections.emptyList());
+        return build(ctx, -1, snap == null ? sampleSnapshot() : snap,
+                Collections.emptyList(), true);
+    }
+
+    /**
+     * 「取件记录已关闭」的极简态。
+     *
+     * <p>正常情况下面临的是「停用 Provider 后系统摘除实例」，这一版只在
+     * 「组件被停用前的最后一次同步渲染」和「某些 ROM 停用后不摘实例」时可见。
+     * 点击会打开 App，用户可以在「取件码写入目标」里重新打开——文案必须
+     * 直说这一点，否则他只会看到一个不知道该怎么办的方块。
+     */
+    /**
+     * 同步把所有实例刷成「已关闭」态（不查库、不异步）。
+     *
+     * <p>停用 Provider 之前必须先把这一步做完：停用后系统会摘掉实例，
+     * 万一某个 ROM 不摘，桌面上留下的就是这一版说明文字，而不是旧取件码。
+     */
+    static void showClosedState(Context context) {
+        if (context == null) return;
+        try {
+            AppWidgetManager mgr = AppWidgetManager.getInstance(context);
+            int[] ids = mgr.getAppWidgetIds(
+                    new ComponentName(context, PickupWidgetProvider.class));
+            if (ids == null || ids.length == 0) return;
+            RemoteViews rv = buildClosed(context);
+            for (int id : ids) {
+                try {
+                    mgr.updateAppWidget(id, rv);
+                } catch (Throwable t) {
+                    Log.w(TAG, "widget closed-state update failed id=" + id + ": " + t);
+                }
+            }
+            Log.i(TAG, "WIDGET closed state applied: n=" + ids.length);
+        } catch (Throwable t) {
+            Log.w(TAG, "widget closed state failed: " + t);
+        }
+    }
+
+    private static RemoteViews buildClosed(Context context) {
+        RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_pickup_v4);
+        rv.setTextViewText(R.id.widget_title, "取件记录已关闭");
+        rv.setTextViewTextSize(R.id.widget_title, TypedValue.COMPLEX_UNIT_SP, 18f);
+        rv.setTextViewText(R.id.widget_count, "");
+        for (int i = 0; i < MAX_ROWS; i++) {
+            rv.setViewVisibility(ROW_IDS[i], View.GONE);
+        }
+        rv.setViewVisibility(R.id.widget_empty, View.VISIBLE);
+        rv.setTextViewText(R.id.widget_empty, "点这里重新打开「软件内部记录」");
+        rv.setTextViewTextSize(R.id.widget_empty, TypedValue.COMPLEX_UNIT_SP, 13f);
+        PendingIntent open = openApp(context);
+        rv.setOnClickPendingIntent(R.id.widget_title, open);
+        rv.setOnClickPendingIntent(R.id.widget_empty, open);
+        return rv;
     }
 
     /** 自检用的示例快照（2 条待取 + 1 条已取，故意少于行数，好看出空行的效果） */
@@ -301,6 +339,24 @@ public class PickupWidgetProvider extends AppWidgetProvider {
     private static RemoteViews build(Context context, int widgetId,
                                      PickupRepository.PendingSnapshot snap,
                                      List<Integer> shiftedRows) {
+        return build(context, widgetId, snap, shiftedRows, false);
+    }
+
+    /**
+     * @param forceNormal true = 不管「内部记录」开关，一律按正常布局渲染
+     *                    （自检页要用它验证真实布局，不能被关闭态挡住）
+     */
+    private static RemoteViews build(Context context, int widgetId,
+                                     PickupRepository.PendingSnapshot snap,
+                                     List<Integer> shiftedRows, boolean forceNormal) {
+        // v4.0.3 第二轮：「软件内部记录」关掉之后，小组件没有任何数据来源。
+        // 正常情况下 Provider 已经被停用、实例也随系统摘掉了；这里兜的是
+        // 「停用还没生效」或「个别 ROM 没摘」的极短窗口——此时必须给出准确说明，
+        // 显示「暂无待取件」会让人以为功能还在正常工作。
+        if (!forceNormal && !NotesBackend.localSelected(context)) {
+            return buildClosed(context);
+        }
+
         // v4.0.2 第八轮：布局换到 v3（新 layout 资源 id）。
         // 桌面不会重建已存在组件的视图树，换资源 id 是唯一能让
         // AppWidgetHostView 重新 inflate 的手段。

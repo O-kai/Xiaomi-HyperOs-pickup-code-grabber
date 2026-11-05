@@ -45,7 +45,6 @@ public class LauncherActivity extends Activity {
     private static final String KEY_SEEN_VERSION_CODE = "seen_version_code";
     /** v4.0.3：上次运行过的点分版本名（只用于提示文案） */
     private static final String KEY_SEEN_VERSION_NAME = "seen_version_name";
-    private static final String KEY_BACKEND = "backend_override";
     private static final String KEY_SYS_DIRECT = "sys_direct_write";
     private static final String REPO_URL = "https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber";
     private static final String ISSUES_URL = REPO_URL + "/issues";
@@ -169,7 +168,7 @@ public class LauncherActivity extends Activity {
     private TextView notiScopeHintView;
     private LinearLayout sdwRow;
     private TextView tplValueView, tplPreviewText;
-    /** v4.0.3：「写入格式」整张卡——「仅桌面小组件」模式下它没有意义，需要整张隐藏 */
+    /** v4.0.3：「写入格式」整张卡——「仅内部记录」（不写系统待办）时它没有意义，需要整张隐藏 */
     private LinearLayout tplCardRef;
     private LinearLayout tplPreview;          // 预览容器：标签 + 矢量图标 + 文本
     private ImageView tplPreviewIcon;
@@ -209,6 +208,11 @@ public class LauncherActivity extends Activity {
             try { Repair.ensureInstalledSilently(this); } catch (Throwable ignored) { }
         }, "pickup-ensure-sqlite").start();
         ProcessSync.pushThrottled(this);
+        // v4.0.3 第二轮：内部记录开着、Provider 却被停用，说明状态不一致
+        // （可能来自旧版本的误操作），放回来。关着的时候不碰——那时它本就该是停用的。
+        if (LocalRecord.isOn(this) && !WidgetPresence.isEnabled(this)) {
+            LocalRecord.restoreWidget(this);
+        }
         // v4.0.3：记录管理（保留期 / 导入导出 / 清理 / 导入历史）改到
         // 「取件记录 → 管理」这一个入口，设置页不再重复列出。
         // 数据变化后要刷新首页的待取件卡片——RecordManager 之前没人回调，
@@ -719,7 +723,12 @@ public class LauncherActivity extends Activity {
         sv.addView(box);
 
         // 4.0：待取件优先于体检/设置，首页第一张卡就是本地取件库。
-        buildPickupCard(box);
+        // v4.0.3 第二轮：这张卡是「软件内部记录」的表现形式——
+        // 用户把它关掉，整块（标题 / 条数 / 查看全部 / 每条记录）一起消失，
+        // 下面的规则集、写入目标、链路测试照常显示，不留空壳。
+        if (LocalRecord.isOn(this)) {
+            buildPickupCard(box);
+        }
 
         // v4.0.3：升级后的一次性提示，插在状态卡正上方
         maybeAddUpgradeNotice(box);
@@ -885,7 +894,7 @@ public class LauncherActivity extends Activity {
         buildTplEditor();
         tplCard.addView(tplEditorBox);
         box.addView(tplCard, UiKit.cardLp(this, 12));
-        // 首屏也按当前写入目标同步一次（比如上次选的是「仅小组件」）
+        // 首屏也按当前写入目标同步一次（比如上次关掉了系统待办，只剩内部记录）
         applyBackendDependentUi();
 
         // 一键链路测试（放在页面最下方——整套流程走完后的最终验证）
@@ -1673,9 +1682,13 @@ public class LauncherActivity extends Activity {
         perCard.addView(UiKit.divider(this, P));
 
         // 4.0：桌面小组件外观设置（改为二级页入口；右侧不再重复报「字号 · 条数」）
-        perCard.addView(toolRow(R.drawable.ic_home, "桌面小组件",
-                "字号、是否显示地点、最多条数",
-                v -> startActivity(new Intent(this, WidgetSettingsActivity.class))));
+        // v4.0.3 第二轮：内部记录关着时不出现——组件读的就是那份记录，
+        // 记录关了它没有内容，Provider 也已经被停用，点进去只会一脸问号。
+        if (LocalRecord.isOn(this)) {
+            perCard.addView(toolRow(R.drawable.ic_home, "桌面小组件",
+                    "字号、是否显示地点、最多条数",
+                    v -> startActivity(new Intent(this, WidgetSettingsActivity.class))));
+        }
 
         // 4.0：外观（主题 + 配色合并成一个入口）
         perCard.addView(UiKit.divider(this, P));
@@ -2383,15 +2396,17 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * 写入位置（v4.0.3 改成多选）。
+     * 取件码写入目标（v4.0.3 第二轮：待办 + 软件内部记录）。
      *
-     * <p>模型：取件码<b>一定会</b>存进本地库（App 与桌面小组件都读它），
-     * 这里选的是「另外还要写到哪里」——可以多选：
+     * <p>模型只有两处落点，默认都开：
      * <ul>
-     *   <li>小米：小米笔记待办 / 桌面小组件</li>
-     *   <li>ColorOS：日历待办 / 便签笔记 / 桌面小组件（前两个是各自独立的库，能同时写）</li>
+     *   <li><b>系统待办</b>——小米笔记待办；ColorOS 是日历待办与便签（两个独立的库）</li>
+     *   <li><b>软件内部记录</b>——取件码落进本地库，首页顶部出现「待取件」，
+     *       桌面小组件读的也是它</li>
      * </ul>
-     * 只勾小组件时就不写任何系统待办——这正是「只想在桌面看码」的人要的。
+     *
+     * <p>桌面小组件不在这张清单里。它不是一个写入目标：它没有自己的库，
+     * 只是内部记录的展示投影——内部记录关掉，它自然没有内容可显示。
      */
     private void showBackendPicker() {
         java.util.Set<String> sel = NotesBackend.selection(this);
@@ -2399,21 +2414,24 @@ public class LauncherActivity extends Activity {
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.VERTICAL);
 
-        java.util.List<String> todoAvail = NotesBackend.availableTodoTargets();
-        for (String t : todoAvail) {
+        for (String t : NotesBackend.availableTodoTargets()) {
             addTargetRow(wrap, todoLabel(t), todoSub(t), t, sel);
             wrap.addView(UiKit.divider(this, P));
         }
-        addTargetRow(wrap, "桌面小组件",
-                PickupWidgetProvider.hasWidget(this)
-                        ? "桌面上已有小组件 · 取件码会显示在里面"
-                        : "桌面上还没有小组件 · 打开后会提示你添加",
-                NotesBackend.TARGET_WIDGET, sel);
 
-        UiKit.dialog(this, P, R.drawable.ic_target, "写入位置",
-                "取件码一定会存进本地库——App 和桌面小组件都读它。\n\n"
-                        + "下面选的是「另外还要写到哪里」，可以多选。"
-                        + "只留「桌面小组件」时，不会写进任何系统待办。",
+        boolean onDesk = WidgetPresence.has(this);
+        addTargetRow(wrap, "软件内部记录",
+                onDesk
+                        ? "首页「待取件」和桌面小组件都读它"
+                        : "首页显示「待取件」 · 可在桌面添加小组件",
+                NotesBackend.TARGET_LOCAL, sel);
+
+        UiKit.dialog(this, P, R.drawable.ic_target, "取件码写入目标",
+                "取件码最多可以同时存到两处，默认都开。\n\n"
+                        + "· 系统待办：在笔记 / 日历里生成一条待办，跟着系统的提醒走\n"
+                        + "· 软件内部记录：App 顶部显示「待取件」，桌面小组件显示的也是它\n\n"
+                        + "两处至少保留一个。关掉「软件内部记录」会清空 App 内的全部记录，"
+                        + "桌面小组件也会一起移除——系统待办里的记录不受影响。",
                 wrap, 0, UiKit.primary("完成", null));
     }
 
@@ -2441,35 +2459,105 @@ public class LauncherActivity extends Activity {
         UiKit.Switch sw = new UiKit.Switch(this, P, sel.contains(target));
         sw.setOnToggle(checked -> {
             java.util.Set<String> now = NotesBackend.selection(this);
+
+            // ---------- 打开 ----------
             if (checked) {
-                if (NotesBackend.TARGET_WIDGET.equals(target)
-                        && !PickupWidgetProvider.hasWidget(this)) {
-                    sw.setChecked(false, false);
-                    UiKit.info(this, P, R.drawable.ic_home, "先在桌面添加小组件",
-                            "「桌面小组件」这个位置需要桌面上真的有本模块的小组件。\n\n"
-                                    + "桌面长按空白处 → 添加小部件 → 找到「取件码助手」，"
-                                    + "添加后再回来勾选。");
-                    return;
-                }
                 now.add(target);
-            } else {
-                now.remove(target);
-                if (now.isEmpty()) {
-                    // 一个都不留 = 取件码只留在 App 里，用户很可能不是这个意思
+                NotesBackend.saveSelection(this, now);
+                if (NotesBackend.TARGET_LOCAL.equals(target)) {
+                    // 组件被停用时就一起放回来；桌面上原来那个实例已经被系统摘掉，
+                    // 需要用户重新添加——这正是「关掉就没意义，打开再加回来」的路径。
+                    LocalRecord.restoreWidget(this);
+                }
+                afterTargetChanged();
+                return;
+            }
+
+            // ---------- 关闭 ----------
+            if (NotesBackend.TARGET_LOCAL.equals(target)) {
+                if (!NotesBackend.canTurnLocalOff(this)) {
                     sw.setChecked(true, false);
-                    Toast.makeText(this, "至少要保留一个写入位置", Toast.LENGTH_SHORT).show();
+                    UiKit.info(this, P, R.drawable.ic_target, "先勾一个系统待办",
+                            "「软件内部记录」关掉之后，取件码就只剩系统待办这一个去处。\n\n"
+                                    + "请先打开上面任意一个待办目标，再回来关它。");
                     return;
                 }
+                // 关它等于删数据，必须先确认；取消时把开关恢复原位
+                sw.setChecked(false, false);
+                confirmTurnLocalOff(() -> sw.setChecked(true, false));
+                return;
+            }
+
+            now.remove(target);
+            if (now.isEmpty()) {
+                // 内部记录也关着，再关最后一个待办就什么都不剩了
+                sw.setChecked(true, false);
+                Toast.makeText(this, "至少要保留一个写入目标", Toast.LENGTH_SHORT).show();
+                return;
             }
             NotesBackend.saveSelection(this, now);
-            ProcessSync.push(this);
-            refreshBackendValue();
-            applyBackendDependentUi();
-            headerSub.setText(headerSubtitle(currentTab));
-            refreshHealth();
+            afterTargetChanged();
         });
         row.addView(sw, new LinearLayout.LayoutParams(dp(46), dp(28)));
         parent.addView(row);
+    }
+
+    /** 目标变了之后要一起刷新的一串界面与跨进程状态 */
+    private void afterTargetChanged() {
+        ProcessSync.push(this);
+        refreshBackendValue();
+        applyBackendDependentUi();
+        headerSub.setText(headerSubtitle(currentTab));
+        refreshHealth();
+
+        // 首页最上面那块「待取件」是 build 时就定死的结构：内部记录关着时
+        // 根本没创建这张卡。开关一变，结构就变了，只能整页重建；
+        // 只切换「待办目标」时结构没变，不重建（否则会打断用户连续调整）。
+        boolean localOn = LocalRecord.isOn(this);
+        boolean cardBuilt = pickupCard != null;
+        if (localOn != cardBuilt) {
+            recreate();
+        }
+    }
+
+    /**
+     * 关闭「软件内部记录」前的二次确认。
+     *
+     * <p>用户的要求是「只要调整开关，记录就清除」——所以要真的清，但清之前
+     * 必须把「会删多少条、删了就回不来」说清楚。条数走 Room 异步查询，
+     * 主线程同步查会被 Room 拒绝并吞掉异常（那边永远是 0）。
+     *
+     * @param onCancel 用户点了「取消」时把开关拨回去
+     */
+    private void confirmTurnLocalOff(Runnable onCancel) {
+        PickupRepository.get(this).countAllAsync(n -> {
+            if (isFinishing() || isDestroyed()) return;
+            String msg = (n > 0
+                    ? "App 内的 " + n + " 条取件记录会被立即删除，不可恢复。\n\n"
+                    : "App 内当前没有取件记录。\n\n")
+                    + "桌面上的小组件也会一起移除。系统待办里的记录不受影响。\n\n"
+                    + "重新打开后可以从头开始记录；想在桌面再看，到「设置 → 桌面小组件」"
+                    + "重新添加即可。";
+            UiKit.dialog(this, P, R.drawable.ic_target, "关闭「软件内部记录」", msg, null,
+                    UiKit.primary("关闭并清空", () -> {
+                        // 先把开关落盘：清库是异步的，这中间万一来了新短信，
+                        // 也不该再往「已经关掉」的库里写。
+                        NotesBackend.setLocalSelected(this, false);
+                        LocalRecord.clearAllAsync(this, cleared -> {
+                            // 清完再让组件退场，否则它刷新的还是清库前的旧内容
+                            LocalRecord.retireWidget(this);
+                            ProcessSync.push(this);
+                            android.util.Log.i("PICKUPDEBUG",
+                                    "local record OFF: cleared=" + cleared);
+                            Toast.makeText(this,
+                                    cleared > 0 ? "已删除 " + cleared + " 条记录" : "已关闭软件内部记录",
+                                    Toast.LENGTH_SHORT).show();
+                            // 首页整块要消失，直接重建最省事（与模式切换同一套做法）
+                            recreate();
+                        });
+                    }),
+                    UiKit.ghost("取消", onCancel));
+        });
     }
 
     private String todoLabel(String backend) {
@@ -2487,7 +2575,7 @@ public class LauncherActivity extends Activity {
     /**
      * 写入目标变了之后，联动其它行的可见性（v4.0.3）。
      *
-     * <p>目前只有一条：「仅桌面小组件」时隐藏「写入格式」——
+     * <p>目前只有一条：「仅内部记录」（不写任何系统待办）时隐藏「写入格式」——
      * 那个模板只决定**写进待办的文字长什么样**，不写待办了，留着一张
      * 点了没效果的卡片只会让人困惑。
      */
@@ -2531,29 +2619,25 @@ public class LauncherActivity extends Activity {
         }
     }
 
-    /** 副标题/选择器当前后端的人话名 */
     /**
-     * 写入位置的摘要文案（v4.0.3 多选）。
+     * 写入目标的摘要文案（v4.0.3 第二轮）。
      *
-     * <p>原来是单个后端名；现在组合可能有很多种，按「待办几个 + 有没有小组件」概括：
-     * 例如「待办 · 小组件」「日历待办 + 便签 · 小组件」「仅小组件」。
+     * <p>两处落点的组合只有三种形态：
+     * 「小米笔记待办 · 内部记录」「日历待办 + 便签 · 内部记录」「仅内部记录」。
+     * 不写待办时用「仅」开头，是为了让「我只想让 App 自己记着」一眼可辨。
      */
     private String backendLabel() {
         java.util.List<String> targets = NotesBackend.todoTargets(this);
-        boolean widget = NotesBackend.widgetSelected(this);
+        boolean local = NotesBackend.localSelected(this);
         StringBuilder sb = new StringBuilder();
         if (targets.isEmpty()) {
-            // 只勾了小组件：这是最常见的一种「不写待办」形态，直接这么写最清楚
-            return widget ? "仅小组件" : "未选择";
-        } else if (targets.size() == 1) {
-            sb.append(shortName(targets.get(0)));
-        } else {
-            for (int i = 0; i < targets.size(); i++) {
-                if (i > 0) sb.append(" + ");
-                sb.append(shortName(targets.get(i)));
-            }
+            return local ? "仅内部记录" : "未选择";
         }
-        if (widget) sb.append(sb.length() > 0 ? " · 小组件" : "小组件");
+        for (int i = 0; i < targets.size(); i++) {
+            if (i > 0) sb.append(" + ");
+            sb.append(shortName(targets.get(i)));
+        }
+        if (local) sb.append(" · 内部记录");
         return sb.toString();
     }
 
@@ -2564,29 +2648,16 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * v4.5：「取件码写入目标」右侧的值。
+     * 「取件码写入目标」右侧的值。
      *
-     * 用户要求明确区分自动与手动：
-     *   自动 → 右侧显示「自动 · 小米笔记待办」（说明机制 + 自动选中的具体目标）
-     *   手动 → 右侧显示「手动 · <选中的目标>」
-     * 判断依据是 SharedPreferences 里的 backend_override：
-     *   为空 = 自动识别；非空 = 用户手动指定过。
+     * <p>v4.0.3 第二轮去掉了「自动 / 手动」前缀：新模型下这两处是并列的落点，
+     * 「自动识别一个后端」这个概念已经不存在了。再挂一个「自动」，
+     * 用户看到「自动 · 小米笔记待办 · 内部记录」只会更困惑。
      */
     private View buildBackendValueView() {
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.HORIZONTAL);
         wrap.setGravity(Gravity.CENTER_VERTICAL);
-
-        String override = getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString(KEY_BACKEND, "");
-        boolean manual = override != null && !override.trim().isEmpty();
-
-        TextView mode = UiKit.text(this, manual ? "手动" : "自动", 14f, P.accentInk);
-        wrap.addView(mode);
-
-        TextView dot = UiKit.text(this, "·", 14f, P.muteInk);
-        dot.setPadding(dp(5), 0, dp(5), 0);
-        wrap.addView(dot);
 
         TextView target = UiKit.text(this, backendLabel(), 13f, UiKit.INK2);
         target.setSingleLine(true);

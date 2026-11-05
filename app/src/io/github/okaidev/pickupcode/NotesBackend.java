@@ -43,12 +43,27 @@ public class NotesBackend {
     public static final String BACKEND_COLOROS_TODO = "coloros_todo";
     public static final String BACKEND_COLOROS_NOTE = "coloros_note";
     /**
-     * 多选目标里的「桌面小组件」。
+     * 多选目标里的「软件内部记录」（v4.0.3 第二轮）。
      *
-     * <p>它不是一个「后端」——小组件读的是本地库，没有自己的库要写。
-     * 选项的意义是：<b>不勾待办、只勾它</b>时，取件码就不再写进系统待办，
-     * 只留在本地库/小组件里。
+     * <p><b>它不是第三个后端，而是本地库这一侧的开关</b>：
+     * 打开 = 取件码落进 Room 本地库，于是首页顶部出现「待取件」、
+     * 桌面小组件也有内容可显示；关闭 = 本地库清空、首页整块消失、
+     * 桌面小组件随之退场。
+     *
+     * <p>为什么不能把「桌面小组件」当成一个写入目标：小组件读的是本地库，
+     * 它没有自己的库要写。它能显示什么，完全由本地库这一侧决定。
+     * 把它当独立目标会造出一个自相矛盾的状态——数据在库里、桌面看得见、
+     * 首页却看不见。
      */
+    public static final String TARGET_LOCAL = "local";
+
+    /**
+     * 旧版多选里的「桌面小组件」值。
+     *
+     * @deprecated v4.0.3 第二轮起，小组件不再是写入目标，
+     *         只是 {@link #TARGET_LOCAL} 的展示投影。仅用于迁移旧设置。
+     */
+    @Deprecated
     public static final String TARGET_WIDGET = "widget";
 
     /**
@@ -63,8 +78,16 @@ public class NotesBackend {
     /** 手动覆盖的 SharedPreferences 名/键（与主配置一致） */
     private static final String PREFS = "dedup";
     private static final String KEY_OVERRIDE = "backend_override";
-    /** v4.0.3：多选的目标集合（含 {@link #TARGET_WIDGET}） */
+    /** v4.0.3：多选的目标集合（含 {@link #TARGET_LOCAL}） */
     private static final String KEY_TARGETS = "backend_targets";
+    /**
+     * 「本地记录这一位已经按新模型初始化过」的标记。
+     *
+     * <p>迁移时要把 {@link #TARGET_LOCAL} 补成「开」——老用户的本地库里
+     * 本来就有数据，如果因为集合里没有这个新值就当成「关闭」，一升级
+     * 就会把记录清空。只有用户自己动手关过才算关，所以这个补位只做一次。
+     */
+    private static final String KEY_LOCAL_INIT = "local_target_initialized";
 
     /** 检测结果缓存（进程级） */
     private static volatile String cached;
@@ -81,42 +104,47 @@ public class NotesBackend {
         }
     }
 
-    /** 设置页切换「写入目标」后调用，使下次 detect() 重新判定 */
+    /**
+     * 设置页切换「写入目标」后调用，使下次 detect() 重新判定
+     */
     public static void invalidateCache() {
         cached = null;
     }
 
     /**
-     * 桌面上还有没有本模块的小组件。
+     * 「软件内部记录」打开了吗。
      *
-     * <p>走 {@link WidgetPresence} 而不是 {@code PickupWidgetProvider.hasWidget}：
-     * 后者会把 Room / AndroidX 拖进离线测试的编译链（那个链没有 AndroidX 的 jar）。
+     * <p>这一位同时决定三件事：本地库要不要落数据、首页顶部要不要出现「待取件」、
+     * 桌面小组件有没有内容可显示。三者是同一个决定的三种表现，不是三个开关。
      */
-    public static boolean hasWidget(Context ctx) {
-        return WidgetPresence.has(ctx);
+    public static boolean localSelected(Context ctx) {
+        return selection(ctx).contains(TARGET_LOCAL);
     }
 
     /**
-     * 小组件全被移除时，把「仅小组件」模式回落成自动识别（v4.0.3）。
+     * 只改「软件内部记录」这一位，别的勾选保持不动。
      *
-     * <p>由 {@link PickupWidgetProvider#onDeleted} / {@code onDisabled} 调用。
-     * 不做这一步的话，用户删掉组件之后写入目标仍然停在 widget_only，
-     * 结果是「既不写待办、也没有小组件可看」——取件码只躺在 App 里，
-     * 而用户完全不知道发生了什么。
+     * <p>调用方<b>必须</b>先确认关掉之后还剩至少一个目标（{@link #canTurnLocalOff}），
+     * 否则这里会因为集合变空而静默不保存，界面与落盘状态就会对不上。
      */
-    public static void dropWidgetOnlyIfNoWidget(Context ctx) {
-        if (ctx == null || hasWidget(ctx)) return;
+    public static void setLocalSelected(Context ctx, boolean on) {
+        if (ctx == null) return;
         java.util.Set<String> sel = selection(ctx);
-        if (!sel.contains(TARGET_WIDGET)) return;
-        sel.remove(TARGET_WIDGET);
+        if (on) {
+            sel.add(TARGET_LOCAL);
+        } else {
+            sel.remove(TARGET_LOCAL);
+        }
         if (sel.isEmpty()) {
-            // 只勾了小组件：组件没了就必须给回一个待办目标，
-            // 否则取件码只躺在 App 里，用户完全不知道发生了什么。
-            sel.add(systemDefaultTodo());
+            Log.w(TAG, "setLocalSelected ignored: would leave no target at all");
+            return;
         }
         saveSelection(ctx, sel);
-        ProcessSync.push(ctx);
-        Log.i(TAG, "widget target dropped (widget removed) -> " + sel);
+    }
+
+    /** 关掉「软件内部记录」之后还会不会剩下至少一个待办目标 */
+    public static boolean canTurnLocalOff(Context ctx) {
+        return !todoTargets(ctx).isEmpty();
     }
 
     /**
@@ -158,27 +186,50 @@ public class NotesBackend {
     }
 
     /**
-     * 读取用户勾选的目标集合（含 {@link #TARGET_WIDGET}）。
+     * 读取用户勾选的目标集合（{@link #TARGET_LOCAL} + 若干待办后端）。
      *
      * <p>缺失时先尝试从旧的单选 {@code backend_override} 迁移过来：
      * <ul>
-     *   <li>{@code widget_only} → 只勾小组件</li>
-     *   <li>某个具体后端 → 勾它 + 小组件（旧行为的等价形式）</li>
-     *   <li>空/自动 → 系统默认后端 + 小组件</li>
+     *   <li>{@code widget_only} → 只留内部记录（不写任何待办，旧行为等价）</li>
+     *   <li>某个具体后端 → 勾它 + 内部记录（旧行为的等价形式）</li>
+     *   <li>空/自动 → 系统默认后端 + 内部记录</li>
      * </ul>
+     *
+     * <p><b>升级补位</b>：老版本的集合里有 {@code widget}（小组件），
+     * 没有 {@code local}（内部记录）。{@link #normalize} 会把 {@code widget}
+     * 换成 {@code local}；但如果用户当时手动关掉了小组件，集合里就一个本地位都没有。
+     * 这时必须补上 {@code local}——本地库里本来就有他的记录，不补就等于
+     * 一升级就清空数据。补位只做一次（{@link #KEY_LOCAL_INIT}），
+     * 之后用户自己关掉不会再被加回来。
      */
     public static java.util.Set<String> selection(Context ctx) {
         java.util.Set<String> out = new java.util.LinkedHashSet<>();
         if (ctx == null) {
+            out.add(TARGET_LOCAL);
             out.add(systemDefaultTodo());
-            out.add(TARGET_WIDGET);
             return out;
         }
         try {
             SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             java.util.Set<String> stored = sp.getStringSet(KEY_TARGETS, null);
             if (stored != null && !stored.isEmpty()) {
-                out.addAll(stored);
+                out.addAll(normalize(stored));
+                if (!sp.getBoolean(KEY_LOCAL_INIT, false)) {
+                    boolean added = out.add(TARGET_LOCAL);
+                    sp.edit().putBoolean(KEY_LOCAL_INIT, true).apply();
+                    if (added) Log.i(TAG, "local target backfilled on upgrade -> " + out);
+                }
+                if (out.isEmpty()) {
+                    // 存了一堆本机不认识的脏值：回到默认，但不清用户数据
+                    out.add(TARGET_LOCAL);
+                    out.add(systemDefaultTodo());
+                }
+                // 归一只在内存里做是不够的：磁盘上留着 widget 这种废弃值，
+                // 下次排查配置时看到的和真正生效的对不上。变了就写回去。
+                if (!out.equals(stored)) {
+                    sp.edit().putStringSet(KEY_TARGETS, new java.util.LinkedHashSet<>(out)).apply();
+                    Log.i(TAG, "selection normalized on disk -> " + out);
+                }
                 return out;
             }
             // 迁移旧单选
@@ -194,15 +245,38 @@ public class NotesBackend {
                 migrated.add(systemDefaultTodo());
                 migrated.add(TARGET_WIDGET);
             }
-            sp.edit().putStringSet(KEY_TARGETS, migrated).remove(KEY_OVERRIDE).apply();
-            Log.i(TAG, "selection migrated from '" + old + "' -> " + migrated);
-            out.addAll(migrated);
+            out.addAll(normalize(migrated));
+            sp.edit().putStringSet(KEY_TARGETS, new java.util.LinkedHashSet<>(out))
+                    .putBoolean(KEY_LOCAL_INIT, true)
+                    .remove(KEY_OVERRIDE).apply();
+            Log.i(TAG, "selection migrated from '" + old + "' -> " + out);
             return out;
         } catch (Throwable t) {
+            out.clear();
+            out.add(TARGET_LOCAL);
             out.add(systemDefaultTodo());
-            out.add(TARGET_WIDGET);
             return out;
         }
+    }
+
+    /**
+     * 旧值 / 脏值归一。
+     *
+     * <p>{@code widget} 是旧模型里的「桌面小组件」，新模型下它就是
+     * {@code local}（小组件只是本地记录的投影），所以直接换掉而不是丢掉。
+     */
+    private static java.util.Set<String> normalize(java.util.Set<String> raw) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        java.util.List<String> avail = availableTodoTargets();
+        for (String t : raw) {
+            if (t == null || t.trim().isEmpty()) continue;
+            if (TARGET_WIDGET.equals(t)) {
+                out.add(TARGET_LOCAL);
+            } else if (TARGET_LOCAL.equals(t) || avail.contains(t)) {
+                out.add(t);
+            }
+        }
+        return out;
     }
 
     /** 保存勾选（调用方保证非空） */
@@ -218,13 +292,8 @@ public class NotesBackend {
         }
     }
 
-    /** 勾了小组件吗 */
-    public static boolean widgetSelected(Context ctx) {
-        return selection(ctx).contains(TARGET_WIDGET);
-    }
-
     /**
-     * 要写的待办目标（0~N 个）。空 = 只写本地库/小组件。
+     * 要写的待办目标（0~N 个）。空 = 只留本地记录，不碰系统待办。
      */
     public static java.util.List<String> todoTargets(Context ctx) {
         java.util.Set<String> sel = selection(ctx);
@@ -251,13 +320,20 @@ public class NotesBackend {
         return (hasMiuiNotes || isMiuiRom()) ? BACKEND_XIAOMI : BACKEND_COLOROS_TODO;
     }
 
-    /** 用户查看结果应打开的 App 包名（通知「查看待办」跳转用） */
+    /**
+     * 用户查看结果应打开的 App 包名（通知「查看待办」跳转用）。
+     *
+     * <p>v4.0.3 第二轮：一个待办目标都没勾时回本 App——
+     * 那条取件码只存在于内部记录里，跳到小米笔记只会让用户找不到东西。
+     */
     public static String targetPkg(Context ctx) {
-        return targetPkgOf(detect(ctx));
+        java.util.List<String> targets = todoTargets(ctx);
+        if (targets.isEmpty()) return RuntimePaths.PKG;
+        return targetPkgOf(targets.get(0));
     }
 
     public static String targetPkgOf(String b) {
-        if (BACKEND_WIDGET_ONLY.equals(b)) return RuntimePaths.PKG;   // 只写小组件时，「查看」就回本 App
+        if (BACKEND_WIDGET_ONLY.equals(b)) return RuntimePaths.PKG;   // 旧值：只写小组件时回本 App
         if (BACKEND_COLOROS_NOTE.equals(b)) return PKG_COLOROS_NOTE;
         if (b != null && b.startsWith("coloros")) return PKG_COLOROS_CALENDAR;
         return PKG_XIAOMI;

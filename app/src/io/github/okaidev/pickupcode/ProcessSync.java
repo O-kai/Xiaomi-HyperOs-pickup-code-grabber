@@ -66,9 +66,18 @@ public class ProcessSync {
          *
          * <p>为什么不能只留 {@link #backend}：ColorOS 上用户可以同时勾「日历待办」
          * 和「便签笔记」，兜底通道只写一个就会漏掉另一个。
-         * 空串 = 用户只勾了桌面小组件，兜底通道不应写任何待办。
+         * 空串 = 没有任何待办目标（详见 {@link #noTodo}）。
          */
         public String backends = "";
+        /**
+         * v4.0.3 第二轮：用户把系统待办全关了，只留「软件内部记录」。
+         *
+         * <p><b>必须有这个独立标记</b>：{@code backends} 空串既可能是
+         * 「用户一个待办都没勾」，也可能是「老版本快照里没有这个字段」。
+         * 只看空串会让兜底通道把前者当成后者，回落到 ROM 推断目标，
+         * 于是用户明明关掉了待办，冻结兜底却在偷偷往里写。
+         */
+        public boolean noTodo;
     }
 
     /**
@@ -250,13 +259,17 @@ public class ProcessSync {
             o.put("backend", sp.getString("backend_override", ""));
             // v4.0.3：多选目标（0~N 个）。空串表示「只写小组件」。
             StringBuilder bs = new StringBuilder();
+            boolean noTodo = false;
             if (ctx != null) {
                 for (String t : NotesBackend.todoTargets(ctx)) {
                     if (bs.length() > 0) bs.append(',');
                     bs.append(t);
                 }
+                noTodo = bs.length() == 0;
             }
             o.put("backends", bs.toString());
+            // 空串有两种含义，必须单独标出来（见 State.noTodo 的说明）
+            o.put("noTodo", noTodo);
             return o.toString();
         } catch (Throwable t) {
             Log.w(TAG, "ProcessSync: buildJson failed: " + t);
@@ -325,6 +338,7 @@ public class ProcessSync {
             st.notiPkgs = o.optString("notiPkgs", "");
             st.backend = o.optString("backend", "");
             st.backends = o.optString("backends", "");
+            st.noTodo = o.optBoolean("noTodo", false);
         } catch (Throwable t) {
             Log.w(TAG, "ProcessSync: load failed: " + t);
         }

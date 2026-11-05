@@ -142,8 +142,12 @@ public class TodoProvider extends ContentProvider {
             java.util.List<String> parsed = blacklisted
                     ? java.util.Collections.emptyList()
                     : PickupExtractor.extract(sender, body);
+            // v4.0.3 第二轮：「软件内部记录」关掉时不往 Room 落数据。
+            // 用户在那个开关上表达的是「不要 App 帮我记」，此时还偷存一份就是撒谎；
+            // 系统待办的写入与通知不受影响，那条链路照常。
+            final boolean localOn = NotesBackend.localSelected(ctx);
             PickupRepository.IngestResult local = null;
-            if (!blacklisted && !parsed.isEmpty()) {
+            if (localOn && !blacklisted && !parsed.isEmpty()) {
                 try {
                     local = PickupRepository.get(ctx).ingest(
                             sender, body, parsed,
@@ -163,7 +167,7 @@ public class TodoProvider extends ContentProvider {
             boolean localNew = local != null && local.hasNew();
             if (!wrote.isEmpty()) {
                 Log.i(TAG, "PROVIDER-CALL: "
-                        + ("widget_only".equals(outcome.status) ? "仅写小组件 " : "已写入待办 ")
+                        + ("local_only".equals(outcome.status) ? "仅记入内部记录 " : "已写入待办 ")
                         + wrote);
                 Notifier.notifyCodes(ctx, wrote, null);
             } else if (localNew) {

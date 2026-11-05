@@ -120,10 +120,17 @@ public class SystemDirectWriter {
             //   · 黑名单   → 用用户实际配置（读不到才回落默认 8 词）
             //   · 模板     → 用用户选的模式与自定义模板（此前这里写死 MODE_FULL）
             ProcessSync.State st = loadStateOnce();
-            // v4.0.3：用户选了「仅桌面小组件」就不写系统待办——
+            // v4.0.3 第二轮：用户把系统待办全关了（只留「软件内部记录」）就不写待办——
             // 兜底直写也必须遵守，否则这条路径会偷偷把待办写进去。
+            // 不能只看 backends 是否为空：空串无法区分「明确一个都不要」和
+            // 「老快照没有这个字段」，所以快照里另带了 noTodo 标记。
+            if (st != null && st.noTodo) {
+                Log.i(TAG, "fallback skip: no todo target");
+                return;
+            }
+            // 老快照兼容：旧模型的「仅小组件」也是同一个意思
             if (st != null && NotesBackend.BACKEND_WIDGET_ONLY.equals(st.backend)) {
-                Log.i(TAG, "fallback skip: widget-only mode");
+                Log.i(TAG, "fallback skip: legacy widget-only mode");
                 return;
             }
             PickupExtractor.initForSystemProcess(st != null ? st.rulesJson : null);
@@ -188,8 +195,8 @@ public class SystemDirectWriter {
                 targets.add(NotesBackend.propsBackend());
             }
             if (targets.isEmpty()) {
-                // 只勾了桌面小组件：兜底通道也不能偷偷写待办
-                XposedEntry.log("SYS-WRITE skip: widget-only");
+                // 一个待办目标都没有：兜底通道也不能偷偷写
+                XposedEntry.log("SYS-WRITE skip: empty target list");
                 return;
             }
             String source = TodoWriter.resolveSource(sender, body);

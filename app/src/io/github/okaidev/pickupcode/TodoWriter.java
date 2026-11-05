@@ -134,10 +134,11 @@ public class TodoWriter {
 
         String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date());
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        // v4.0.3：写入目标改成多选——这里拿到的是「要写的待办库」列表。
-        // 空 = 用户只勾了桌面小组件（取件码只进本地库，不写任何系统待办）。
+        // v4.0.3 第二轮：写入目标 = 系统待办 + 软件内部记录。
+        // 这里拿到的是「要写的待办库」列表；空 = 用户把系统待办全关了，
+        // 只留内部记录（App 与桌面小组件里仍然看得到这条码）。
         final java.util.List<String> todoTargets = NotesBackend.todoTargets(ctx);
-        final boolean widgetOnly = todoTargets.isEmpty();
+        final boolean noTodo = todoTargets.isEmpty();
 
         List<String> wrote = new ArrayList<>();
         String place = extractPlace(sender, body);
@@ -169,11 +170,12 @@ public class TodoWriter {
             seen.add(fingerprint);
             String content = buildContent(mode, customTpl, code, source, place, time);
             boolean ok;
-            if (widgetOnly) {
-                // 只勾了桌面小组件：本地库已由 Provider 写好，这里不再碰系统待办。
-                // 仍走一遍去重集合，保证同一条短信重发不会重复提醒。
+            if (noTodo) {
+                // 一个系统待办都没勾：本地库已由 Provider 写好（内部记录开着的话），
+                // 这里不再碰系统库。仍走一遍去重集合，
+                // 保证同一条短信重发不会重复提醒。
                 ok = true;
-                Log.i(TAG, "TODO SKIP (widget-only): " + code);
+                Log.i(TAG, "TODO SKIP (no todo target): " + code);
             } else {
                 // 多目标：ColorOS 上可能同时勾了「日历待办」和「便签」，
                 // 两个库各写一次；任何一个失败都算这次写入不完全成功。
@@ -217,7 +219,7 @@ public class TodoWriter {
         String status = failedCount > 0
                 ? (wrote.isEmpty() ? "write_failed" : "partial")
                 : (wrote.isEmpty() ? "deduplicated"
-                        : (widgetOnly ? "widget_only" : "written"));
+                        : (noTodo ? "local_only" : "written"));
         return new HandleResult(wrote, codes.size(), dedupCount, failedCount,
                 status, failureDiagnostic == null ? "" : failureDiagnostic);
     }
