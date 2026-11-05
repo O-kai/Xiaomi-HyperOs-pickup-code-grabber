@@ -12,7 +12,7 @@
 ```bash
 cd D:/project/WorkBuddyData/取件码助手/pickup-code-grabber-4.0
 
-# ① 回归全绿（14 套、493 项断言）
+# ① 回归全绿（14 套、511 项断言）
 bash tools/run_all_tests.sh
 
 # ② 版本号口径核对（必须是 4.0.3 / 403 两个字段，不要单体系推导）
@@ -66,7 +66,11 @@ git push git@github.com:O-kai/Xiaomi-HyperOs-pickup-code-grabber.git v4.0.3
 - [ ] 建 Release `v4.0.3`，挂**本地用生产 keystore 签名的 release APK**（CI 只出 debug）
 - [ ] Release 说明直接复用 CHANGELOG 的 4.0.3 段落
 - [ ] 5 个 PR 已关闭（#14/#13/#12/#9 completed，#8 not_planned），无需再动
-- [ ] 如果需要 LSPosed 仓库镜像，再单独同步（本清单不含）
+- [ ] **LSPosed 镜像仓库**（`Xposed-Modules-Repo/io.github.okaidev.pickupcode`）：
+      - 更新 `SUMMARY`（一行摘要）与 `README.md`，内容见 `docs/mirror/`
+      - 发 Release：**tag 必须是 `403-4.0.3`**（`versionCode-versionName`），附同一个 APK
+      - 发完 5~60 分钟内，模块商店页会自动刷新
+- [ ] 操作细节与截图见 `docs/RELEASE-MANUAL-STEPS.md`
 
 ---
 
