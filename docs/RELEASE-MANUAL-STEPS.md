@@ -14,27 +14,34 @@
 | 镜像仓库 tag | ✅ `403-4.0.3` 已推上去 |
 | **镜像仓库 Release** | ❌ **差这一步**（见下） |
 
-## 为什么卡住
-
-`Xposed-Modules-Repo` 是组织仓库。当前这个 fine-grained token 对它有读、没有写：
+## 为什么卡住（已定位到根因）
 
 ```
 POST /repos/Xposed-Modules-Repo/io.github.okaidev.pickupcode/releases
 → 403 Resource not accessible by personal access token
 ```
 
-同一个 token 在主仓库（`O-kai/...`）建 Release 是成功的，所以不是权限勾选的问题，
-而是**这个 token 没有被授权到这个组织仓库**。两种可能，处理方式不同：
+查了一圈，**不是权限没勾**：
 
-- **A. token 的「Repository access」里没勾这个仓库** → 你自己两下就能加（见下）
-- **B. 已经勾了，但组织要求审批** → 必须组织 owner 点通过，否则永远 403
+1. `GET /user/repos` 里能看到这个镜像仓库 → 它在 token 的授权范围内；
+2. 同一个 token 在主仓库能建 Release、能改简介（Administration 也行）；
+3. `GET /orgs/Xposed-Modules-Repo/memberships/O-kai` → **「You must be a member」**。
 
-另外一个事实：这个组织仓库的 **Actions 是关掉的**（`/actions` 直接 404，工作流注册了也 0 次运行），
-所以「让仓库自己发 Release」这条路走不通，临时加的工作流已经撤掉。
+也就是说：**维护者是「外部协作者」，不是组织成员**。
+组织仓库的 fine-grained token 必须由**组织管理员批准**，而我们既不是成员、也不是管理员，
+这条请求永远不会被批 —— 换多少个 fine-grained token 都一样（已经用两个验证过）。
+
+**为什么以前能发？** 因为以前用的是 **classic token**（`ghp_`，40 位）。
+classic token 不需要组织批准，直接继承协作者权限。那个 token 在
+`D://project//_credentials//gh-token.txt`，现在已经失效（`Bad credentials`）。
+
+> 顺带纠正一个印象：镜像仓库**没有**自动同步。`git log` 里每次同步
+> （v2.5.1 / v2.6.0 / v2.7.0 …）的提交人都是 O-kai 本人、时间都对得上发版日，
+> 是当时的脚本用 API 推的，不是机器人。
 
 ---
 
-## 路径一：网页发（最快，两分钟，不用改 token）
+## 路径一：网页发（最快，两分钟）
 
 https://github.com/Xposed-Modules-Repo/io.github.okaidev.pickupcode/releases/new?tag=403-4.0.3
 
@@ -53,50 +60,16 @@ tag `403-4.0.3` 已经存在，页面会自动选中。
 
 ---
 
-## 路径二：把 token 权限补对（以后我就能全自动）
+## 路径二：给一个 classic token（以后全自动）
 
-### 第 1 步：先看 token 是不是没勾这个仓库
+1. 打开 https://github.com/settings/tokens/new?scopes=repo&description=pickup-release
+2. **Expiration** 随便选（90 天够用）
+3. 确认勾选的是 **repo**（整块，含子项）
+4. Generate token → 复制 `ghp_` 开头那一串
+5. 存成 `D://project//WorkBuddyData//取件码助手//github的token//gh-classic.txt`（只放 token 一行）
 
-1. 打开 https://github.com/settings/tokens?type=beta
-2. 找到那个 token（名字里带 WorkBuddy / 取件码），点进去
-3. 看 **Repository access**
-   - 如果是 **Only select repositories**：看列表里有没有
-     `Xposed-Modules-Repo/io.github.okaidev.pickupcode`
-     - **没有** → 这就是原因。点右边的下拉，加上它 → `Save`。**完事，不用审批。**
-     - **有** → 往下走第 2 步
-   - 如果是 **All repositories** → 直接走第 2 步
-
-顺手确认下面的 **Permissions → Repository permissions → Contents** 是
-**Read and write**（不是 Read-only）。
-
-### 第 2 步：确认自己是不是组织 owner
-
-打开 https://github.com/orgs/Xposed-Modules-Repo/people?query=role%3Aowner
-
-- **列表里有你（O-kai）** → 走 2A
-- **列表里没有你** → 走 2B，你批不了，别在这上面耗时间
-
-### 2A. 你是 owner：去批准这个 token
-
-1. 打开 https://github.com/organizations/Xposed-Modules-Repo/settings/personal-access-tokens
-2. 看 **Pending requests**（待处理请求）
-   - 有 `WorkBuddy...` 那条 → 点 **Review** → **Approve**
-   - **一条都没有** → 说明这个 token 还没向组织发起过请求。回到第 1 步，
-     把 **Contents** 改成 `Read and write` 保存；然后随便调一次写接口（或者告诉我一声，我来调），
-     请求才会出现在这里。
-3. 批准后不用等，立刻生效。
-
-### 2B. 你不是 owner：这条路走不通
-
-组织仓库的 fine-grained token 必须由组织 owner 批准。你不是 owner，就永远批不下来。
-能用的替代只有两个：
-
-- **路径一（网页发）**——每次发版手动点一下，两分钟；
-- **classic token**——https://github.com/settings/tokens/new 勾 `repo` 生成一个，
-  贴给我。classic token 不受 fine-grained 审批限制，但前提是这个组织没有禁用 classic token
-  （有些组织会禁）。能不能用，试一次就知道。
-
----
+存好告诉我，我立刻把 Release、附件、以及以后每次发版都做完。
+classic token 不受组织审批限制，这也正是以前一直用的方式。
 
 ## 我这边准备好的物料
 
