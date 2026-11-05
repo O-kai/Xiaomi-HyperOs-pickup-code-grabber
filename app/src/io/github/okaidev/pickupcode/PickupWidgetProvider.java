@@ -365,8 +365,10 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         // v4.0.2 第三轮：一次算好行数与实际行高（补位动画的位移量要用真实行高）
         int[] metrics = widgetMetrics(context, widgetId);
         int rows = metrics[0];
-        boolean showPlace = WidgetPrefs.showPlace(context);
-        boolean hideCode = WidgetPrefs.hideCode(context);
+        // v4.0.3 第二轮：「显示取件码」是上级开关，「显示取件地点」是它的下级——
+        // 码都不显示了，地点无所依附，所以地点真正生效要两个都开。
+        boolean showCode = WidgetPrefs.showCode(context);
+        boolean showPlace = showCode && WidgetPrefs.showPlace(context);
         boolean showAll = snap != null && snap.showAll;
         float scale = WidgetPrefs.fontScale(context);
         int pendingTotal = snap == null ? 0 : snap.pendingTotal;
@@ -393,7 +395,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
 
         boolean empty = items == null || items.isEmpty();
 
-        // v4.0.2 第四轮：隐私模式（隐藏取件码）——不逐条显示，只给汇总。
+        // v4.0.2 第四轮：隐私模式（关掉「显示取件码」）——不逐条显示，只给汇总。
         //
         // 用户原话：「当开启『隐藏取件码』时，目前桌面上仍会保留取件码后面的
         // 『勾勾』，这个勾勾已经没有意义了，建议将其拿掉。也就是说，
@@ -404,7 +406,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         //
         // 所以：所有数据行整行隐藏（码、地点、✓ 一并消失），
         // 展示区（原本逐条列码的位置）改成直白的汇总数字。
-        if (hideCode) {
+        if (!showCode) {
             for (int i = 0; i < MAX_ROWS; i++) {
                 rv.setViewVisibility(ROW_IDS[i], View.GONE);
             }
@@ -452,7 +454,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             // v4.0.2：「显示全部信息」模式下，已取的取件码加删除线。
             // RemoteViews 没有设 PaintFlags 的接口，但 setTextViewText 接受
             // Spanned——用 Html.fromHtml("<s>…</s>") 就能拿到带删除线的文本。
-            if (hideCode) {
+            if (!showCode) {
                 rv.setTextViewText(CODE_IDS[i], "");
             } else if (showAll && !pending) {
                 rv.setTextViewText(CODE_IDS[i],
@@ -470,7 +472,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             // 关闭地点时不能 GONE：这一列是带 weight 的占位视图，
             // 一旦隐藏，右侧 ✓ 会贴到取件码旁边、右边留一大块空白。
             rv.setViewVisibility(PLACE_IDS[i], View.VISIBLE);
-            rv.setTextViewText(PLACE_IDS[i], (!showPlace || hideCode)
+            rv.setTextViewText(PLACE_IDS[i], !showPlace
                     ? ""
                     : (record.place == null || record.place.trim().isEmpty() ? "—" : record.place));
             rv.setTextViewTextSize(PLACE_IDS[i], TypedValue.COMPLEX_UNIT_SP, 11f * scale);

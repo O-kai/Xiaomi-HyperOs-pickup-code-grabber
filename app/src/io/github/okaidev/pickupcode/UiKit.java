@@ -645,6 +645,10 @@ public final class UiKit {
 
         @Override
         public boolean onTouchEvent(MotionEvent e) {
+            // 与系统 View 的行为对齐：禁用的开关不该还响应点击。
+            // 这里原先没判断——自定义 View 不吃 View 默认的「disabled 不响应」，
+            // 结果是 setEnabled(false) 只改了状态，手指点上去照样能切换。
+            if (!isEnabled()) return false;
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN: touchMoved = false; return true;
                 case MotionEvent.ACTION_MOVE: touchMoved = true; return true;

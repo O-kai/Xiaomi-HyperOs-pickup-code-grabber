@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  显示取件码：二维码
+  v4.0.3 第二轮手绘：三个定位角 + 右下散点，填充 + evenOdd 镂空，
+  与其余图标同一套规格（24dp viewBox / 纯白填充，着色交给 iconTile）。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M2,2h7v7h-7z M3.8,3.8h3.4v3.4h-3.4z M4.9,4.9h1.2v1.2h-1.2z M15,2h7v7h-7z M16.8,3.8h3.4v3.4h-3.4z M17.9,4.9h1.2v1.2h-1.2z M2,15h7v7h-7z M3.8,16.8h3.4v3.4h-3.4z M4.9,17.9h1.2v1.2h-1.2z M15,15h2.6v2.6h-2.6z M19.4,15h2.6v2.6h-2.6z M15,19.4h2.6v2.6h-2.6z M19.4,19.4h2.6v2.6h-2.6z" />
+</vector>

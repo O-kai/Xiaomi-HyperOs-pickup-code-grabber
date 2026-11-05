@@ -26,7 +26,9 @@ public class WidgetSettingsActivity extends Activity {
     private TextView previewTitle;
     private TextView previewCount;
     private UiKit.Switch placeSwitch;
-    private UiKit.Switch hideSwitch;
+    private UiKit.Switch codeSwitch;
+    /** 下级的整行容器——上级关掉时要整行变淡 */
+    private LinearLayout placeRow;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,7 +56,7 @@ public class WidgetSettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         box.addView(buildFontCard(), UiKit.cardLp(this, 0));
-        box.addView(buildPlaceCard(), UiKit.cardLp(this, 10));
+        box.addView(buildShowCard(), UiKit.cardLp(this, 10));
         box.addView(buildRowsCard(), UiKit.cardLp(this, 10));
         box.addView(buildPreviewCard(), UiKit.cardLp(this, 10));
 
@@ -167,7 +169,7 @@ public class WidgetSettingsActivity extends Activity {
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         card.addView(title);
 
-        TextView sub = UiKit.text(this, "地点会按比例同步缩放", 11.5f, P.muteInk);
+        TextView sub = UiKit.text(this, "码和地点一起缩放", 11.5f, P.muteInk);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.setMargins(0, dp(4), 0, 0);
@@ -182,29 +184,67 @@ public class WidgetSettingsActivity extends Activity {
         return card;
     }
 
-    private View buildPlaceCard() {
+    /**
+     * 「显示」卡片（v4.0.3 第二轮重做）。
+     *
+     * <p>原来是并列的两个开关：「显示取件地点」+「隐藏取件码」。
+     * 两个问题：
+     * <ol>
+     *   <li><b>否定式</b>——「隐藏取件码：关」要在脑子里取反一次才知道是什么意思；</li>
+     *   <li><b>没有层级</b>——地点是码的附属信息，码都不显示了，
+     *       地点开关就没有任何意义，它俩不该平起平坐。</li>
+     * </ol>
+     *
+     * <p>所以改成上下级：「显示取件码」在上（默认开），「显示取件地点」缩进在下面；
+     * 上级关掉时下级整行变淡且不可点——<b>不是隐藏</b>，隐藏会让人不知道还有这一项。
+     * 下级开关的值不清空：下次打开上级，地点按他原来的选择恢复。
+     */
+    private View buildShowCard() {
         LinearLayout card = UiKit.card(this, P);
+
+        codeSwitch = new UiKit.Switch(this, P, WidgetPrefs.showCode(this));
+        codeSwitch.setOnToggle(on -> {
+            WidgetPrefs.setShowCode(this, on);
+            refreshSubordinateRows();
+            applyToWidget();
+            refreshPreview();
+        });
+        card.addView(UiKit.row(this, P, R.drawable.ic_qr, "显示取件码",
+                "关掉后组件只显示件数；下面的地点也一并失效", codeSwitch));
+        card.addView(UiKit.divider(this, P));
+
         placeSwitch = new UiKit.Switch(this, P, WidgetPrefs.showPlace(this));
         placeSwitch.setOnToggle(on -> {
+            // 上级关着时这个开关本来就被禁用，这里是第二道保险
+            if (!WidgetPrefs.showCode(this)) return;
             WidgetPrefs.setShowPlace(this, on);
             applyToWidget();
             refreshPreview();
         });
-        LinearLayout row = UiKit.row(this, P, R.drawable.ic_target, "显示取件地点",
+        placeRow = UiKit.row(this, P, R.drawable.ic_pin, "显示取件地点",
                 "关掉后只显示大号取件码，更清爽", placeSwitch);
-        card.addView(row);
-        card.addView(UiKit.divider(this, P));
-        // 4.0 收口：设计稿第四节要求的隐私开关。
-        // 桌面上摆着组件时，别人一瞥就能看到取件码，等于把凭据摆在明面上。
-        hideSwitch = new UiKit.Switch(this, P, WidgetPrefs.hideCode(this));
-        hideSwitch.setOnToggle(on -> {
-            WidgetPrefs.setHideCode(this, on);
-            applyToWidget();
-            refreshPreview();
-        });
-        card.addView(UiKit.row(this, P, R.drawable.ic_shield, "隐藏取件码",
-                "只显示件数；想看码得点进 App", hideSwitch));
+        // 缩进 28dp 表示它是上一行的下级；垂直 padding 保持不变
+        placeRow.setPadding(dp(28), dp(11), 0, dp(11));
+        card.addView(placeRow);
+
+        refreshSubordinateRows();
         return card;
+    }
+
+    /**
+     * 按上级开关的状态刷新下级的可用性。
+     *
+     * <p>用「变淡 + 不可点」而不是「隐藏」：隐藏会让用户以为没这个功能；
+     * 变淡保留位置和当前值，一眼能看出「它还在，只是现在不生效」。
+     */
+    private void refreshSubordinateRows() {
+        boolean on = WidgetPrefs.showCode(this);
+        if (placeRow != null) {
+            placeRow.setAlpha(on ? 1f : 0.4f);
+        }
+        if (placeSwitch != null) {
+            placeSwitch.setEnabled(on);
+        }
     }
 
     /**
@@ -294,8 +334,8 @@ public class WidgetSettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(WidgetPrefs.ROW_DP));
         previewRows.addView(row, rlp);
 
-        boolean hideCode = WidgetPrefs.hideCode(this);
-        boolean showPlace = WidgetPrefs.showPlace(this);
+        boolean showCode = WidgetPrefs.showCode(this);
+        boolean showPlace = showCode && WidgetPrefs.showPlace(this);
 
         TextView code = UiKit.text(this, codeText, 17f,
                 picked ? 0x99FFFFFF : 0xFFFFFFFF);
@@ -305,7 +345,7 @@ public class WidgetSettingsActivity extends Activity {
             code.setPaintFlags(code.getPaintFlags()
                     | android.graphics.Paint.STRIKE_THRU_TEXT_FLAG);
         }
-        if (hideCode) code.setText("");
+        if (!showCode) code.setText("");
         row.addView(code);
 
         TextView place = UiKit.text(this, placeText, 11f,
@@ -328,7 +368,7 @@ public class WidgetSettingsActivity extends Activity {
         // 「显示取件地点」关掉时：地点列【保留占位】只清空文字——
         // 与真实小组件一致（PickupWidgetProvider.build 里也是 setViewVisibility(VISIBLE)
         // + setTextViewText("")）。若这里改成 GONE，右侧的 ✓ 会贴到取件码旁边。
-        if (!showPlace || hideCode) {
+        if (!showPlace) {
             place.setText("");
         }
     }
@@ -393,15 +433,15 @@ public class WidgetSettingsActivity extends Activity {
         if (previewRows == null) return;
         float scale = WidgetPrefs.fontScale(this);
         boolean showAll = WidgetPrefs.showAll(this);
-        boolean hideCode = WidgetPrefs.hideCode(this);
+        boolean showCode = WidgetPrefs.showCode(this);
 
         previewTitle.setText(showAll ? "取件记录" : "待取件");
         previewCount.setText(showAll ? "2 待取 · 1 已取" : "2 个待取");
 
         previewRows.removeAllViews();
-        // v4.0.2 第四轮：隐私模式（隐藏取件码）与真实组件保持一致——
+        // v4.0.2 第四轮：隐私模式（关掉「显示取件码」）与真实组件保持一致——
         // 不逐条显示，码/地点/✓ 全部取消，改在展示区直白给出汇总。
-        if (hideCode) {
+        if (!showCode) {
             previewCount.setText("");
             TextView sum = UiKit.text(this,
                     showAll ? "2 个待取 · 1 个已取" : "2 个待取",

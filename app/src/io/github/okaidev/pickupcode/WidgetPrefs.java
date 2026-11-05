@@ -24,6 +24,9 @@ public final class WidgetPrefs {
     private static final String KEY_FONT = "font_scale";
     private static final String KEY_SHOW_PLACE = "show_place";
     private static final String KEY_MAX_ROWS = "max_rows";
+    /** v4.0.3 第二轮：正向开关。旧的 hide_code 只用于迁移 */
+    private static final String KEY_SHOW_CODE = "show_code";
+    @Deprecated
     private static final String KEY_HIDE_CODE = "hide_code";
     private static final String KEY_SHOW_MODE = "show_mode";
 
@@ -61,6 +64,17 @@ public final class WidgetPrefs {
 
     public static void setShowPlace(Context ctx, boolean on) {
         prefs(ctx).edit().putBoolean(KEY_SHOW_PLACE, on).apply();
+    }
+
+    /**
+     * 地点现在是否真的会显示。
+     *
+     * <p>地点是取件码的附属信息：码都不显示了，地点无所依附。
+     * 所以真正的生效条件是「显示取件码 且 显示取件地点」。
+     * 单看 {@link #showPlace} 只代表用户在下级开关上的选择，可能被上级压制。
+     */
+    public static boolean showPlaceEffective(Context ctx) {
+        return showCode(ctx) && showPlace(ctx);
     }
 
     /**
@@ -151,17 +165,31 @@ public final class WidgetPrefs {
     public static final int ROW_MIN_DP = ROW_DP;
 
     /**
-     * 是否隐藏取件码（只显示件数）。
+     * 是否显示取件码（默认显示）。
      *
-     * <p>设计稿第四节要求提供这个开关：桌面上摆着组件时，别人一瞥就能看到
-     * 取件码，等于把凭据摆在明面上。打开后组件只显示「N 个」，
-     * 点组件进 App 才看得到码。默认显示（不改变原有行为）。
+     * <p>v4.0.3 第二轮：从「隐藏取件码」改成「显示取件码」这个正向开关。
+     * 两个理由：
+     * <ol>
+     *   <li>开关列表里混一个否定式选项，用户每次都要在脑子里取反一次——
+     *       「隐藏取件码：关」到底是什么意思？</li>
+     *   <li>「显示取件地点」是它的事实下级：码都不显示了，地点无从谈起。
+     *       只有把上级做成正向的「显示」，层级关系才说得通。</li>
+     * </ol>
+     *
+     * <p>旧值迁移：老用户存的是 {@code hide_code}，取反一次写进新键。
+     * 只在第一次读时写回，之后以 {@code show_code} 为准。
      */
-    public static boolean hideCode(Context ctx) {
-        return prefs(ctx).getBoolean(KEY_HIDE_CODE, false);
+    public static boolean showCode(Context ctx) {
+        SharedPreferences sp = prefs(ctx);
+        if (sp.contains(KEY_SHOW_CODE)) {
+            return sp.getBoolean(KEY_SHOW_CODE, true);
+        }
+        boolean show = !sp.getBoolean(KEY_HIDE_CODE, false);
+        sp.edit().putBoolean(KEY_SHOW_CODE, show).apply();
+        return show;
     }
 
-    public static void setHideCode(Context ctx, boolean on) {
-        prefs(ctx).edit().putBoolean(KEY_HIDE_CODE, on).apply();
+    public static void setShowCode(Context ctx, boolean on) {
+        prefs(ctx).edit().putBoolean(KEY_SHOW_CODE, on).apply();
     }
 }
