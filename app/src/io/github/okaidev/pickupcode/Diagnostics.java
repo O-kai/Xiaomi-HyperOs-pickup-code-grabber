@@ -157,22 +157,25 @@ public class Diagnostics {
      * 就静默跳过——静默本身是对的（HyperOS 上本该没有），但对 ColorOS 用户来说，
      * 「静默跳过」和「生效了但没触发」从外面看完全一样，没法区分。
      *
-     * <p>所以这里用「读 jar 条目名」做一次不需要 root 的确定性检查：
-     * 类在 → 说明适配目标还在；类不在 → 大概率是新版 ColorOS 改了类名，
-     * 唤醒放行根本不会生效，需要开发者适配。
+     * <p>所以这里读取 JAR 中的 .class / DEX 类定义，做一次不需要 root 的静态检查：
+     * 类在 → 只说明适配目标还在；未定位到 → 可能读不到、已预优化或类路径改变，
+     * 不能据此断言 Hook 没有安装，更不能代表实际唤醒结果。
      */
     private static Check checkColorOsWake() {
-        String jar = ColorOs.findGateJar();
-        if (jar != null) {
+        ColorOs.GateScan scan = ColorOs.scanGateJars();
+        if (scan.jarPath != null) {
             return new Check("ColorOS 唤醒", true,
-                    "已定位 Provider 门禁类（" + jar + "）✓ "
-                            + "冻结后由系统身份唤醒本模块的放行已随模块加载");
+                    "已定位 Provider 门禁类（" + scan.jarPath + "）✓ 适配目标存在。"
+                            + "这是静态检查，不代表 Hook 已安装或冻结后唤醒已通过；"
+                            + "实际状态请结合本次开机的 WAKE 日志与冻结后唤醒测试确认");
         }
         return new Check("ColorOS 唤醒", false,
-                "系统里找不到 " + ColorOs.GATE_CLASS_SIMPLE + " —— "
-                        + "可能是这版 ColorOS 改了类名，唤醒放行不会生效。"
-                        + "把这一行发给开发者即可适配（不影响短信与通知抓取，"
-                        + "只影响模块被冻结时能否被叫醒）");
+                (scan.complete ? "未在可扫描 JAR 的类定义中定位到 "
+                        : "部分系统 JAR 无法读取或解析，暂未定位到 ")
+                        + ColorOs.GATE_CLASS_SIMPLE + "。"
+                        + "可能是系统预优化、DEX 格式或类路径差异；"
+                        + "不能仅据此判定唤醒放行失效。请结合本次开机的 WAKE 日志复核，"
+                        + "必要时导出诊断报告供开发者适配");
     }
 
     /** 从 ls -Z 的输出里取第一个标签，供提示用 */

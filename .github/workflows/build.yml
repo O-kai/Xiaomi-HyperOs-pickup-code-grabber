@@ -29,6 +29,9 @@ jobs:
       # 而 SDK 仓库早已移除 legacy 'tools' 包 → sdkmanager 以 exit code 1 退出
       # （报错 "Failed to find package 'tools'"），job 会在这一步直接失败、Gradle 根本跑不到。
       # runner 镜像本身自带 Android SDK，这里只需要 platform-tools。
+      - name: ColorOS 门禁类静态检测回归
+        run: sh tools/test_coloros_gate.sh
+
       - name: 设置 Android SDK
         uses: android-actions/setup-android@v3
         with:
