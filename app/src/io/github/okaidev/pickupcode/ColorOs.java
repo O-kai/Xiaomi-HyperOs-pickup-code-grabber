@@ -4,9 +4,9 @@ import android.os.Build;
 import android.util.Log;
 
 import java.io.File;
-import java.util.Enumeration;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
+import java.io.IOException;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * ColorOS / OPPO 系机型的识别与定位（v4.0.3）。
@@ -28,6 +28,7 @@ public final class ColorOs {
 
     /** Provider 门禁类名（ColorOS 的 {@code ContentProviderHelperExtImpl} 内部类/方法都挂它） */
     public static final String GATE_CLASS_SIMPLE = "ContentProviderHelperExtImpl";
+    public static final String GATE_CLASS_NAME = "com.android.server.am." + GATE_CLASS_SIMPLE;
 
     /**
      * 可能装着门禁类的 jar。
@@ -64,55 +65,71 @@ public final class ColorOs {
                 || new File("/system_ext/framework/oplus-services.jar").exists();
     }
 
-    /**
-     * 找到装着门禁类的那个 jar。
-     *
-     * <p>为什么要「找 jar」而不是直接反射类：App 进程里没有 system_server 的
-     * ClassLoader，反射一定失败。而 jar 是普通文件，用 {@link ZipFile} 只读
-     * 条目名就能判断类在不在——这是不需要 root 也能做的确定性检查。
-     *
-     * @return jar 路径；没找到返回 null
-     */
-    public static String findGateJar() {
-        for (String p : CANDIDATE_JARS) {
-            if (containsGate(p)) return p;
+    /** Static archive evidence only; it does not prove hook installation or a successful wake. */
+    public static final class GateScan {
+        public final String jarPath;
+        public final boolean complete;
+
+        private GateScan(String jarPath, boolean complete) {
+            this.jarPath = jarPath;
+            this.complete = complete;
         }
-        // 候选都没命中：退一步扫目录，只认名字里带 oplus/services 的 jar，
-        // 避免把几十个无关 jar 全打开（真机上 framework 目录能有一两百个文件）。
-        File[] dirs = {new File("/system_ext/framework"), new File("/my_product/framework")};
-        for (File d : dirs) {
-            File[] fs = d.listFiles();
-            if (fs == null) continue;
-            for (File f : fs) {
-                String n = f.getName();
-                if (!n.endsWith(".jar")) continue;
-                if (!n.contains("oplus") && !n.contains("services")) continue;
-                if (containsGate(f.getAbsolutePath())) return f.getAbsolutePath();
-            }
-        }
-        return null;
     }
 
-    /** jar 里有没有 {@code ContentProviderHelperExtImpl.class} 这个条目 */
-    private static boolean containsGate(String jarPath) {
-        File f = new File(jarPath);
-        if (!f.isFile() || !f.canRead()) return false;
-        ZipFile zf = null;
-        try {
-            zf = new ZipFile(f);
-            Enumeration<? extends ZipEntry> en = zf.entries();
-            while (en.hasMoreElements()) {
-                String name = en.nextElement().getName();
-                if (name.endsWith(GATE_CLASS_SIMPLE + ".class")) return true;
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "scan jar failed: " + jarPath + " " + t);
-        } finally {
-            if (zf != null) {
-                try { zf.close(); } catch (Throwable ignored) { }
+    /** Compatibility wrapper for callers which only need the located JAR path. */
+    public static String findGateJar() {
+        return scanGateJars().jarPath;
+    }
+
+    /**
+     * App processes cannot use the system_server ClassLoader. Inspect exact class definitions
+     * in .class entries or classes*.dex instead; a descriptor reference alone is not evidence.
+     * Unreadable, malformed, optimized-only or unsupported archives are not a proof of absence.
+     */
+    public static GateScan scanGateJars() {
+        Set<String> seen = new HashSet<>();
+        boolean complete = true;
+        int inspected = 0;
+        for (String path : CANDIDATE_JARS) {
+            File file = new File(path);
+            seen.add(file.getAbsolutePath());
+            if (!file.isFile()) continue;
+            inspected++;
+            try {
+                if (containsGate(path)) return new GateScan(path, true);
+            } catch (IOException | SecurityException e) {
+                complete = false;
+                Log.w(TAG, "scan jar incomplete: " + path + " " + e);
             }
         }
-        return false;
+        File[] dirs = {new File("/system/framework"), new File("/system_ext/framework"),
+                new File("/my_product/framework")};
+        for (File dir : dirs) {
+            File[] files = dir.listFiles();
+            if (files == null) {
+                if (dir.isDirectory()) complete = false;
+                continue;
+            }
+            for (File file : files) {
+                String name = file.getName();
+                if (!name.endsWith(".jar") || (!name.contains("oplus") && !name.contains("services"))) continue;
+                String path = file.getAbsolutePath();
+                if (!file.isFile() || !seen.add(path)) continue;
+                inspected++;
+                try {
+                    if (containsGate(path)) return new GateScan(path, true);
+                } catch (IOException | SecurityException e) {
+                    complete = false;
+                    Log.w(TAG, "scan jar incomplete: " + path + " " + e);
+                }
+            }
+        }
+        return new GateScan(null, complete && inspected > 0);
+    }
+
+    /** Package-private so offline tests can use generated archives, not proprietary ROM files. */
+    static boolean containsGate(String jarPath) throws IOException {
+        return ArchiveClassProbe.containsClass(new File(jarPath), GATE_CLASS_NAME);
     }
 
     private static String safeLower(String s) {

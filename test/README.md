@@ -29,6 +29,19 @@
 
 > 真机验证（识别 → 写入待办全链路）用 `tools/device-probe/probe.py`，见该目录 README。
 
+## ColorOS 唤醒体检静态定位回归
+
+```bash
+sh tools/test_coloros_gate.sh
+# 可选：只读验证本机系统 JAR，不要把 ROM 文件提交到仓库
+sh tools/test_coloros_gate.sh /path/to/oplus-services.jar
+```
+
+只需 JDK 11+，不需要 Android SDK / Xposed / root。测试现场生成的 `.class` 与
+DEX JAR，覆盖多 DEX、引用不能当定义、精确包名、坏头/越界/坏 ZIP、大小与条目预算。
+Android `Build`/`Log` 用最小替身；真正被测的是 `ColorOs.containsGate` 与 DEX 探针。
+这些测试只证明静态定位，不代表 Hook 已安装或冻结后的 Provider 唤醒成功。
+
 ## 一键跑完全部回归
 
 ```bash

@@ -41,7 +41,7 @@ import de.robv.android.xposed.XposedHelpers;
 public class ColorOsProviderWake {
 
     private static final String TAG = "PICKUPDEBUG";
-    private static final String EXT_CLASS = "com.android.server.am.ContentProviderHelperExtImpl";
+    private static final String EXT_CLASS = ColorOs.GATE_CLASS_NAME;
     private static final String MODULE_PKG = "io.github.okaidev.pickupcode";
     private static final String[] GATES = {
             "interceptStartProvider",
