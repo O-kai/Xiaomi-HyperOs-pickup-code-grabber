@@ -17,6 +17,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -594,7 +596,6 @@ public final class UiKit {
         private float anim;              // 0=关 1=开（用于旋钮动画）
         private OnToggle listener;
         private ValueAnimator va;
-        private boolean touchMoved;
 
         public Switch(Context ctx, Palette p, boolean checked) {
             super(ctx);
@@ -602,6 +603,7 @@ public final class UiKit {
             this.checked = checked;
             this.anim = checked ? 1f : 0f;
             setClickable(true);
+            setFocusable(true);
             // 旋钮阴影需要软件层；必须在构造期设置——onDraw 里调用会触发反复重绘
             setLayerType(LAYER_TYPE_SOFTWARE, null);
         }
@@ -618,6 +620,7 @@ public final class UiKit {
             va.setDuration(160);
             va.addUpdateListener(a -> { anim = (float) a.getAnimatedValue(); invalidate(); });
             va.start();
+            sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
             if (notify && listener != null) listener.onChanged(v);
         }
 
@@ -625,7 +628,9 @@ public final class UiKit {
 
         @Override
         protected void onMeasure(int w, int h) {
-            setMeasuredDimension(UiKit.dp(getContext(), 52), UiKit.dp(getContext(), 31));
+            setMeasuredDimension(
+                    resolveSizeAndState(Math.max(getSuggestedMinimumWidth(), UiKit.dp(getContext(), 52)), w, 0),
+                    resolveSizeAndState(Math.max(getSuggestedMinimumHeight(), UiKit.dp(getContext(), 31)), h, 0));
         }
 
         @Override
@@ -645,22 +650,49 @@ public final class UiKit {
 
         @Override
         public boolean onTouchEvent(MotionEvent e) {
-            // 与系统 View 的行为对齐：禁用的开关不该还响应点击。
-            // 这里原先没判断——自定义 View 不吃 View 默认的「disabled 不响应」，
-            // 结果是 setEnabled(false) 只改了状态，手指点上去照样能切换。
             if (!isEnabled()) return false;
-            switch (e.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN: touchMoved = false; return true;
-                case MotionEvent.ACTION_MOVE: touchMoved = true; return true;
-                case MotionEvent.ACTION_UP:
-                    if (!touchMoved) { setChecked(!checked); performClick(); }
-                    return true;
-                default: return super.onTouchEvent(e);
-            }
+            // View handles touch slop, pressed/cancel states and keyboard/touch click dispatch.
+            // An ACTION_MOVE inside touch slop is still a tap; do not reject every MOVE.
+            return super.onTouchEvent(e);
         }
 
         @Override
-        public boolean performClick() { super.performClick(); return true; }
+        public boolean performClick() {
+            // Accessibility ACTION_CLICK, keyboard and row clicks use the same entry point.
+            // Toggling here (not also on ACTION_UP) guarantees exactly one change per click.
+            if (!isEnabled() || !isClickable()) return false;
+            setChecked(!checked);
+            super.performClick();
+            return true;
+        }
+
+        @Override
+        public CharSequence getAccessibilityClassName() {
+            return "android.widget.Switch";
+        }
+
+        @Override
+        public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(info);
+            info.setClassName(getAccessibilityClassName());
+            info.setCheckable(true);
+            info.setChecked(checked);
+        }
+
+        @Override
+        public void onInitializeAccessibilityEvent(AccessibilityEvent event) {
+            super.onInitializeAccessibilityEvent(event);
+            event.setClassName(getAccessibilityClassName());
+            event.setChecked(checked);
+        }
+    }
+
+    /** Whole-row touch target, with a single labelled/checkable accessibility node. */
+    static void bindSwitchRow(View row, Switch sw, CharSequence label) {
+        row.setOnClickListener(v -> sw.performClick());
+        row.setFocusable(false);
+        row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        sw.setContentDescription(label);
     }
 
     // ================================================================

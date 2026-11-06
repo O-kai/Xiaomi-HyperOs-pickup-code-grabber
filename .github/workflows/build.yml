@@ -40,8 +40,8 @@ jobs:
       - name: 安装编译所需 SDK 组件
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
-      - name: 构建 APK
-        run: ./gradlew assembleDebug
+      - name: 开关交互回归与 APK 构建
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug
 
       - name: 重命名产物
         run: mv app/build/outputs/apk/debug/app-debug.apk pickup-code-grabber-debug.apk
@@ -51,3 +51,13 @@ jobs:
         with:
           name: pickup-code-grabber-debug
           path: pickup-code-grabber-debug.apk
+
+      - name: 上传单元测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: switch-interaction-tests
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore

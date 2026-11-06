@@ -2515,6 +2515,8 @@ public class LauncherActivity extends Activity {
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         UiKit.Switch sw = new UiKit.Switch(this, P, sel.contains(target));
+        col.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        UiKit.bindSwitchRow(row, sw, title + "，" + sub);
         sw.setOnToggle(checked -> {
             java.util.Set<String> now = NotesBackend.selection(this);
 
@@ -2542,7 +2544,11 @@ public class LauncherActivity extends Activity {
                 }
                 // 关它等于删数据，必须先确认；取消时把开关恢复原位
                 sw.setChecked(false, false);
-                confirmTurnLocalOff(() -> sw.setChecked(true, false));
+                sw.setEnabled(false); // wait for the asynchronous count and confirmation
+                confirmTurnLocalOff(() -> {
+                    sw.setChecked(true, false);
+                    sw.setEnabled(true);
+                });
                 return;
             }
 
@@ -2556,7 +2562,7 @@ public class LauncherActivity extends Activity {
             NotesBackend.saveSelection(this, now);
             afterTargetChanged();
         });
-        row.addView(sw, new LinearLayout.LayoutParams(dp(46), dp(28)));
+        row.addView(sw, new LinearLayout.LayoutParams(dp(52), dp(31)));
         parent.addView(row);
     }
 
@@ -2596,7 +2602,7 @@ public class LauncherActivity extends Activity {
                     + "桌面上的小组件也会一起移除。系统待办里的记录不受影响。\n\n"
                     + "重新打开后可以从头开始记录；想在桌面再看，到「设置 → 桌面小组件」"
                     + "重新添加即可。";
-            UiKit.dialog(this, P, R.drawable.ic_target, "关闭「软件内部记录」", msg, null,
+            android.app.Dialog confirmation = UiKit.dialog(this, P, R.drawable.ic_target, "关闭「软件内部记录」", msg, null,
                     UiKit.primary("关闭并清空", () -> {
                         // 先把开关落盘：清库是异步的，这中间万一来了新短信，
                         // 也不该再往「已经关掉」的库里写。
@@ -2615,6 +2621,8 @@ public class LauncherActivity extends Activity {
                         });
                     }),
                     UiKit.ghost("取消", onCancel));
+            // Back/outside cancellation is the same as pressing the explicit Cancel button.
+            confirmation.setOnCancelListener(d -> onCancel.run());
         });
     }
 
