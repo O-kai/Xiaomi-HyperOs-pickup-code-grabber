@@ -2363,6 +2363,10 @@ public class LauncherActivity extends Activity {
                         + "   修正 ColorOS 上失效的 Hook 类名，使短信在 ColorOS 16 可正常捕获\n\n"
                         + "3. Seven2023Six — 界面布局重构\n"
                         + "   四 Tab 结构、UiKit 设计系统、矢量图标体系\n\n"
+                        + "4. ByteJuno — ColorOS 适配与体检修正\n"
+                        + "   通知通道参数校验、冻结后 Provider 唤醒放行、短信 Hook 类名；\n"
+                        + "   4.0.4 起：ColorOS 唤醒体检改读 DEX 类定义（不再误报）、\n"
+                        + "   设置开关的触摸与无障碍交互（含写入目标整行可点）\n\n"
                         + "LSPosed 模块仓库已上架，酷安同步更新\n"
                         + "遇到问题欢迎到 QQ 群或酷安主页找作者", null,
                 UiKit.primary("知道了", null),

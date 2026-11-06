@@ -7,8 +7,47 @@
 > 规则兼容性闸门，如 `403`）。**不做推导**：改一处忘另一处的坑已经踩过，别再加规则。
 > 详见 [docs/VERSION-MAP.md](docs/VERSION-MAP.md)。
 
-**版本索引**：[4.0.3](#403---2026-11-05--升级提示--清理与卸载--配置可读性--readme-重写) ·
+**版本索引**：[4.0.4](#404---2026-11-07--合并社区-pr-15--16coloros-唤醒体检--设置开关交互) ·
+4.0.3 ·
 4.0.2（2026-10-31）· 4.0.1（2026-10-31）· 4.0.0（2026-10-30）· 3.1.1（2026-10-17）· 3.1.0（2026-10-04）
+
+## [4.0.4] - 2026-11-07 · 合并社区 PR #15 / #16（ColorOS 唤醒体检 + 设置开关交互）
+
+> 两笔都来自社区 @ByteJuno，都在 ColorOS 真机上验证过。本次只合并代码与版本信息，
+> 维护者手上没有 ColorOS 实机，HyperOS 侧的回归由本地测试覆盖。
+
+### 🩺 ColorOS 唤醒体检不再误报（PR #15）
+
+原来只检查系统 JAR 里有没有 `ContentProviderHelperExtImpl.class` 这个 ZIP 条目。
+但 Android framework JAR 里是 `classes*.dex`，**从来不会有独立 .class 文件**——
+所有 ColorOS 机器都会被判成「找不到门禁类，唤醒放行不会生效」。
+
+- 新增 `ArchiveClassProbe`：解析 DEX 的 `class_defs → type_ids → string_ids`，
+  按完整类名判断**类定义**是否存在，不把同名字符串引用当成定义
+- 兼容 legacy DEX 035–040、多 DEX、反端序；校验头部/索引/偏移/ULEB128 边界，
+  并对单个 DEX、累计字节、条目数设预算，坏包按「扫描不完整」处理而不是猜
+- 体检文案拆开三种证据：**静态找到类 ≠ Hook 已安装 ≠ 冻结后唤醒成功**，
+  未定位到也不再断言「唤醒失效」，改为提示结合本次开机的 WAKE 日志复核
+
+### 🎛 设置开关能正常点了（PR #16）
+
+`UiKit.Switch` 是自绘 View，原先自己处理触摸，有两个硬伤：
+
+- 收到**任意 ACTION_MOVE** 就把 `touchMoved` 置真，手指轻微抖动也算拖动，点不动
+- `performClick()` 只调 `super`，切换写在 ACTION_UP 里，于是无障碍点击、键盘、
+  程序调用 `performClick()` 都切不了
+
+改为把触摸交回 `View` 自己分发（touch slop / pressed / cancel），
+`performClick()` 成为唯一切换入口；补 `class` / `checkable` / `checked` 无障碍语义与焦点；
+写入目标整行转发到同一开关（点标题、点空白都能切），启用态与二次确认期间的正确禁用；
+关闭内部记录的确认框被取消（取消按钮 / 返回 / 点外部）时，开关恢复原状并解除禁用。
+
+### 🧪 测试
+
+- `tools/test_coloros_gate.sh`：33 项生成样本回归（多 DEX、引用不是定义、
+  精确包名、反端序、坏头/越界/坏 ZIP、大小与条目预算），全部通过
+- `test/ui/.../SwitchInteractionTest`：Robolectric 下的真实 View 分发回归
+  （轻微移动、取消、performClick、无障碍 ACTION_CLICK、键盘、禁用态、整行点击）
 
 ## [4.0.3] - 2026-11-05 · 升级提示 / 清理与卸载 / 配置可读性 / README 重写
 
