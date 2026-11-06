@@ -48,7 +48,10 @@ Android `Build`/`Log` 用最小替身；真正被测的是 `ColorOs.containsGate
 ./gradlew :app:testDebugUnitTest --tests '*SwitchInteractionTest'
 ```
 
-测试源码位于 `test/ui/`，独立于现有手工 javac 测试。覆盖轻微手指移动、超出
+测试源码位于 `test/ui/`，独立于现有手工 javac 测试。
+
+> Windows 上如果项目路径含中文，这个任务会报 `ClassNotFoundException`（测试类加载不到），
+> 同一个提交在 CI 的 Linux 上正常。本地要跑请把仓库放到纯英文路径。覆盖轻微手指移动、超出
 范围/取消手势、`performClick`、无障碍 ACTION_CLICK、键盘、禁用态、整行点击、
 父子不重复触发、测量约束和目标勾选保存后重新读取。运行在 Robolectric 沙盒中，
 不会改设备上的写入目标、清空本机记录、操作 root 或移除桌面小组件。
