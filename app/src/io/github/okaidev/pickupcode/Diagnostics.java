@@ -458,9 +458,17 @@ public class Diagnostics {
         String table = NotesBackend.BACKEND_COLOROS_TODO.equals(backend) ? "Tasks"
                 : NotesBackend.BACKEND_COLOROS_NOTE.equals(backend) ? "rich_notes" : "todo";
         String dbFile = db.substring(db.lastIndexOf('/') + 1);
-        String needHint = NotesBackend.BACKEND_COLOROS_TODO.equals(backend) ? "在日历 App 里建过一条待办"
-                : NotesBackend.BACKEND_COLOROS_NOTE.equals(backend) ? "在便签 App 里建过至少一条笔记"
-                : "在小米笔记里建过至少一条待办";
+        // v4.0.5：先判文件在不在。sqlite3 打开一个不存在的路径会「创建」空库，
+        // 然后必然报 no such table——把「路径不对」误报成「表不存在」，
+        // 还会在别的 App 目录里留下一个 0 字节的 tasks.db（真机上踩到过）。
+        String[] exist = suExecPublic("[ -f " + db + " ] && echo YES || echo NO; echo " + PROBE_MARK, 15);
+        if (hasMark(exist) && "NO".equals(stdoutOf(exist))) {
+            return new Check("待办库访问", false,
+                    "找不到 " + db + "。先在日历 App 里手动建一条待办再看："
+                            + "日历待办是懒创建的，建过才会生成这张库。" + discoverTodoDbs()
+                            + "建过仍然没有，就是这台机器的路径不同——把这一行发给开发者即可适配"
+                            + "（不影响短信与通知抓取）");
+        }
         // v3.2.0：同 checkSqlite3，改走 suExecPublic 多路径 + 2>&1/哨兵。
         // 这里对 stdout 的依赖是【必须的】（靠纯数字判断 count 成功），
         // 所以更依赖哨兵：没有哨兵就说明 5 条 su 路径全没跑起来，
@@ -484,13 +492,39 @@ public class Diagnostics {
                             + "可先跑一次「一键测试」让它自愈，再导出报告");
         }
         if (e.contains("no such table")) {
+            // 文件在、表名不对：把这张库里真实存在的表名列出来，
+            // 下次一看就知道该适配成什么名字，不用再让用户来回跑。
             return new Check("待办库访问", false,
-                    table + " 表不存在 → 请先" + needHint + "，或系统版本过旧");
+                    db + " 里没有 " + table + " 表。"
+                            + "如果还没在日历 App 里建过待办，先建一条（表是懒创建的）；"
+                            + "建过仍然如此，就是这版 ROM 换了表名。" + tablesOf(db)
+                            + "把这一行发给开发者即可适配（不影响短信与通知抓取）");
         }
         if (e.contains(PROBE_MARK)) {   // 理论上到不了，留着防以后有人改命令把哨兵吃掉
             e = e.replace(PROBE_MARK, "").trim();
         }
         return new Check("待办库访问", false, "探测失败：" + tail(e, 140));
+    }
+
+
+    /** 扫一遍常见的待办库路径（只读）。用来在「默认路径不存在」时给出线索。 */
+    private static String discoverTodoDbs() {
+        String[] r = suExecPublic("ls -1 /data/user/0/*/databases/*.db 2>/dev/null"
+                + " | grep -Ei 'calendar|task|note|todo' | head -6; echo " + PROBE_MARK, 20);
+        if (!hasMark(r)) return "";
+        String out = stdoutOf(r);
+        if (out.isEmpty()) return "也没在常见目录里扫到 tasks / calendar / note 库。";
+        return "已扫到候选：" + out.replace('\n', '、') + "。";
+    }
+
+    /** 列出库里真实存在的表名（只读）。表名对不上时，用它一次问清。 */
+    private static String tablesOf(String db) {
+        String[] r = suExecPublic(LD() + " " + SQLITE + " " + db + " '.tables' 2>&1; echo " + PROBE_MARK, 15);
+        if (!hasMark(r)) return "";
+        String out = stdoutOf(r).replace('\n', ' ').trim();
+        if (out.isEmpty()) return "";
+        if (out.length() > 240) out = out.substring(0, 240) + "…";
+        return "库里的表：" + out + "。";
     }
 
     // ==================== 报告 ====================
