@@ -42,6 +42,17 @@ DEX JAR，覆盖多 DEX、引用不能当定义、精确包名、坏头/越界/�
 Android `Build`/`Log` 用最小替身；真正被测的是 `ColorOs.containsGate` 与 DEX 探针。
 这些测试只证明静态定位，不代表 Hook 已安装或冻结后的 Provider 唤醒成功。
 
+## 设置开关交互（Robolectric / 真实 Android View 分发）
+
+```bash
+./gradlew :app:testDebugUnitTest --tests '*SwitchInteractionTest'
+```
+
+测试源码位于 `test/ui/`，独立于现有手工 javac 测试。覆盖轻微手指移动、超出
+范围/取消手势、`performClick`、无障碍 ACTION_CLICK、键盘、禁用态、整行点击、
+父子不重复触发、测量约束和目标勾选保存后重新读取。运行在 Robolectric 沙盒中，
+不会改设备上的写入目标、清空本机记录、操作 root 或移除桌面小组件。
+
 ## 一键跑完全部回归
 
 ```bash
