@@ -667,6 +667,15 @@ public final class UiKit {
         }
 
         @Override
+        public boolean performAccessibilityAction(int action, android.os.Bundle arguments) {
+            // View's default ACTION_CLICK can report handled even if performClick is rejected.
+            if (action == AccessibilityNodeInfo.ACTION_CLICK && (!isEnabled() || !isClickable())) {
+                return false;
+            }
+            return super.performAccessibilityAction(action, arguments);
+        }
+
+        @Override
         public CharSequence getAccessibilityClassName() {
             return "android.widget.Switch";
         }
