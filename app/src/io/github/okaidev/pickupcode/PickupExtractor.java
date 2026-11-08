@@ -475,7 +475,9 @@ public class PickupExtractor {
             while (b.find()) {
                 String tok = b.group(1);
                 if (tok == null) continue;
-                addIfValidSemantic(result, r, tok, b.start(1), b.end(1), body);
+                // v10：group(1) 可能是「1-3-1257, 2-4-0274」这样的码簇，逐个拆开加；
+                // 以前只当单码传下去，整串通不过 validCode 就丢了，靠 TierD 兜底才偶尔救回来。
+                addCluster(result, r, tok, b.start(1), b.end(1), body);
             }
         }
 

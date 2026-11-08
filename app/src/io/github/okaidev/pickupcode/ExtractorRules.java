@@ -241,12 +241,17 @@ public class ExtractorRules {
         patternKeyword = Pattern.compile(pKw);
 
         // B: 凭/出示 + 码（后接引导字由 byLookaheadWords 驱动，如「凭552577至…取件」）
+        // v10：一条短信多个码。「请凭1-3-1257, 2-4-0274等取件码」这种写法，
+        // 锚点在码前面、码之间用顿号/逗号分隔、末尾用「等」收口——
+        // 原来只捕获一个 token，后面的码全丢。改成抓码簇再逐个拆。
         String byOr = String.join("|", byWords);
         String lookOr = byLookaheadWords == null || byLookaheadWords.isEmpty()
                 ? "到去取领取票至"
                 : String.join("", byLookaheadWords);
-        String pBy = "(?:" + byOr + ")[\\s\"'“”「」《》【】\\[\\]]*(" + dash + "|" + alnum + ")(?=[\\s\"'“”「」《》【】\\[\\]，。,]|["
-                + lookOr + "]|$)";
+        String codeAtom = "(?:" + dash + "|" + alnum + ")";
+        String pBy = "(?:" + byOr + ")[\\s\"'“”「」《》【】\\[\\]]*"
+                + "(" + codeAtom + "(?:\\s*[,，、;；]\\s*" + codeAtom + ")*)"
+                + "(?=[\\s\"'“”「」《》【】\\[\\]，。,]|[等均都]|[" + lookOr + "]|$)";
         patternBy = Pattern.compile(pBy);
 
         // C: 全文候选 token
