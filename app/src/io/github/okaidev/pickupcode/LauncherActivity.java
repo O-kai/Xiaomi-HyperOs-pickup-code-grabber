@@ -701,10 +701,15 @@ public class LauncherActivity extends Activity {
         t.setTypeface(null, Typeface.BOLD);
         col.addView(t);
 
+        // v4.0.6：升级提示说清"哪些已经生效、哪些还没换"。
+        // 原来只写「重启手机后新代码才会生效」，读起来像"不重启就不能用"，
+        // 实际上界面、搜索、导出、规则热更新都已经生效，只有系统进程里的解析代码没换。
         TextView sub = UiKit.text(this,
                 firstInstall
                         ? "LSPosed 要在重启后才会注入本模块；首次使用请先勾选作用域"
-                        : "抓取逻辑跑在系统进程里，重启手机后新代码才会生效",
+                        : "已经生效：打开、搜索、导出、规则更新。"
+                        + "还没换：短信与通知的解析代码（它跑在系统进程里）。"
+                        + "不重启也能正常用，只是新短信仍按旧逻辑认；方便时再重启一次即可",
                 11.5f, P.label);
         sub.setLineSpacing(dp(1), 1f);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
@@ -1240,7 +1245,7 @@ public class LauncherActivity extends Activity {
 
         // v4.0 收口：把「需要重启」的两处说法合成一条提示（见上方注释）。
         TextView scopeNote = UiKit.text(this,
-                "需在 LSPosed 作用域勾选「Android 系统」；添加或移除来源后，重启手机才会生效",
+                "需在 LSPosed 作用域勾选「Android 系统」；来源增删约 30 秒生效，不用重启",
                 12.5f, P.heroSubInk);
         scopeNote.setBackground(UiKit.bg(P.accentTint, this, 12));
         scopeNote.setPadding(dp(13), dp(11), dp(13), dp(11));
@@ -1256,7 +1261,7 @@ public class LauncherActivity extends Activity {
      */
     private void confirmRemoveExtra(final String pkg) {
         UiKit.dialog(this, P, R.drawable.ic_ban, "移除这个来源？",
-                pkg + "\n\n移除后它的通知不再被读取，需要重启手机生效。",
+                pkg + "\n\n移除后它的通知不再被读取，约 30 秒生效。",
                 null,
                 UiKit.primary("移除", () -> {
                     java.util.List<String> keep = new java.util.ArrayList<>();
@@ -1270,7 +1275,7 @@ public class LauncherActivity extends Activity {
                         sb.append(p);
                     }
                     ProcessSync.setExtraNotiPkgs(this, sb.toString());
-                    Toast.makeText(this, "已移除 " + pkg + "（重启手机后生效）",
+                    Toast.makeText(this, "已移除 " + pkg + "（约 30 秒生效）",
                             Toast.LENGTH_SHORT).show();
                     rebuildUi();
                 }),
@@ -1291,8 +1296,8 @@ public class LauncherActivity extends Activity {
         wrap.setOrientation(LinearLayout.VERTICAL);
 
         TextView hint = UiKit.text(this,
-                "填入要监听的 App 包名，或点下方「从已安装选择」直接挑。\n"
-                        + "添加后需重启手机生效。",
+                "填入要监听的 App 包名，或点下方「已安装应用」直接挑。\n"
+                        + "添加后约 30 秒生效，不用重启。",
                 12.5f, UiKit.INK3);
         hint.setLineSpacing(dp(3), 1.1f);
         wrap.addView(hint);
@@ -1347,7 +1352,7 @@ public class LauncherActivity extends Activity {
                     int added = merged.size() - before;
                     Toast.makeText(this,
                             added > 0
-                                    ? "已添加 " + added + " 个来源 ✓\n需重启手机生效"
+                                    ? "已添加 " + added + " 个来源 ✓\n约 30 秒生效，不用重启"
                                     : "这些来源已在列表中，无需重复添加",
                             Toast.LENGTH_SHORT).show();
                     if (dlg[0] != null) dlg[0].dismiss();
@@ -2387,11 +2392,11 @@ public class LauncherActivity extends Activity {
         renderNotiSwitchUi();
         String tip;
         if (!next) {
-            tip = "通知取件提取已关闭（重启手机后系统侧同步生效）";
+            tip = "通知取件提取已关闭（约 30 秒生效）";
         } else if (wasBlocked) {
             tip = NOTI_SCOPE_TOAST;
         } else {
-            tip = "通知取件提取已开启 ✓（重启手机后生效）\n"
+            tip = "通知取件提取已开启 ✓（约 30 秒生效）\n"
                     + "将拦截菜鸟/京东/淘宝/拼多多等 App 的取件通知";
         }
         Toast.makeText(this, tip, Toast.LENGTH_LONG).show();
