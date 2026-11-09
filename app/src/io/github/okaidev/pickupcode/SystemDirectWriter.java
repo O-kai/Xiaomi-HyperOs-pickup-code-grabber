@@ -42,8 +42,17 @@ public class SystemDirectWriter {
     /** APK 内只读默认值文件（构建产物，内容恒为 "0" 或不存在 = 关） */
     private static final String FLAG_ASSET = "enable_sys_direct_write";
 
-    /** 开关探测缓存（每进程一次；探测要跑 su，避免每条短信都开销） */
+    /**
+     * 开关探测缓存。
+     *
+     * <p>v4.0.6：原来「每进程一次」——用户在设置里改了开关，必须重启才生效。
+     * 现在改成短 TTL（5 秒）+ 直接读文件优先：先试普通文件读（system_server 有
+     * /data/local/tmp 的执行位、文件 644，能直接读），读不到才回落 su。
+     * 改开关最多 5 秒生效，也不会每条短信都起一个 su。
+     */
     private static volatile Boolean enabledCache = null;
+    private static volatile long enabledCacheAt = 0L;
+    private static final long FLAG_TTL_MS = 5_000L;
 
     /** 黑名单默认词（无模块 App 偏好可用时按此过滤；唯一来源在 TodoWriter） */
     private static final String[] DEFAULT_BLACKLIST =
@@ -83,23 +92,49 @@ public class SystemDirectWriter {
     /** 兜底写入总开关（见类注释）：读 /data/local/tmp 标志，回落 APK assets 默认值 */
     public static boolean enabled(Context ctx) {
         Boolean c = enabledCache;
-        if (c != null) return c;
+        if (c != null && System.currentTimeMillis() - enabledCacheAt < FLAG_TTL_MS) return c;
         synchronized (SystemDirectWriter.class) {
-            if (enabledCache != null) return enabledCache;
-            enabledCache = readFlag(ctx);
-            Log.i(TAG, "SYS-WRITE enabled=" + enabledCache);
-            return enabledCache;
+            if (enabledCache != null
+                    && System.currentTimeMillis() - enabledCacheAt < FLAG_TTL_MS) {
+                return enabledCache;
+            }
+            boolean v = readFlag(ctx);
+            if (enabledCache == null || enabledCache != v) {
+                Log.i(TAG, "SYS-WRITE enabled=" + v + " (切换已生效，无需重启)");
+            }
+            enabledCache = v;
+            enabledCacheAt = System.currentTimeMillis();
+            return v;
         }
     }
 
     private static boolean readFlag(Context ctx) {
-        // 1) 可变副本（设置页 su 写入）优先
+        // 1) 直接读文件：不经过 su，5 秒一次的探测足够便宜
+        java.io.File f = new java.io.File(FLAG_TMP);
+        try {
+            if (f.isFile() && f.canRead()) {
+                byte[] buf = new byte[8];
+                try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+                    int n = in.read(buf);
+                    if (n > 0) {
+                        String v = new String(buf, 0, n,
+                                java.nio.charset.StandardCharsets.UTF_8).trim();
+                        if (v.equals("1")) return true;
+                        if (v.equals("0")) return false;
+                    }
+                }
+            } else if (!f.exists()) {
+                return false;   // 文件不存在 = 没开过，语义就是「关」
+            }
+        } catch (Throwable ignored) { }
+
+        // 2) 读不到再问 su
         try {
             String[] r = runShortCmd(ctx, "cat " + FLAG_TMP, 8);
             if (r != null && r[0] != null && r[0].trim().equals("1")) return true;
             if (r != null && r[0] != null && r[0].trim().equals("0")) return false;
         } catch (Throwable ignored) { }
-        // 2) 回落 APK assets（只读默认 = 0，构建产物恒为关闭）
+        // 3) 都不行：维持「关」。读不到状态时绝不放行直写通道
         return false;
     }
 

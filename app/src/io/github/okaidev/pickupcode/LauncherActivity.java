@@ -2421,9 +2421,9 @@ public class LauncherActivity extends Activity {
         if (next) {
             Toast.makeText(this, "已开启冻结免疫直写 ✓\n还需两步：\n"
                     + "1. Magisk/KernelSU 给「com.android.providers.telephony」（短信存储）授权 root\n"
-                    + "2. 重启手机生效", Toast.LENGTH_LONG).show();
+                    + "2. 不用重启：开关约 5 秒生效，下一条短信就会走直写", Toast.LENGTH_LONG).show();
         } else {
-            Toast.makeText(this, "已关闭冻结免疫直写（重启手机后系统进程侧同步生效）",
+            Toast.makeText(this, "已关闭冻结免疫直写（约 5 秒生效）",
                     Toast.LENGTH_SHORT).show();
         }
     }
