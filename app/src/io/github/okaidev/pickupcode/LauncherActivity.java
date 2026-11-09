@@ -3274,6 +3274,11 @@ public class LauncherActivity extends Activity {
         // 不需要我再点击管理并选择『立刻清理已过期的记录』」。
         // 所以保留期必须真的自动生效——用户不点按钮，记录也会按期消失。
         PickupRepository.get(this).autoPurgeAsync(this);
+        // v4.0.6：进 App 顺手刷一次桌面组件。
+        // 组件原先只在「数据经 Room 写入成功后」刷新；库被别的途径改过、
+        // 或某次刷新回调丢了，组件就会停在旧快照上（真机上出现过：库里已删的码
+        // 还挂在组件第一行）。这条刷新很便宜，相当于给组件一个自愈机会。
+        PickupWidgetProvider.refreshAsync(this);
         refreshPickupCard();
         refreshHealth();
         notiSwitchOn = isNotiHookFlagOn();
