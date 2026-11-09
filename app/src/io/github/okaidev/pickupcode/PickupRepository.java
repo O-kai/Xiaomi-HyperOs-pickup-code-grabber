@@ -141,8 +141,15 @@ public final class PickupRepository {
                 continue;
             }
 
-            PickupRecord active = dao.findActive(normalizedCode, placeVal);
+            // v4.0.6：按「码」去重，不再带地点。
+            // 同一个包裹的短信与通知，地点一个有一个没有（—），
+            // 带上地点就会被判成两条，列表里并排出现两个相同的码。
+            PickupRecord active = dao.findPendingByCode(normalizedCode);
             if (active != null) {
+                // 后到的来源若给出更完整的地点，补进去；已有真地点就不覆盖
+                if (DEFAULT_UNKNOWN.equals(active.place) && !DEFAULT_UNKNOWN.equals(placeVal)) {
+                    dao.updatePlace(active.id, placeVal);
+                }
                 dao.touch(active.id, now);
                 touched++;
                 continue;

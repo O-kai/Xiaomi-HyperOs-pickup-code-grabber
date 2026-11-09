@@ -22,6 +22,10 @@ public interface PickupDao {
             + "ORDER BY id DESC LIMIT 1")
     PickupRecord findActive(String code, String place);
 
+    /** 后到的来源带来了更完整的地点时，补进已有那条（不新增记录） */
+    @Query("UPDATE pickup_records SET place = :place WHERE id = :id")
+    void updatePlace(long id, String place);
+
     @Query("UPDATE pickup_records SET last_seen_at = :ts WHERE id = :id")
     void touch(long id, long ts);
 

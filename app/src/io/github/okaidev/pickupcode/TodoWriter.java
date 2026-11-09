@@ -158,8 +158,13 @@ public class TodoWriter {
         Set<String> seen = new LinkedHashSet<>(prefs.getStringSet("seen", new LinkedHashSet<>()));
         int mode = prefs.getInt("todo_mode", MODE_FULL);
         String customTpl = prefs.getString("todo_custom", TPL_DEFAULT);
+        // v4.0.6：系统待办的指纹只认「码 + 当天」。
+        // 原来是「码 + 地点」——短信与通知给出的地点不一致时，
+        // 同一个码会在待办里出现两条。按天留一条缝：
+        // 同一个码隔天再来，可能是新包裹（驿站会复用短码），不该永久挡掉。
+        String day = time.length() >= 10 ? time.substring(0, 10) : time;
         for (String code : codes) {
-            String fingerprint = code + "|" + place;
+            String fingerprint = code + "|" + day;
             if (seen.contains(fingerprint)) {
                 Log.i(TAG, "dedup skip: " + fingerprint);
                 if (dedupBuf.length() > 0) dedupBuf.append("; ");
