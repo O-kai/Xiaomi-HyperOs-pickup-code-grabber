@@ -656,6 +656,28 @@ public class LauncherActivity extends Activity {
      *
      * <p>首次安装不提示（没有「升级」这回事）；点关闭后记住当前版本，不再出现。
      */
+    /**
+     * system_server 里的模块代码是不是「安装之后加载的」（v4.1.0）。
+     *
+     * <p>LSPosed 只在进程启动时注入，而 system_server 只在开机时启动一次——
+     * 所以「本次开机时间晚于 APK 安装时间」就等于「系统进程里跑的是新代码」，
+     * 不需要重启。反过来，装完还没重启过，就该提示一次。
+     *
+     * <p>这里不用写标记文件：system_server 是 system uid，
+     * 没法往 App 的私有目录里写东西（试过，静默失败）。
+     */
+    private boolean systemHookFresh(long lastUpdateTime) {
+        if (lastUpdateTime <= 0) return false;
+        try {
+            long uptime = android.os.SystemClock.elapsedRealtime();
+            long bootWallClock = System.currentTimeMillis() - uptime;
+            // 留 5 秒余量：安装动作与开机时间都可能被取整
+            return bootWallClock > lastUpdateTime + 5_000L;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private void maybeAddUpgradeNotice(LinearLayout box) {
         final int cur = AppVersion.code(this);
         if (cur <= 0) return;
@@ -672,12 +694,24 @@ public class LauncherActivity extends Activity {
         // 而且首次安装本来也必须重启——LSPosed 只在进程启动时注入，
         // 不重启的话用户会以为「装完就能用」，结果什么都抓不到。
         boolean upgraded = false;
+        long lastUpdateTime = 0L;
         try {
             android.content.pm.PackageInfo pi = getPackageManager()
                     .getPackageInfo(getPackageName(), 0);
             upgraded = pi.lastUpdateTime - pi.firstInstallTime > 60_000L;
+            lastUpdateTime = pi.lastUpdateTime;
         } catch (Throwable ignored) { }
         if (seen != 0 && seen >= cur) return;   // 这个版本已经提示过，点掉后不再出现
+
+        // v4.1.0：别没事就让人重启。
+        // 真正需要重启的只有一种情况：APK 换过了，但系统进程里跑的还是旧代码。
+        // 判断依据是 system_server 注入时写的时间戳（只在 system_server 里写）
+        // 和本次安装时间——安装之后系统进程已经加载过，就说明代码是新的，不提示。
+        if (systemHookFresh(lastUpdateTime)) {
+            sp.edit().putInt(KEY_SEEN_VERSION_CODE, cur)
+                    .putString(KEY_SEEN_VERSION_NAME, curName).apply();
+            return;
+        }
         final boolean firstInstall = seen == 0 && !upgraded;
 
         final String head;
@@ -3370,8 +3404,10 @@ public class LauncherActivity extends Activity {
 
         // 先声明再赋值：清空后要能关掉这一层，而 lambda 里需要引用它自己。
         final android.app.Dialog[] outer = new android.app.Dialog[1];
+        // v4.1.0：正文限高。20 条样本时内容比屏幕还高，按钮会被顶出去——
+        // 表现就是「手动上报 / 清空」凭空消失。给个 45% 的高度让它自己滚。
         outer[0] = UiKit.dialog(this, P, R.drawable.ic_notebook, "疑似漏抓错题本（" + list.size() + " 条）",
-                null, wrap, 0,
+                null, wrap, 45,
                 UiKit.primary("复制上报文本", () -> {
                     String report = MissedSmsStore.formatReport(list);
                     try {

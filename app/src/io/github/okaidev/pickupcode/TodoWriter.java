@@ -123,10 +123,16 @@ public class TodoWriter {
         }
         List<String> codes = PickupExtractor.extract(sender, body);
         if (codes.isEmpty()) {
-            // v2.8.0 错题本捕获：含快递特征词但提取为空 → 记为疑似漏抓样本
-            // （判定用特征词门禁而非 lookLikePickupSms——后者额外要求形状 token 存在，
-            //   会漏掉"有特征词但文案里根本没有数字码"这类真漏抓）
-            if (PickupExtractor.hasFeatureWords(sender, body)) {
+            // v4.1.0：错题本只收「有码形 token 但没认出来」的短信。
+            //
+            // 原来只要求「含快递特征词」，结果真机上 20 条样本全是
+            // 派送中 / 已签收 / 商家已接单 / 包裹已寄出 这类状态通知——
+            // 它们本来就没有取件码，谈不上"漏抓"，只是把错题本灌满噪声。
+            //
+            // lookLikePickupSms = 特征词 + 至少一个码形 token（3~9 位数字等）。
+            // 代价：真·没有数字码的取件通知（"请凭手机号取件"）不再进错题本——
+            // 但它本来也没有码可提取，记下来也没法修。
+            if (PickupExtractor.lookLikePickupSms(sender, body)) {
                 MissedSmsStore.record(ctx, sender, body);
             }
             return new HandleResult(codes, 0, 0, 0, "no_code", "");
