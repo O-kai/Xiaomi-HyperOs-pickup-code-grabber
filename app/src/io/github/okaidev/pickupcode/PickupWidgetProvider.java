@@ -320,7 +320,7 @@ public class PickupWidgetProvider extends AppWidgetProvider {
     }
 
     static int layoutId(Context ctx) {
-        return isLightTheme(ctx) ? R.layout.widget_pickup_v5_light : R.layout.widget_pickup_v4;
+        return isLightTheme(ctx) ? R.layout.widget_pickup_v6_light : R.layout.widget_pickup_v6;
     }
 
     /** 背景：深/浅 × 实底/半透明/全透明 */
