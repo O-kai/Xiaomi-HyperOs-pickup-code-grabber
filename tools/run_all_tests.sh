@@ -90,7 +90,7 @@ echo "===== javac：测试源码 ====="
   test/FullReg.java test/ChannelParity.java test/PkgInputTest.java \
   test/TierExclusionTest.java test/CallerPolicyTest.java \
   test/UserRulesTest.java test/FeatureTest.java test/DataTest.java test/V401Test.java \
-  test/WidgetTest.java test/NotiEventWindowTest.java 2> "$OUT/javac.log"
+  test/WidgetTest.java test/NotiEventWindowTest.java test/HonorSqlTest.java 2> "$OUT/javac.log"
 if [ $? -ne 0 ]; then
   echo "javac FAILED:"
   head -30 "$OUT/javac.log"
@@ -203,6 +203,9 @@ run_java "WidgetTest"
 
 echo "----- NotiEventWindowTest -----"
 run_java "io.github.okaidev.pickupcode.NotiEventWindowTest"
+
+echo "----- HonorSqlTest（荣耀表结构自适应 SQL）-----"
+run_java "HonorSqlTest"
 
 echo ""
 echo "===== 规则单源一致性 ====="

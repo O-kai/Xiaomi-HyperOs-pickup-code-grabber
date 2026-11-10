@@ -42,6 +42,18 @@ public class NotesBackend {
     public static final String BACKEND_XIAOMI = "xiaomi";
     public static final String BACKEND_COLOROS_TODO = "coloros_todo";
     public static final String BACKEND_COLOROS_NOTE = "coloros_note";
+
+    /**
+     * 荣耀 MagicOS 的日历待办（v4.1.0）。
+     *
+     * <p><b>只登记「日历待办」一个后端</b>：荣耀的备忘录待办已经迁进日历
+     * （与 ColorOS 16 同一个产品决策），而备忘录私有库的表结构没有真机样本，
+     * 硬塞一个后端只会让用户在便签里找不到东西。等有样本再加，不提前占位。
+     *
+     * <p>这个后端的写入不走本类的 SQL 模板——它必须经 {@link HonorWriter}：
+     * 先试 CalendarProvider，失败再按实际表结构拼 SQL。
+     */
+    public static final String BACKEND_HONOR_TODO = "honor_todo";
     /**
      * 多选目标里的「软件内部记录」（v4.0.3 第二轮）。
      *
@@ -164,7 +176,9 @@ public class NotesBackend {
 
     /** 本机默认的待办后端（不看用户选择） */
     public static String systemDefaultTodo() {
-        return isMiuiRom() ? BACKEND_XIAOMI : BACKEND_COLOROS_TODO;
+        if (isMiuiRom()) return BACKEND_XIAOMI;
+        if (Honor.isHonor()) return BACKEND_HONOR_TODO;
+        return BACKEND_COLOROS_TODO;
     }
 
     /**
@@ -175,7 +189,9 @@ public class NotesBackend {
      * 小米是小米账号，ColorOS 是 OPPO 账号（HeyTap 云服务）。
      */
     public static String cloudAccountName() {
-        return isMiuiRom() ? "小米账号" : "OPPO 账号";
+        if (isMiuiRom()) return "小米账号";
+        if (Honor.isHonor()) return "荣耀账号";
+        return "OPPO 账号";
     }
 
     /**
@@ -189,6 +205,8 @@ public class NotesBackend {
         java.util.List<String> l = new java.util.ArrayList<>();
         if (isMiuiRom()) {
             l.add(BACKEND_XIAOMI);
+        } else if (Honor.isHonor()) {
+            l.add(BACKEND_HONOR_TODO);
         } else {
             l.add(BACKEND_COLOROS_TODO);
             l.add(BACKEND_COLOROS_NOTE);
@@ -249,7 +267,7 @@ public class NotesBackend {
             if (BACKEND_WIDGET_ONLY.equals(old)) {
                 migrated.add(TARGET_WIDGET);
             } else if (BACKEND_XIAOMI.equals(old) || BACKEND_COLOROS_TODO.equals(old)
-                    || BACKEND_COLOROS_NOTE.equals(old)) {
+                    || BACKEND_COLOROS_NOTE.equals(old) || BACKEND_HONOR_TODO.equals(old)) {
                 migrated.add(old);
                 migrated.add(TARGET_WIDGET);
             } else {
@@ -320,7 +338,9 @@ public class NotesBackend {
      * 小米 ROM → xiaomi；其余（ColorOS/OPPO 系）→ coloros_todo。
      */
     public static String propsBackend() {
-        return isMiuiRom() ? BACKEND_XIAOMI : BACKEND_COLOROS_TODO;
+        if (isMiuiRom()) return BACKEND_XIAOMI;
+        if (Honor.isHonor()) return BACKEND_HONOR_TODO;
+        return BACKEND_COLOROS_TODO;
     }
 
     private static String resolveByPackage(Context ctx) {
@@ -345,6 +365,7 @@ public class NotesBackend {
 
     public static String targetPkgOf(String b) {
         if (BACKEND_WIDGET_ONLY.equals(b)) return RuntimePaths.PKG;   // 旧值：只写小组件时回本 App
+        if (BACKEND_HONOR_TODO.equals(b)) return Honor.PKG_CALENDAR;
         if (BACKEND_COLOROS_NOTE.equals(b)) return PKG_COLOROS_NOTE;
         if (b != null && b.startsWith("coloros")) return PKG_COLOROS_CALENDAR;
         return PKG_XIAOMI;
@@ -354,6 +375,10 @@ public class NotesBackend {
     public static String dbPath(Context ctx) { return dbPathOf(detect(ctx)); }
 
     public static String dbPathOf(String b) {
+        if (BACKEND_HONOR_TODO.equals(b)) {
+            // 真机侦察：荣耀的待办在独立的 task.db（calendar.db 是日历事件库）
+            return Honor.DB_TASK;
+        }
         if (BACKEND_COLOROS_NOTE.equals(b)) {
             return "/data/user/0/" + PKG_COLOROS_NOTE + "/databases/nearme_note.db";
         }
@@ -381,6 +406,7 @@ public class NotesBackend {
     }
 
     public static String insertSqlOf(String b, String content, String title) {
+        requireHonorWriter(b, "新增待办 SQL");
         String esc = TodoWriter.sqlEscapePub(content);
         String now = "(strftime('%s','now')*1000)";
         if (BACKEND_COLOROS_NOTE.equals(b)) {
@@ -443,6 +469,7 @@ public class NotesBackend {
     public static String markDoneSql(Context ctx, String code) { return markDoneSqlOf(detect(ctx), code); }
 
     public static String markDoneSqlOf(String b, String code) {
+        requireHonorWriter(b, "标记完成 SQL");
         String pat = likeOf(code);
         if (BACKEND_COLOROS_NOTE.equals(b)) {
             return "UPDATE rich_notes SET text = text || '（已取件）',"
@@ -462,6 +489,7 @@ public class NotesBackend {
 
     /** 体检/兜底用：目标表里是否已存在包含 code 的未完成待办（进程外去重） */
     public static String existsSqlOf(String b, String code) {
+        requireHonorWriter(b, "去重查询");
         String pat = likeOf(code);
         if (BACKEND_COLOROS_TODO.equals(b)) {
             return "SELECT COUNT(*) FROM Tasks WHERE deleted=0 AND finish_time IS NULL"
@@ -478,15 +506,39 @@ public class NotesBackend {
     public static String countProbeSql(Context ctx) { return countProbeSqlOf(detect(ctx)); }
 
     public static String countProbeSqlOf(String b) {
+        if (BACKEND_HONOR_TODO.equals(b)) {
+            // 荣耀的表名不固定（Tasks / task / todo…），通用 count 探针给不出准确条数。
+            // 体检里荣耀走 Diagnostics.checkHonorDb 单独探测，这里只是给「不该走到」的调用方
+            // 一个不会误伤数据的只读语句。
+            return "SELECT COUNT(*) FROM sqlite_master WHERE type='table';";
+        }
         if (BACKEND_COLOROS_NOTE.equals(b)) return "SELECT COUNT(*) FROM rich_notes;";
         if (BACKEND_COLOROS_TODO.equals(b)) return "SELECT COUNT(*) FROM Tasks;";
         return "SELECT COUNT(*) FROM todo;";
+    }
+
+    /**
+     * 荣耀后端的 SQL 必须由 {@link HonorWriter} 现场生成（它要先读表结构）。
+     *
+     * <p>这里刻意抛异常而不是返回空串：空串在 sqlite 里等价于「什么都没做但退出码 0」，
+     * 会被上层当成写入成功——那正是最难查的一类故障（去重指纹已落盘、待办却不存在）。
+     * 抛出来至少能在日志里一眼看到调用链。
+     */
+    private static void requireHonorWriter(String b, String what) {
+        if (BACKEND_HONOR_TODO.equals(b)) {
+            throw new IllegalStateException(
+                    "honor_todo 的" + what + "必须经 HonorWriter 生成（需要先读表结构），"
+                            + "不能走 NotesBackend 的静态模板");
+        }
     }
 
     /** 体检文案用：目标 App 的通俗名 */
     public static String targetAppName(Context ctx) { return targetAppNameOf(detect(ctx)); }
 
     public static String targetAppNameOf(String b) {
+        if (BACKEND_HONOR_TODO.equals(b)) {
+            return "荣耀日历待办（" + Honor.PKG_CALENDAR_PROVIDER + "）";
+        }
         if (BACKEND_COLOROS_NOTE.equals(b)) return "ColorOS 便签";
         if (BACKEND_COLOROS_TODO.equals(b)) return "日历待办（com.android.providers.calendar）";
         return "小米笔记";

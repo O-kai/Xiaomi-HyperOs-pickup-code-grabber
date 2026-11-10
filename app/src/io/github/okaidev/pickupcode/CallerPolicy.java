@@ -38,6 +38,8 @@ final class CallerPolicy {
             "com.miui.mms",
             "com.oplus.mms",
             "com.coloros.mms",
+            "com.hihonor.mms",      // v4.1.0：荣耀「信息」（独立后的包名）
+            "com.huawei.mms",       // 同源 EMUI 机型，一并放行
             "com.android.phone",
             "com.android.providers.telephony"
     ));

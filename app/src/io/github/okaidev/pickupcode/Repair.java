@@ -55,6 +55,11 @@ public class Repair {
         if (NotesBackend.BACKEND_XIAOMI.equals(backend)) {
             return new String[]{"android", "com.android.phone", "com.android.mms", NotesBackend.PKG_XIAOMI};
         }
+        // v4.1.0：荣耀的短信 App 是 com.hihonor.mms，com.android.mms 在这代机器上根本不存在。
+        // 继续按 AOSP 包名要求作用域，体检会一直报「作用域缺一项」——用户怎么勾都消不掉。
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend) || Honor.isHonor()) {
+            return new String[]{"android", "com.android.phone", Honor.PKG_MMS};
+        }
         return new String[]{"android", "com.android.phone", "com.android.mms"};
     }
     public static final String SCOPE_OPTIONAL = "com.android.providers.telephony";

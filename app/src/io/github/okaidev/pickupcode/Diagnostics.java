@@ -455,6 +455,11 @@ public class Diagnostics {
     private static Check checkNotesDb(Context ctx) {
         String db = NotesBackend.dbPath(ctx);
         String backend = NotesBackend.detect(ctx);
+        // v4.1.0：荣耀有 task.db / calendar.db 两个候选库，表名也不固定，
+        // 通用分支的「一个路径 + 一个表名」模型套不上，单独一条探测。
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) {
+            return checkHonorDb(ctx, backend);
+        }
         String table = NotesBackend.BACKEND_COLOROS_TODO.equals(backend) ? "Tasks"
                 : NotesBackend.BACKEND_COLOROS_NOTE.equals(backend) ? "rich_notes" : "todo";
         String dbFile = db.substring(db.lastIndexOf('/') + 1);
@@ -506,6 +511,45 @@ public class Diagnostics {
         return new Check("待办库访问", false, "探测失败：" + tail(e, 140));
     }
 
+    /**
+     * 荣耀专属体检项（v4.1.0）：把两个候选库的真实表/列写进报告。
+     *
+     * <p>为什么不能套通用分支：荣耀的待办库是 {@code task.db}（不是 calendar.db），
+     * 表名也未必叫 {@code Tasks}，一条「路径 + 表名」的探针根本不成立。
+     *
+     * <p>判绿的条件是「找到一个有正文列 + 有完成列的待办表」——缺一样，
+     * 写入或标记已取件就会降级；这时候报告里的列名就是适配依据。
+     */
+    private static Check checkHonorDb(Context ctx, String backend) {
+        java.util.Map<String, HonorSql.Schema> probes;
+        try {
+            probes = HonorWriter.probeAll(ctx, backend);
+        } catch (Throwable t) {
+            return new Check("待办库访问", false, "探测异常：" + tail(String.valueOf(t), 140));
+        }
+        StringBuilder all = new StringBuilder();
+        String bestDb = null;
+        HonorSql.Schema best = null;
+        for (java.util.Map.Entry<String, HonorSql.Schema> e : probes.entrySet()) {
+            String name = e.getKey().substring(e.getKey().lastIndexOf('/') + 1);
+            HonorSql.Schema s = e.getValue();
+            all.append(name).append(" → ").append(s.describe()).append("\n");
+            if (best == null && s.usable() && s.textColumn() != null && s.doneColumn() != null) {
+                best = s;
+                bestDb = e.getKey();
+            }
+        }
+        if (best == null) {
+            return new Check("待办库访问", false,
+                    "两个候选库里都没有能写待办的表。\n" + all
+                            + "把这几行发给开发者即可适配（不影响短信与通知抓取）");
+        }
+        String count = TodoWriter.runSqlForPath(ctx, backend, bestDb, HonorSql.countSql(best));
+        String countText = count == null ? "读不到条数" : count.trim();
+        return new Check("待办库访问", true,
+                best.describe() + "，当前 " + countText + " 条 ✓（库：" 
+                        + bestDb.substring(bestDb.lastIndexOf('/') + 1) + "）");
+    }
 
     /** 扫一遍常见的待办库路径（只读）。用来在「默认路径不存在」时给出线索。 */
     private static String discoverTodoDbs() {
@@ -558,6 +602,11 @@ public class Diagnostics {
         // v2.7.0：多 ROM 支持——ColorOS 版本与当前写入后端一并写入报告
         String oplus = prop("ro.build.version.oplusRom");
         if (oplus != null && !oplus.isEmpty()) sb.append("ColorOS: ").append(oplus).append("\n");
+        // v4.1.0：荣耀（MagicOS）——版本号取自 ro.build.version.magic，老机型回落 EMUI
+        if (Honor.isHonor()) {
+            sb.append("荣耀: ").append(Honor.describe()).append("\n");
+            sb.append("荣耀待办库: ").append(Honor.dbHint()).append("\n");
+        }
         sb.append("写入后端: ").append(NotesBackend.detect(ctx)).append("（")
           .append(NotesBackend.targetAppName(ctx)).append("）\n");
         sb.append("Magisk: ").append(prop("magisk.version") ).append("\n");
@@ -884,6 +933,7 @@ public class Diagnostics {
             putIf(dev, "miOs", prop("ro.mi.os.version.name"));
             putIf(dev, "miui", prop("ro.miui.ui.version.name"));
             putIf(dev, "colorOs", prop("ro.build.version.oplusRom"));
+            putIf(dev, "magicOs", Honor.isHonor() ? Honor.magicVersion() : "");
             putIf(dev, "magisk", prop("magisk.version"));
             root.put("device", dev);
 
