@@ -51,20 +51,37 @@ public class Repair {
      *  写入目标 App（笔记/日历）不是 Hook 目标（模块靠 su 直写其库），无需勾选。
      */
     public static String[] scopeRequired(Context ctx) {
-        String backend = NotesBackend.detect(ctx);
-        if (NotesBackend.BACKEND_XIAOMI.equals(backend)) {
-            // v4.1.0：不再要求「小米笔记」。写待办是 root 直写它的库，模块从不 Hook 它，
-            // 勾了只是白占一个作用域（还会在日志里刷 SCOPE-NOT-TARGET）。
-            // 老用户已经勾着的照旧，不影响功能。
-            return new String[]{"android", "com.android.phone", "com.android.mms"};
-        }
-        // v4.1.0：荣耀的短信 App 是 com.hihonor.mms，com.android.mms 在这代机器上根本不存在。
-        // 继续按 AOSP 包名要求作用域，体检会一直报「作用域缺一项」——用户怎么勾都消不掉。
-        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend) || Honor.isHonor()) {
-            return new String[]{"android", "com.android.phone", Honor.PKG_MMS};
-        }
-        return new String[]{"android", "com.android.phone", "com.android.mms"};
+        java.util.List<String> need = new java.util.ArrayList<>();
+        need.add("android");                       // 框架：system/android 任一即可
+        need.add("com.android.phone");             // 电话进程
+        need.add(smsAppPackage(ctx));              // 短信 App（按机型取实际安装的那个）
+        // v4.1.0：从「建议」升级为「必须」——它是短信库主通道，
+        // 少勾时短信仍可能抓到（走电话进程），但会少一层兜底，行为不稳定。
+        // 只在本机确实装了这个包时才要求，避免某些 ROM 上永远「缺一项」。
+        if (isInstalled(ctx, SCOPE_OPTIONAL)) need.add(SCOPE_OPTIONAL);
+        return need.toArray(new String[0]);
     }
+
+    /** 各 ROM 的短信 App 包名，按优先级；返回本机真正装着的那个 */
+    private static String smsAppPackage(Context ctx) {
+        String[] cands = Honor.isHonor()
+                ? new String[]{Honor.PKG_MMS, "com.android.mms", "com.coloros.mms", "com.oplus.mms"}
+                : new String[]{"com.android.mms", "com.coloros.mms", "com.oplus.mms", Honor.PKG_MMS};
+        for (String p : cands) {
+            if (isInstalled(ctx, p)) return p;
+        }
+        return "com.android.mms";   // 都查不到（极少见）→ 回落 AOSP 包名，至少不误伤老逻辑
+    }
+
+    private static boolean isInstalled(Context ctx, String pkg) {
+        try {
+            ctx.getPackageManager().getPackageInfo(pkg, 0);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public static final String SCOPE_OPTIONAL = "com.android.providers.telephony";
 
     // ==================== 一键部署 sqlite3 ====================

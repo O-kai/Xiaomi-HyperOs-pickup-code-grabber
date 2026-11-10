@@ -56,7 +56,7 @@
 | 系统 | HyperOS / MIUI、ColorOS 16（一加 / OPPO / realme），或荣耀 MagicOS 7+；Android 9 及以上 |
 | Root | Magisk 或 KernelSU（需要 `su`；写入系统待办依赖 root。荣耀侧给日历权限后可不 root 写入） |
 | 框架 | LSPosed 或兼容实现（Vector 等） |
-| 作用域 | **系统框架**（LSPosed 2.x 显示为「系统框架 / system」，旧版显示为「Android 系统 / android」，两者等价，勾一个即可）、电话、短信（小米/一加是 `com.android.mms`，荣耀是 `com.hihonor.mms`）、`com.android.providers.telephony`；小米笔记可不勾（写待办走 root 直写，不经过 Hook） |
+| 作用域 | 必勾 4 项：**系统框架**（LSPosed 2.x 叫「系统框架 / system」，旧版叫「Android 系统 / android」，两者等价，勾一个即可）、**电话**、**短信**（小米/一加是 `com.android.mms`，荣耀是 `com.hihonor.mms`）、**电话和短信存储**（`com.android.providers.telephony`）。「小米笔记」和重复的「Android 系统」可勾可不勾 |
 
 > ⚠️ 作用域里的**框架那一项**（新版叫「系统框架」、旧版叫「Android 系统」）最容易被漏掉——
 > 漏勾它，模块会显示已激活却什么都抓不到。勾完必须**重启手机**。
@@ -67,7 +67,7 @@
 
 1. 从 [Releases](https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases) 下载 APK 安装；
 2. 打开 **LSPosed** → 模块 → 启用「取件码助手」；
-3. 进「作用域」，按上表勾选（别漏「Android 系统」）；
+3. 进「作用域」，勾上表那 4 项（最常漏的是「系统框架」）；
 4. **重启手机**；
 5. 打开 App → 点开首页状态卡 → **点击体检**。全绿就装好了。
 

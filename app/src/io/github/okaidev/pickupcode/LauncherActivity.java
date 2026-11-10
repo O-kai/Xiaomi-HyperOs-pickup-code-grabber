@@ -65,10 +65,10 @@ public class LauncherActivity extends Activity {
     private static final String TPL_DEFAULT = TodoWriter.TPL_DEFAULT;
     /** 缺作用域时的统一提示文案（Toast 与开关态共用一份，避免两处说法不一致） */
     private static final String NOTI_SCOPE_TOAST =
-            "开关虽已打开，但 LSPosed 作用域没勾「Android 系统（android）」，\n"
+            "开关虽已打开，但 LSPosed 作用域没勾「系统框架」，\n"
             + "这种状态下通知取件【不会生效】。\n"
-            + "请到：LSPosed → 模块 → 取件码助手 → 作用域勾选「Android 系统」\n"
-            + "（列表底部、不带推荐角标的那一项），再重启手机。";
+            + "请到：LSPosed → 模块 → 取件码助手 → 作用域勾选「系统框架」\n"
+            + "（置顶、带推荐标记那一项；旧版叫「Android 系统」），再重启手机。";
     /** 作用域校验节流窗口：同一次打开里 onResume 可能连着触发多次，不必每次都 su+sqlite3 */
     private static final long NOTI_SCOPE_CHECK_INTERVAL = 60_000L;
 
@@ -717,7 +717,9 @@ public class LauncherActivity extends Activity {
         for (String p : missing.split("、")) {
             sb.append("· ").append(friendlyScopeName(p.trim())).append("\n");
         }
-        boolean missingFramework = missing.contains("android") || missing.contains("system");
+        // 注意：不能用 contains——"com.android.providers.telephony" 里也含 android，
+        // 会把「只少了短信存储」误判成「少了框架」。
+        boolean missingFramework = hasScopeToken(missing, "android") || hasScopeToken(missing, "system");
         if (missingFramework) {
             sb.append("\n")
                     .append("**系统框架**（英文 system）是让模块进入系统进程的那一项，")
@@ -749,6 +751,15 @@ public class LauncherActivity extends Activity {
                         .apply()));
     }
 
+    /** 缺项串（顿号分隔）里是否有某一项——按整项比对，不做子串匹配 */
+    private static boolean hasScopeToken(String missing, String pkg) {
+        if (missing == null) return false;
+        for (String p : missing.split("、")) {
+            if (pkg.equals(p.trim())) return true;
+        }
+        return false;
+    }
+
     /** 包名转成人话；认不出的原样显示，总比不提示强 */
     private String friendlyScopeName(String pkg) {
         // 截图里能看到两条：置顶的「系统框架」(system) 与列表里的「Android 系统」(android)。
@@ -760,7 +771,7 @@ public class LauncherActivity extends Activity {
         if ("com.android.phone".equals(pkg)) return "电话";
         if ("com.android.mms".equals(pkg)) return "短信";
         if (Honor.PKG_MMS.equals(pkg)) return "信息（荣耀）";
-        if ("com.android.providers.telephony".equals(pkg)) return "短信存储";
+        if ("com.android.providers.telephony".equals(pkg)) return "电话和短信存储";
         if (NotesBackend.PKG_XIAOMI.equals(pkg)) return "小米笔记";
         if (NotesBackend.PKG_COLOROS_NOTE.equals(pkg)) return "ColorOS 便签";
         return pkg;
@@ -1322,7 +1333,7 @@ public class LauncherActivity extends Activity {
         notiCard.addView(notiRow);
 
         notiScopeHintView = UiKit.text(this,
-                "LSPosed 作用域未勾选「Android 系统（android）」，此时通知取件提取不会生效（重启手机也没用）。",
+                "LSPosed 作用域未勾选「系统框架」（旧版叫「Android 系统」），此时通知取件提取不会生效。",
                 11.5f, UiKit.INK3);
         notiScopeHintView.setLineSpacing(dp(2), 1.0f);
         notiScopeHintView.setVisibility(View.GONE);
@@ -2005,10 +2016,10 @@ public class LauncherActivity extends Activity {
     /** v4.3：使用说明弹窗（原先是页面底部一大段裸露文字） */
     private void showUsageDialog() {
         String text =
-                "1. 在 LSPosed 里启用本模块，作用域必勾「Android 系统」\n"
-                        + "   （列表底部、不带推荐角标的那一项），再加：\n"
-                        + "   电话、短信、com.android.providers.telephony\n"
-                        + "   小米设备另勾「小米笔记」\n\n"
+                "1. 在 LSPosed 里启用本模块，作用域必勾「系统框架」\n"
+                        + "   （置顶、带推荐标记那一项；旧版叫「Android 系统」）\n"
+                        + "   再加：电话、短信、电话和短信存储\n"
+                        + "   「笔记」和「Android 系统」可勾可不勾（后者与「系统框架」重复）\n\n"
                         + "2. 收到取件短信后自动保存：系统待办里一码一条、新码置顶，\n"
                         + "   App 内「待取件」同步出现，桌面小组件跟着刷新\n\n"
                         + "3. 通知可点击复制取件码；通知上「已取件」可一键勾选\n\n"
@@ -3130,7 +3141,7 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * 后台核对 LSPosed 作用域里有没有勾「Android 系统（android）」，有结论再回来改按钮。
+     * 后台核对 LSPosed 作用域里有没有勾框架那一项（系统框架 system / 旧版 Android 系统 android）。
      *
      * 复用现成能力，不自己重写查库逻辑：Diagnostics.checkScope 内部就是调
      * Repair.lsposedStatus(ctx)（root 跑 sqlite3 读 /data/adb/lspd/config/modules_config.db），
@@ -3895,9 +3906,9 @@ public class LauncherActivity extends Activity {
             if (scope != null && !scope.ok) {
                 showTroubleshootDialog(
                         "【第 3 步：补齐作用域】\n\n" + nz(scope.detail)
-                        + "\n\n特别提醒：「Android 系统（android）」在列表底部，"
-                        + "【不带\"推荐应用\"角标】也必须勾选（带角标的 5 个推荐应用不含它）；"
-                        + "别勾成中部的「系统框架（system）」——勾了无效！\n补勾后务必【重启手机】",
+                        + "\n\n特别提醒：框架那一项叫「系统框架（system）」，"
+                        + "在列表置顶、带「推荐应用」标记；旧版 LSPosed 显示为「Android 系统（android）」，"
+                        + "两者指同一个进程，勾一个即可。\n补勾后务必【重启手机】",
                         null, null);
                 return;
             }

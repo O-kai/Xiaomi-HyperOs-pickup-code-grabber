@@ -355,8 +355,8 @@ public class Diagnostics {
             return new Check("LSPosed 作用域", false,
                     "无法自动核对（" + st.detail + "）。\n"
                             + "这不代表配置有问题——请手动确认一次：LSPosed / Vector → 模块 → 取件码助手 →"
-                            + " 作用域已勾选「Android 系统（android）」+ 电话 + 短信 + com.android.providers.telephony"
-                            + "（小米设备再加「小米笔记」）。\n"
+                            + " 作用域已勾选「系统框架」（旧版叫「Android 系统」）+ 电话 + 短信"
+                            + " + 电话和短信存储（com.android.providers.telephony）。\n"
                             + "核对无误即可忽略本项。");
         }
         if (!st.moduleEnabled) {
@@ -372,13 +372,20 @@ public class Diagnostics {
             return new Check("LSPosed 作用域", true,
                     "必需目标齐全 ✓ " + st.scopeList + extra);
         }
-        boolean missAndroid = st.missingScope.contains("android");
+        // 按整项比对：com.android.providers.telephony 里也含 "android"，子串匹配会误报
+        boolean missFramework = false;
+        for (String p : st.missingScope.split("、")) {
+            String t = p.trim();
+            if ("android".equals(t) || "system".equals(t)) missFramework = true;
+        }
         return new Check("LSPosed 作用域", false,
                 "缺少必需作用域：" + st.missingScope
                         + " → LSPosed 管理器 → 模块 → 取件码助手 → 作用域补勾后【重启手机】；"
-                        + (missAndroid
-                            ? "android 在列表底部「Android 系统」——该条目【不带推荐角标】也必须勾选；"
-                              + "带角标的 5 个推荐应用不含它，别勾成中部的「系统框架（system）」；"
+                        + (missFramework
+                            // v4.1.0：LSPosed 2.x 把框架记作 system（置顶、带推荐标记），
+                            // 旧版记作 android。原先这段写反了（让人别勾系统框架），已纠正。
+                            ? "框架那一项是「系统框架（system）」，置顶、带推荐标记；"
+                              + "旧版 LSPosed 显示为「Android 系统（android）」。两者指同一个进程，勾一个即可；"
                             : "")
                         + "当前：" + (st.scopeList.isEmpty() ? "(空)" : st.scopeList));
     }
