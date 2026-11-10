@@ -56,7 +56,7 @@
 | 系统 | HyperOS / MIUI、ColorOS 16（一加 / OPPO / realme），或荣耀 MagicOS 7+；Android 9 及以上 |
 | Root | Magisk 或 KernelSU（需要 `su`；写入系统待办依赖 root。荣耀侧给日历权限后可不 root 写入） |
 | 框架 | LSPosed 或兼容实现（Vector 等） |
-| 作用域 | 必勾 4 项：**系统框架**（LSPosed 2.x 叫「系统框架 / system」，旧版叫「Android 系统 / android」，两者等价，勾一个即可）、**电话**、**短信**（小米/一加是 `com.android.mms`，荣耀是 `com.hihonor.mms`）、**电话和短信存储**（`com.android.providers.telephony`）。「小米笔记」和重复的「Android 系统」可勾可不勾 |
+| 作用域 | 必勾 4 项：**系统框架**（LSPosed 2.x 叫「系统框架 / system」，旧版叫「Android 系统 / android」，两者等价，勾一个即可）、**电话**、**短信**（小米/一加是 `com.android.mms`，荣耀是 `com.hihonor.mms`）、**电话和短信存储**（`com.android.providers.telephony`）。；「小米笔记」和重复的「Android 系统」不再推荐勾选（勾着也不影响） |
 
 > ⚠️ 作用域里的**框架那一项**（新版叫「系统框架」、旧版叫「Android 系统」）最容易被漏掉——
 > 漏勾它，模块会显示已激活却什么都抓不到。勾完必须**重启手机**。

@@ -5,7 +5,8 @@
          com.android.mms = AOSP/小米短信应用（S2-S7）；
          com.hihonor.mms = 荣耀「信息」（独立后的包名，S2-S7 同族入口）；
          com.android.providers.telephony = 短信库（S8 主通道）；
-         com.miui.notes = 小米笔记（MIUI/HyperOS 写入目标）；
+         （v4.1.0 起不再推荐小米笔记：写待办走 root 直写库，模块从不 Hook 它，
+           实测取消勾选后短信、通知、待办写入全部正常）
          com.coloros.note = ColorOS 便签（ColorOS 16 写入目标）。
          未安装的目标 LSPosed 会自动忽略——各家 App 同时声明互不影响。
          注意：系统框架在旧版 LSPosed 记作 android、2.x 记作 system，两者等价；S8 所在的 providers.telephony 建议勾。 -->
@@ -15,7 +16,5 @@
         <item>com.android.mms</item>
         <item>com.hihonor.mms</item>
         <item>com.android.providers.telephony</item>
-        <item>com.miui.notes</item>
-        <item>com.coloros.note</item>
     </string-array>
 </resources>
