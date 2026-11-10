@@ -2434,15 +2434,18 @@ public class LauncherActivity extends Activity {
         authorRole.setPadding(dp(18), dp(3), 0, 0);
         head.addView(authorRole);
 
-        // —— 合作者：可滚动区 ——
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-
+        // v4.1.0：「合作者」这个小标题也固定在头部。
+        // 跟着列表滚的话，往下滑会看到「1.」「2.」前面空一截，
+        // 标题却跑到屏幕外，反而看不出这串名字是什么分组。
         TextView coTag = UiKit.text(this, "合作者", 11.5f, P.label);
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        clp.setMargins(0, 0, 0, dp(6));
-        list.addView(coTag, clp);
+        clp.setMargins(0, dp(14), 0, dp(3));
+        head.addView(coTag, clp);
+
+        // —— 合作者列表：只有这一块滚动 ——
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
 
         addCredit(list, 1, "VWV2005", "ColorOS 适配",
                 "最早实现 ColorOS 上的捕获与写入，奠定跨 ROM 支持基础");
