@@ -666,6 +666,119 @@ public class LauncherActivity extends Activity {
      * <p>这里不用写标记文件：system_server 是 system uid，
      * 没法往 App 的私有目录里写东西（试过，静默失败）。
      */
+    // 作用域引导：每个版本只在第一次打开时查一次（查作用域要 su，
+    // 不能每次启动都弹 Magisk 授权），勾齐或点过「稍后」就不再打扰。
+    private static final String KEY_SCOPE_GUIDE_VER = "scope_guide_version";
+    private static final String KEY_SCOPE_GUIDE_SNOOZE = "scope_guide_snooze_until";
+    private boolean scopeGuideStarted = false;
+
+    /**
+     * 首启引导（v4.1.0）：LSPosed 的作用域里「Android 系统」排在列表最底部、
+     * 不带「推荐应用」标记，新用户按推荐勾完 5 项就开始用，结果什么都抓不到。
+     *
+     * <p>这里只在缺项时提示一次，讲清楚「它在最底下、没有推荐标记」，
+     * 并给一个直达 LSPosed 的按钮。不改任何系统配置，只做提醒和指路。
+     */
+    private void maybeGuideMissingScope() {
+        if (scopeGuideStarted) return;
+        scopeGuideStarted = true;
+        final int cur = AppVersion.code(this);
+        if (cur <= 0) return;
+        final android.content.SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (sp.getInt(KEY_SCOPE_GUIDE_VER, 0) == cur) return;                 // 这个版本查过了
+        if (System.currentTimeMillis() < sp.getLong(KEY_SCOPE_GUIDE_SNOOZE, 0L)) return;
+
+        new Thread(() -> {
+            Repair.LsposedStatus st;
+            try {
+                st = Repair.lsposedStatus(LauncherActivity.this);
+            } catch (Throwable t) {
+                return;   // 读不到就不打扰（多半是没 root / 没授权）
+            }
+            // 只有「库读到了、模块已启用、确实缺项」才提示；
+            // 读不到配置库不等于没勾，按既有原则不据此断言。
+            if (!st.dbReadable || !st.moduleEnabled || st.missingScope == null
+                    || st.missingScope.trim().isEmpty()) {
+                sp.edit().putInt(KEY_SCOPE_GUIDE_VER, cur).apply();
+                return;
+            }
+            final String missing = st.missingScope;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                showScopeGuide(missing, cur, sp);
+            });
+        }, "scope-guide").start();
+    }
+
+    private void showScopeGuide(String missing, int cur, android.content.SharedPreferences sp) {
+        // 包名 -> 用户能认出来的名字；顺序按 LSPosed 列表里的位置排
+        StringBuilder sb = new StringBuilder();
+        sb.append("这几项还没勾：\n");
+        for (String p : missing.split("、")) {
+            sb.append("· ").append(friendlyScopeName(p.trim())).append("\n");
+        }
+        boolean missingFramework = missing.contains("android") || missing.contains("system");
+        if (missingFramework) {
+            sb.append("\n")
+                    .append("「Android 系统」在作用域列表的**最底部**，没有「推荐应用」标记——")
+                    .append("很多人只勾了带标记的那几个，结果模块显示已激活却抓不到任何东西。\n");
+        } else {
+            sb.append("\n")
+                    .append("这些项在作用域列表里都能搜到；漏勾时模块会显示已激活、但对应功能不生效。\n");
+        }
+        sb.append("\n勾齐后重启手机，回来点「我已勾好」重新检查。");
+
+        UiKit.dialog(this, P, R.drawable.ic_shield, "还差几项才能用",
+                sb.toString().replace("**", ""), null,
+                UiKit.primary("去 LSPosed 勾选", () -> {
+                    openLsposedManager();
+                    // 从管理器回来后允许再查一次：把「本版本已查过」清掉
+                    sp.edit().putInt(KEY_SCOPE_GUIDE_VER, 0).apply();
+                    scopeGuideStarted = false;
+                }),
+                UiKit.ghost("我已勾好，重新检查", () -> {
+                    sp.edit().putInt(KEY_SCOPE_GUIDE_VER, 0).apply();
+                    scopeGuideStarted = false;
+                    maybeGuideMissingScope();
+                }),
+                UiKit.ghost("稍后再说", () -> sp.edit()
+                        .putInt(KEY_SCOPE_GUIDE_VER, cur)
+                        .putLong(KEY_SCOPE_GUIDE_SNOOZE, System.currentTimeMillis() + 24L * 3600_000L)
+                        .apply()));
+    }
+
+    /** 包名转成人话；认不出的原样显示，总比不提示强 */
+    private String friendlyScopeName(String pkg) {
+        if ("android".equals(pkg) || "system".equals(pkg)) return "Android 系统（列表最底部）";
+        if ("com.android.phone".equals(pkg)) return "电话";
+        if ("com.android.mms".equals(pkg)) return "短信";
+        if (Honor.PKG_MMS.equals(pkg)) return "信息（荣耀）";
+        if ("com.android.providers.telephony".equals(pkg)) return "短信存储";
+        if (NotesBackend.PKG_XIAOMI.equals(pkg)) return "小米笔记";
+        if (NotesBackend.PKG_COLOROS_NOTE.equals(pkg)) return "ColorOS 便签";
+        return pkg;
+    }
+
+    /** 尽量直接把用户送到 LSPosed 管理器；找不到就告诉他从哪进 */
+    private void openLsposedManager() {
+        String[] pkgs = {"org.lsposed.manager", "io.github.lsposed.manager",
+                "org.lsposed.manager.debug"};
+        for (String pkg : pkgs) {
+            try {
+                android.content.Intent i = getPackageManager().getLaunchIntentForPackage(pkg);
+                if (i != null) {
+                    i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                    return;
+                }
+            } catch (Throwable ignored) { }
+        }
+        Toast.makeText(this,
+                "没找到 LSPosed 管理器入口——从 LSPosed 的通知或快捷方式打开，"
+                        + "再进「模块 → 取件码助手 → 作用域」",
+                Toast.LENGTH_LONG).show();
+    }
+
     private boolean systemHookFresh(long lastUpdateTime) {
         if (lastUpdateTime <= 0) return false;
         try {
@@ -3407,6 +3520,7 @@ public class LauncherActivity extends Activity {
         // 或某次刷新回调丢了，组件就会停在旧快照上（真机上出现过：库里已删的码
         // 还挂在组件第一行）。这条刷新很便宜，相当于给组件一个自愈机会。
         PickupWidgetProvider.refreshAsync(this);
+        maybeGuideMissingScope();
         refreshPickupCard();
         refreshHealth();
         notiSwitchOn = isNotiHookFlagOn();

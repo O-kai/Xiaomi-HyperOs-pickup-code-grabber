@@ -364,8 +364,10 @@ public class Diagnostics {
                     "模块在 LSPosed 中未启用 → LSPosed 管理器 → 模块 → 勾选「取件码助手」，然后重启手机");
         }
         if (st.missingScope == null) {
+            // v4.1.0：不再说 system 无效——LSPosed 2.x 里它就是系统框架。
+            // 两者同时存在只是旧写法残留，不影响功能。
             String extra = st.hasStaleSystem
-                    ? "（发现勾了「系统框架/system」——它无效，请直接在 LSPosed 作用域里删除这一项）"
+                    ? "（android 与 system 同时勾着，其中一条是旧写法残留，留着无害）"
                     : "";
             return new Check("LSPosed 作用域", true,
                     "必需目标齐全 ✓ " + st.scopeList + extra);

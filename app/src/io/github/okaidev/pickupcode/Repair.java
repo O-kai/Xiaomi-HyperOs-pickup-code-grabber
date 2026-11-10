@@ -742,7 +742,6 @@ public class Repair {
         st.dbReadable = true;
 
         java.util.List<String> scopePkgs = new java.util.ArrayList<>();
-        boolean stale = false;
         boolean sawEnabledRow = false;
         for (String line : out.split("\n")) {
             line = line.trim();
@@ -754,11 +753,12 @@ public class Repair {
                 String pkg = line.substring(3).trim();
                 if (pkg.isEmpty()) continue;
                 scopePkgs.add(pkg);
-                if ("system".equals(pkg)) stale = true;
             }
         }
         st.scopeList = join(scopePkgs, ", ");
-        st.hasStaleSystem = stale;
+        // v4.1.0：LSPosed 2.x 把系统框架记作 system，旧版记作 android，两者等价。
+        // 这里不再把任何一方标成「无效」，只在两者同时存在时提示可以清理旧的那条。
+        st.hasStaleSystem = scopePkgs.contains("system") && scopePkgs.contains("android");
 
         if (modTable == null) {
             // 没有模块状态表可用：只能用「有没有作用域行」间接判断是否启用；
@@ -767,7 +767,8 @@ public class Repair {
             if (st.moduleEnabled) {
                 java.util.List<String> missing = new java.util.ArrayList<>();
                 for (String need : scopeRequired(ctx)) {
-                    if (!scopePkgs.contains(need)) missing.add(need);
+                    if (scopeSatisfied(scopePkgs, need)) continue;
+                    missing.add(need);
                 }
                 st.missingScope = missing.isEmpty() ? null : join(missing, "、");
             }
@@ -784,11 +785,25 @@ public class Repair {
             // 精确集合比对（不能用子串：com.android.phone 会误匹配 android）
             java.util.List<String> missing = new java.util.ArrayList<>();
             for (String need : scopeRequired(ctx)) {
-                if (!scopePkgs.contains(need)) missing.add(need);
+                if (scopeSatisfied(scopePkgs, need)) continue;
+                missing.add(need);
             }
             st.missingScope = missing.isEmpty() ? null : join(missing, "、");
         }
         return st;
+    }
+
+    /**
+     * 某一项必需作用域是否已满足（v4.1.0）。
+     *
+     * <p>系统框架在配置库里可能是 {@code android}（旧写法）或 {@code system}
+     * （LSPosed 2.x 的写法），两者等价——只认一种会把正常配置判成缺项。
+     */
+    private static boolean scopeSatisfied(java.util.List<String> scopePkgs, String need) {
+        if (scopePkgs.contains(need)) return true;
+        if ("android".equals(need)) return scopePkgs.contains("system");
+        if ("system".equals(need)) return scopePkgs.contains("android");
+        return false;
     }
 
     /** 在候选列名里挑第一个存在的列 */
