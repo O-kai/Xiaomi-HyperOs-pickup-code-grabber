@@ -732,13 +732,13 @@ public class LauncherActivity extends Activity {
 
         UiKit.dialog(this, P, R.drawable.ic_shield, "还差几项才能用",
                 sb.toString().replace("**", ""), null,
-                UiKit.primary("去 LSPosed 勾选", () -> {
+                UiKit.primary("打开 LSPosed", () -> {
                     openLsposedManager();
                     // 从管理器回来后允许再查一次：把「本版本已查过」清掉
                     sp.edit().putInt(KEY_SCOPE_GUIDE_VER, 0).apply();
                     scopeGuideStarted = false;
                 }),
-                UiKit.ghost("我已勾好，重新检查", () -> {
+                UiKit.ghost("重新检查", () -> {
                     sp.edit().putInt(KEY_SCOPE_GUIDE_VER, 0).apply();
                     scopeGuideStarted = false;
                     maybeGuideMissingScope();
@@ -755,7 +755,8 @@ public class LauncherActivity extends Activity {
         // 它们指的是同一个进程（system_server），勾任意一条即可；
         // 新版 LSPosed 认 system，且会给它打「推荐应用」标记。
         if ("system".equals(pkg)) return "系统框架（置顶那一项，带推荐标记）";
-        if ("android".equals(pkg)) return "Android 系统（列表里那个；与「系统框架」等价，勾一个即可）";
+        // 只在「框架项缺失」时才会显示到这一行——优先让用户勾带推荐标记的那个
+        if ("android".equals(pkg)) return "系统框架（置顶、带推荐标记；旧版显示为「Android 系统」）";
         if ("com.android.phone".equals(pkg)) return "电话";
         if ("com.android.mms".equals(pkg)) return "短信";
         if (Honor.PKG_MMS.equals(pkg)) return "信息（荣耀）";
