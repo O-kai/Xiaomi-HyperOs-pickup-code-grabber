@@ -161,11 +161,19 @@ public class TodoWriter {
         for (String code : codes) {
             String fingerprint = code + "|" + place;
             if (seen.contains(fingerprint)) {
-                Log.i(TAG, "dedup skip: " + fingerprint);
-                if (dedupBuf.length() > 0) dedupBuf.append("; ");
-                dedupBuf.append(fingerprint);
-                dedupCount++;
-                continue;
+                // v4.1.0（真机反馈）：指纹是永久保留的，但用户可能在日历里把那条待办
+                // 删掉了、或者已经取件完成。这时驿站把同一条短信再发一遍（重发很常见），
+                // 旧逻辑会永远跳过写入——表现就是「取件记录里有、待办里没有」。
+                // 所以命中指纹后先确认目标库里还有没有**未完成**的待办，没有就照常写。
+                boolean stillThere = noTodo || activeTodoExists(ctx, todoTargets, code);
+                if (stillThere) {
+                    Log.i(TAG, "dedup skip: " + fingerprint);
+                    if (dedupBuf.length() > 0) dedupBuf.append("; ");
+                    dedupBuf.append(fingerprint);
+                    dedupCount++;
+                    continue;
+                }
+                Log.i(TAG, "dedup hit but no active todo, rewrite: " + fingerprint);
             }
             seen.add(fingerprint);
             String content = buildContent(mode, customTpl, code, source, place, time);
@@ -224,9 +232,35 @@ public class TodoWriter {
                 status, failureDiagnostic == null ? "" : failureDiagnostic);
     }
 
+    /**
+     * 目标库里是否还有这条取件码的**未完成**待办（v4.1.0）。
+     *
+     * <p>去重指纹只记「写过」，不记「还在不在」：用户在日历里把待办删掉或划掉之后，
+     * 指纹仍然会挡掉后续相同的短信——驿站重发短信时就表现为
+     * 「取件记录里有、待办里没有」（真机反馈 2026-11-10）。
+     *
+     * <p>这里只在命中指纹时多问一句，代价出现在重复短信上（一天一两条），
+     * 正常新取件码完全不经过这条路径。荣耀侧走 Provider 查询（不需要 su），
+     * 其他 ROM 回落到原来那条只读 count 探针。
+     */
+    private static boolean activeTodoExists(Context ctx, java.util.List<String> targets, String code) {
+        for (String t : targets) {
+            try {
+                if (NotesBackend.BACKEND_HONOR_TODO.equals(t)) {
+                    if (HonorWriter.existsAlive(ctx, t, code)) return true;
+                } else {
+                    String out = runSqlForOutput(ctx, t, NotesBackend.existsSqlOf(t, code));
+                    if (out != null && out.trim().matches("\\d+") && !out.trim().equals("0")) return true;
+                }
+            } catch (Throwable e) {
+                Log.w(TAG, "activeTodoExists(" + t + ") failed: " + e);
+            }
+        }
+        return false;
+    }
+
     /** v3.1.0：去重集合读-改-写的锁（跨通道并发写入的唯一防线） */
     private static final Object DEDUP_LOCK = new Object();
-
     /**
      * v3.1.0：su + sqlite3 单次执行的超时上限。
      * 没有它，一旦 su 卡在授权弹窗就会永久挂死调用线程；而写库发生在 DEDUP_LOCK 内，
@@ -300,6 +334,16 @@ public class TodoWriter {
      * 所以「用哪个库」必须由调用方显式传进来，不能再在内部读全局状态。
      */
     public static String runSqlForOutput(Context ctx, String backend, String sql) {
+        return runSqlForPath(ctx, backend, NotesBackend.dbPathOf(backend), sql);
+    }
+
+    /**
+     * 统一 SQL 执行器（指定后端 + 指定库文件）。
+     *
+     * <p>v4.1.0：荣耀侧有多个候选库（{@code task.db} / {@code calendar.db}），
+     * 同一个后端要对不同文件各跑一次探测，所以库路径必须能单独传进来。
+     */
+    public static String runSqlForPath(Context ctx, String backend, String dbPath, String sql) {
         // v3.1.0：临时文件名唯一化。
         //   此前所有路径共用固定名 todo_sql.sql，而写入本方法的两条调用方互不排斥：
         //     · writeTodo（static synchronized，锁 TodoWriter.class）
@@ -324,14 +368,14 @@ public class TodoWriter {
             // 常驻通道把 su 的调用次数从「每条待办一次」降到「每进程一次」：
             // 第一次建 shell 时弹一次（用户打开 App 时就在建，有心理预期），
             // 之后全程静默。
-            String viaShell = runViaRootShell(ctx, backend, sqlFile);
+            String viaShell = runViaRootShell(ctx, backend, dbPath, sqlFile);
             if (viaShell != null) return viaShell;
 
             // HyperOS 的 Magisk su 位于 /product/bin/su（应用 PATH 不含该目录）→ 多路径尝试
             String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"};
             String trace = "";
             for (String suBin : suBins) {
-                String cmd = suBin + " -M -c \"id; " + buildSuCmd(ctx, backend, sqlFile) + "\"";
+                String cmd = suBin + " -M -c \"id; " + buildSuCmd(ctx, backend, dbPath, sqlFile) + "\"";
                 Log.i(TAG, "su attempt(" + suBin + ")");
                 Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd});
                 StringBuilder out = new StringBuilder();
@@ -483,6 +527,10 @@ public class TodoWriter {
      * （小米 todo 堆栈置顶 / ColorOS Tasks 直插 / ColorOS rich_notes top_time 置顶）
      */
     private static synchronized boolean writeTodo(Context ctx, String content, String title) {
+        String backend = NotesBackend.detect(ctx);
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) {
+            return HonorWriter.write(ctx, backend, content, title);
+        }
         String sql = ".timeout 5000\n" + NotesBackend.insertSql(ctx, content, title);
         return runSql(ctx, sql) == 0;
     }
@@ -500,6 +548,11 @@ public class TodoWriter {
         int ok = 0;
         for (String t : targets) {
             try {
+                // v4.1.0：荣耀后端的 SQL 要按实际表结构现场拼，不能取静态模板
+                if (NotesBackend.BACKEND_HONOR_TODO.equals(t)) {
+                    if (HonorWriter.markDone(ctx, t, code)) ok++;
+                    continue;
+                }
                 if (runSql(ctx, t, NotesBackend.markDoneSqlOf(t, code)) == 0) ok++;
             } catch (Throwable e) {
                 Log.w(TAG, "markDone(" + t + ") failed: " + e);
@@ -516,6 +569,13 @@ public class TodoWriter {
      */
     private static synchronized boolean writeTodoFor(Context ctx, String backend,
                                                      String content, String title) {
+        // v4.1.0：荣耀侧先走 CalendarProvider、失败再按表结构直写，逻辑在 HonorWriter 里
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) {
+            boolean ok = HonorWriter.write(ctx, backend, content, title);
+            if (ok) lastWriteDiag = "OK（荣耀）" + HonorWriter.getLastDiag();
+            else lastWriteDiag = "荣耀写入失败：" + HonorWriter.getLastDiag();
+            return ok;
+        }
         String sql = ".timeout 5000\n" + NotesBackend.insertSqlOf(backend, content, title);
         return runSql(ctx, backend, sql) == 0;
     }
@@ -525,11 +585,11 @@ public class TodoWriter {
      *
      * @return 输出文本；通道不可用时返回 null，调用方退回一次性 su
      */
-    private static String runViaRootShell(Context ctx, String backend, File sqlFile) {
+    private static String runViaRootShell(Context ctx, String backend, String dbPath, File sqlFile) {
         try {
             // 常驻 shell 本身就是 root，不需要再跑一遍 id 探针。
             // 错误信息并入 stdout：sqlite3 的报错本来也走 stdout，混在一起便于诊断。
-            String script = buildSuCmd(ctx, backend, sqlFile) + " 2>&1";
+            String script = buildSuCmd(ctx, backend, dbPath, sqlFile) + " 2>&1";
             RootShell.Result r = RootShell.execResult(script, SU_TIMEOUT_MS);
             if (r == null) {
                 Log.w(TAG, "root shell unavailable, fallback to one-shot su");
@@ -555,12 +615,12 @@ public class TodoWriter {
         }
     }
 
-    private static String buildSuCmd(Context ctx, String backend, File sqlFile) {
+    private static String buildSuCmd(Context ctx, String backend, String dbPath, File sqlFile) {
         // 自愈式：每次写入前确保目录/文件可访问（App su 子进程缺 DAC 特权，需要放开；仅小米后端需要）
         // LD_LIBRARY_PATH 必须写在命令串内（su 会保留命令行内的环境变量赋值）
         return NotesBackend.chmodCmdOf(backend)
                 + "LD_LIBRARY_PATH=" + LIBS + " " + SQLITE + " "
-                + NotesBackend.dbPathOf(backend) + " < " + sqlFile.getAbsolutePath();
+                + dbPath + " < " + sqlFile.getAbsolutePath();
     }
 
     private static void drain(java.io.InputStream in, StringBuilder sb) {

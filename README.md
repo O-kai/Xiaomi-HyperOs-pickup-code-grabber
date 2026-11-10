@@ -53,10 +53,10 @@
 
 | 项目 | 要求 |
 |---|---|
-| 系统 | HyperOS / MIUI，或 ColorOS 16（一加 / OPPO / realme）；Android 9 及以上 |
-| Root | Magisk 或 KernelSU（需要 `su`；写入系统待办依赖 root） |
+| 系统 | HyperOS / MIUI、ColorOS 16（一加 / OPPO / realme），或荣耀 MagicOS 7+；Android 9 及以上 |
+| Root | Magisk 或 KernelSU（需要 `su`；写入系统待办依赖 root。荣耀侧给日历权限后可不 root 写入） |
 | 框架 | LSPosed 或兼容实现（Vector 等） |
-| 作用域 | **Android 系统（android）**、电话、短信、`com.android.providers.telephony`；小米设备再加「小米笔记」 |
+| 作用域 | **Android 系统（android）**、电话、短信（小米/一加是 `com.android.mms`，荣耀是 `com.hihonor.mms`）、`com.android.providers.telephony`；小米设备再加「小米笔记」 |
 
 > ⚠️ 作用域里的 **「Android 系统」在列表最底部，不带推荐角标**——
 > 很多人漏勾它，结果模块显示已激活却什么都抓不到。勾完必须**重启手机**。
@@ -161,6 +161,18 @@
 但这三处**维护者没有实机验证过**。体检里会多一项「ColorOS 唤醒」告诉你适配目标还在不在——
 用 ColorOS 的话欢迎带日志反馈，我按你的日志调。
 
+**荣耀能用吗？**
+4.1.0 起支持：短信抓取走 AOSP 的 `SmsProvider`（与 ROM 无关），
+待办写入目标是**日历 → 待办**，先试 CalendarProvider（给日历权限就不需要 root），
+不行再按真实表结构 `su sqlite3` 直写 `calendar.db`。
+作用域里勾的是 `com.hihonor.mms`，不是 `com.android.mms`——荣耀这代机器上后者不存在。
+已在荣耀 MagicOS 11（Android 17）真机上端到端跑通：短信 → 提取 → 写入
+`task.db` 的 `Tasks` 表 → 日历「待办」与桌面小组件实时刷新。
+写入优先走荣耀自己的待办 Provider（`com.android.calendar.task`，只要日历权限，**不需要 root**），
+它不可用时才回落 `su` 直写；直写会按真实表结构自适应，并在写完后补发变更通知。
+体检里有一项「荣耀待办库」，会把真实列名打出来。
+详见 [`docs/18-honor-adaptation.md`](docs/18-honor-adaptation.md)。
+
 ---
 
 ## 隐私与安全
@@ -189,6 +201,10 @@
   **同步这一步在系统那边完成，本模块不参与、也不联网。**
 - **ColorOS 16 的 4.0 新适配路径**（`ColorOsProviderWake`、配置文件的 SELinux 标签、
   日历待办与便签双库同时写）维护者没有实机验证，用 ColorOS 的话欢迎带日志反馈。
+- **荣耀 MagicOS 的写入路径**（`honor_todo`）：已在 MagicOS 11（Android 17）实测，
+  覆盖 Provider 写入、`su` 直写兜底、已取件、重复短信重发四条路径。
+  更早的 MagicOS 版本（7/8/9）结构可能有差异，靠运行时的表结构自适应兜住；
+  真遇到不认识的结构，体检里的「荣耀待办库」会列出真实列名，带它反馈即可适配。
 
 ---
 

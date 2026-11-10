@@ -240,6 +240,12 @@ public class LauncherActivity extends Activity {
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1001);
         }
+        // v4.1.0：荣耀侧优先用 CalendarProvider 写待办（这条路不需要 root），
+        // 首次打开时问一次日历权限。用户拒绝也不影响后续的 root 直写路径，
+        // 所以这里不拦、不提示、不重复弹。
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(NotesBackend.detect(this))) {
+            Honor.requestCalendarPermission(this, 1002);
+        }
 
         // 4.0 双模式：首次启动先让用户选「简洁 / 完整」。
         // 简洁模式不是另一个 Activity，而是同一套首页组件的单页形态——
@@ -1493,6 +1499,7 @@ public class LauncherActivity extends Activity {
         String b = NotesBackend.detect(this);
         if (NotesBackend.BACKEND_COLOROS_TODO.equals(b)
                 || NotesBackend.BACKEND_COLOROS_NOTE.equals(b)) return "ColorOS 16";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(b)) return "荣耀 MagicOS";
         return "小米 / 红米";
     }
 
@@ -1500,6 +1507,7 @@ public class LauncherActivity extends Activity {
         String b = NotesBackend.detect(this);
         if (NotesBackend.BACKEND_COLOROS_TODO.equals(b)
                 || NotesBackend.BACKEND_COLOROS_NOTE.equals(b)) return "一加 / OPPO / realme · 已适配";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(b)) return "HONOR · MagicOS · 已适配";
         return "MIUI · HyperOS · 已适配";
     }
 
@@ -1507,11 +1515,14 @@ public class LauncherActivity extends Activity {
         CharSequence[] items = {
                 "小米 / 红米（MIUI · HyperOS）— 已适配",
                 "ColorOS 16（一加 / OPPO / realme）— 已适配",
+                "荣耀（MagicOS 7+）— 已适配",
                 "其他 ROM（OriginOS / Flyme / HarmonyOS …）— 可写自定义规则"
         };
-        int checked = "ColorOS 16".equals(envLabel()) ? 1 : 0;
+        int checked = 0;
+        if ("ColorOS 16".equals(envLabel())) checked = 1;
+        else if ("荣耀 MagicOS".equals(envLabel())) checked = 2;
         UiKit.chooser(this, P, R.drawable.ic_phone, "环境适配", items, checked, w -> {
-            if (w == 2) {
+            if (w == 3) {
                 Toast.makeText(this, "其他 ROM 可通过「规则 → 我的规则」为各驿站单独写规则；"
                         + "写入目标需社区适配", Toast.LENGTH_LONG).show();
             }
@@ -1663,7 +1674,7 @@ public class LauncherActivity extends Activity {
         sdwSw = new UiKit.Switch(this, P, sdwOn);
         sdwSw.setOnToggle(this::onSdwToggle);
         LinearLayout sdwItem = UiKit.row(this, P, R.drawable.ic_shield, "冻结免疫直写",
-                "仅 ColorOS：划掉后台仍可写入（需给系统进程授权 root）", sdwSw);
+                "ColorOS / 荣耀：划掉后台仍可写入（需给系统进程授权 root）", sdwSw);
         sdwRow.addView(sdwItem);
         updateSdwDisplay();
         // updateSdwDisplay() 内部会按环境把 sdwRow 设为 GONE/VISIBLE，这里先挂上再判断
@@ -2428,12 +2439,13 @@ public class LauncherActivity extends Activity {
         }
     }
 
-    /** 冻结直写：仅 ColorOS 环境显示（小米不需要此功能，默认关闭） */
+    /** 冻结直写：ColorOS / 荣耀环境显示（小米不需要此功能，默认关闭） */
     private void updateSdwDisplay() {
         String currentBackend = NotesBackend.detect(this);
         boolean isColorOs = NotesBackend.BACKEND_COLOROS_TODO.equals(currentBackend)
                 || NotesBackend.BACKEND_COLOROS_NOTE.equals(currentBackend);
-        if (!isColorOs) {
+        boolean supported = isColorOs || NotesBackend.BACKEND_HONOR_TODO.equals(currentBackend);
+        if (!supported) {
             sdwRow.setVisibility(View.GONE);
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SYS_DIRECT, false).apply();
             if (sdwSw != null) sdwSw.setChecked(false, false);
@@ -2637,12 +2649,14 @@ public class LauncherActivity extends Activity {
 
     private String todoLabel(String backend) {
         if (NotesBackend.BACKEND_XIAOMI.equals(backend)) return "小米笔记 待办";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) return "荣耀日历 待办";
         if (NotesBackend.BACKEND_COLOROS_NOTE.equals(backend)) return "ColorOS 便签 笔记";
         return "ColorOS 日历 待办";
     }
 
     private String todoSub(String backend) {
         if (NotesBackend.BACKEND_XIAOMI.equals(backend)) return "写进小米笔记的待办列表";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) return "写进日历的「待办」（MagicOS 默认，无需 root）";
         if (NotesBackend.BACKEND_COLOROS_NOTE.equals(backend)) return "在便签里建一条置顶笔记";
         return "写进日历的「待办」（ColorOS 16 默认）";
     }
@@ -2677,6 +2691,7 @@ public class LauncherActivity extends Activity {
 
     private static String backendAppName(String value) {
         if (NotesBackend.BACKEND_XIAOMI.equals(value)) return "小米笔记";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(value)) return "荣耀日历";
         if (NotesBackend.BACKEND_COLOROS_TODO.equals(value)) return "ColorOS 日历";
         if (NotesBackend.BACKEND_COLOROS_NOTE.equals(value)) return "ColorOS 便签";
         return "";
@@ -2718,6 +2733,7 @@ public class LauncherActivity extends Activity {
 
     private String shortName(String backend) {
         if (NotesBackend.BACKEND_XIAOMI.equals(backend)) return "小米笔记待办";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) return "日历待办";
         if (NotesBackend.BACKEND_COLOROS_NOTE.equals(backend)) return "便签";
         return "日历待办";
     }
@@ -3610,6 +3626,8 @@ public class LauncherActivity extends Activity {
             if (inject == null || !inject.ok) {
                 String backendHint = NotesBackend.BACKEND_XIAOMI.equals(NotesBackend.detect(this))
                         ? "（小米侧含 com.miui.notes；写入目标 App 无需勾选）"
+                        : NotesBackend.BACKEND_HONOR_TODO.equals(NotesBackend.detect(this))
+                        ? "（荣耀侧短信 App 是 com.hihonor.mms；写入目标 App 无需勾选）"
                         : "（勾 3 项即可；写入目标 App 无需勾选）";
                 showTroubleshootDialog(
                         "【第 1 步：让模块生效】\n\n"

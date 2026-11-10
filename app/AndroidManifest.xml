@@ -6,11 +6,22 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 取件提醒：开机后重注册每日闹钟（AlarmManager 的闹钟不跨重启） -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!--
+      v4.1.0：荣耀（MagicOS）侧写待办走 CalendarProvider，需要日历读写权限。
+      授予后整条写入链路不碰 root；未授予则回落 su sqlite3 直写，
+      所以这两个权限是「少一次 su」的优化，不是硬前提。
+    -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
 
     <!-- v2.7.0：包可见性声明（Android 11+），保证后端探测能准确找到各 ROM 的目标 App -->
     <queries>
         <package android:name="com.coloros.note" />
         <package android:name="com.miui.notes" />
+        <!-- v4.1.0：荣耀侧的目标 App（日历待办写入、信息抓取、备忘录诊断） -->
+        <package android:name="com.hihonor.calendar" />
+        <package android:name="com.hihonor.mms" />
+        <package android:name="com.hihonor.notepad" />
 
         <!--
           v4.4：允许看到「有桌面入口」的应用。
@@ -38,7 +49,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="自动提取快递取件码，写入待办（小米笔记 / ColorOS 日历·便签，自动识别）" />
+            android:value="自动提取快递取件码，写入待办（小米笔记 / ColorOS 日历·便签 / 荣耀日历待办，自动识别）" />
         <meta-data
             android:name="xposedminversion"
             android:value="82" />
