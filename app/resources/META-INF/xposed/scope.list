@@ -1,0 +1,10 @@
+# 推荐作用域（LSPosed 现代模块格式，v4.1.0 起）
+# 一行一个包名；系统框架写 system（不是 android），这是新版 LSPosed 的约定：
+#   写 android 时它只被当成普通包名，框架那一项不会被算进「推荐应用」。
+system
+com.android.phone
+com.android.mms
+com.hihonor.mms
+com.android.providers.telephony
+com.miui.notes
+com.coloros.note

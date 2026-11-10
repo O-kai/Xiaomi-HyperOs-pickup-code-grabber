@@ -198,6 +198,9 @@ android {
             java.srcDirs = ['src', rulesGenJavaDir]
             res.srcDirs = ['res']
             assets.srcDirs = ['assets', rulesGenAssetsDir]
+            // v4.1.0：META-INF/xposed/scope.list 走这里打进 APK 根目录，
+            // 新版 LSPosed 用它来生成「推荐作用域」。
+            resources.srcDirs = ['resources']
         }
     }
 }
