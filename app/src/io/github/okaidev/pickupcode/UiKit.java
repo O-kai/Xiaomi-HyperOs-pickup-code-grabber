@@ -831,6 +831,18 @@ public final class UiKit {
      */
     public static Dialog dialog(Activity a, Palette p, int iconRes, String title, String message,
                                 View contentView, int contentPct, Action... actions) {
+        return dialog(a, p, iconRes, title, message, null, contentView, contentPct, actions);
+    }
+
+    /**
+     * 带「固定头部」的长内容弹窗（v4.1.0）。
+     *
+     * <p>{@code headerView} 放在滚动区<b>外面</b>，跟着标题一起固定；
+     * 只有 {@code contentView} 会滚。这样滚动条只覆盖真正能滚的那一块，
+     * 不会莫名其妙从顶部一个不可滚的开关旁边开始。
+     */
+    public static Dialog dialog(Activity a, Palette p, int iconRes, String title, String message,
+                                View headerView, View contentView, int contentPct, Action... actions) {
         Dialog d = new Dialog(a);
         LinearLayout wrap = new LinearLayout(a);
         wrap.setOrientation(LinearLayout.VERTICAL);
@@ -871,6 +883,15 @@ public final class UiKit {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(0, dp(a, 12), 0, 0);
             card.addView(m, lp);
+        }
+        if (headerView != null) {
+            LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            hlp.setMargins(0, dp(a, 12), 0, 0);
+            if (headerView.getParent() instanceof ViewGroup) {
+                ((ViewGroup) headerView.getParent()).removeView(headerView);
+            }
+            card.addView(headerView, hlp);
         }
         if (contentView != null) {
             ScrollView sc = new ScrollView(a);

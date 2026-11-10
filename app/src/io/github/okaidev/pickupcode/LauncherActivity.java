@@ -3400,14 +3400,18 @@ public class LauncherActivity extends Activity {
         }
         TextView body = UiKit.text(this, sb.toString().trim(), 12.5f, UiKit.INK2);
         body.setLineSpacing(dp(3), 1.15f);
-        wrap.addView(body);
+        // v4.1.0：样本放进单独的滚动容器，开关那一行留在滚动区外面。
+        // 否则滚动条会从开关旁边开始，看着像「开关也能滚」。
+        LinearLayout bodyWrap = new LinearLayout(this);
+        bodyWrap.setOrientation(LinearLayout.VERTICAL);
+        bodyWrap.addView(body);
 
         // 先声明再赋值：清空后要能关掉这一层，而 lambda 里需要引用它自己。
         final android.app.Dialog[] outer = new android.app.Dialog[1];
         // v4.1.0：正文限高。20 条样本时内容比屏幕还高，按钮会被顶出去——
         // 表现就是「手动上报 / 清空」凭空消失。给个 45% 的高度让它自己滚。
         outer[0] = UiKit.dialog(this, P, R.drawable.ic_notebook, "疑似漏抓错题本（" + list.size() + " 条）",
-                null, wrap, 45,
+                null, wrap, bodyWrap, 45,
                 UiKit.primary("复制上报文本", () -> {
                     String report = MissedSmsStore.formatReport(list);
                     try {
