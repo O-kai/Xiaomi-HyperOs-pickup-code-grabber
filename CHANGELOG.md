@@ -7,11 +7,58 @@
 > 规则兼容性闸门，如 `403`）。**不做推导**：改一处忘另一处的坑已经踩过，别再加规则。
 > 详见 [docs/VERSION-MAP.md](docs/VERSION-MAP.md)。
 
-**版本索引**：[4.0.6](#406---2026-11-10--去重只认取件码--直写开关热生效--不再乱让人重启) ·
+**版本索引**：[4.1.0](#410---2026-11-11--荣耀-magicos-适配社区-pr-17) ·
+4.0.6 ·
 4.0.5 ·
 4.0.4 ·
 4.0.3 ·
 4.0.2（2026-10-31）· 4.0.1（2026-10-31）· 4.0.0（2026-10-30）· 3.1.1（2026-10-17）· 3.1.0（2026-10-04）
+
+## [4.1.0] - 2026-11-11 · 荣耀 MagicOS 适配（社区 PR #17）
+
+> 来自 **@GXR-SX** 的整包适配，在荣耀 MagicOS 11 / Android 17 真机上端到端跑通过。
+> 这一版的重心就是把「第三家 ROM」补齐。
+
+### 为什么不能照抄小米 / ColorOS
+
+| | 小米 | ColorOS | 荣耀 MagicOS |
+|---|---|---|---|
+| 待办库 | 小米笔记 `todo.db` | 日历 `tasks.db` | `com.android.providers.calendar/task.db` |
+| 表 | `todo` | `Tasks` | `Tasks`（62 列） |
+| 完成标记 | `is_finish` | `finish_time` | `complete` + `date_completed` |
+| 逻辑删除 | — | `deleted` | `delete_flag` |
+| 写入入口 | root 直写 | root 直写 | **有 Provider**：`com.android.calendar.task` |
+
+### 写入：Provider 优先，直写兜底
+
+- 走 `content://com.android.calendar.task/tasks`，只要日历读写权限，**不需要 root**
+- Provider 的 insert 内部会 `notifyChange`，桌面小组件就是靠这个即时刷新，
+  顺带写进系统搜索索引
+- 没权限或 Provider 拒收时回落 `su sqlite3` 直写 `task.db`，写完显式补一次 `notifyChange`
+
+### 表结构运行时自适应（HonorSql）
+
+不写死列名：`PRAGMA table_info` 读出实际存在的列，再按列拼 SQL；认不出的结构直接失败并报真实列名，
+不猜。INSERT 末尾带 `changes() > 0` 的标记，上层只认 `PICKUP_OK`——
+SQLite 对「被 WHERE 挡掉」不报错，没有这个标记，一次空转会被当成成功写进去。
+
+### 捕获侧
+
+主通道（SmsProvider.insert/bulkInsert）荣耀沿用；补了 `com.hihonor.mms`
+这个独立后的短信包名（旧的 `com.android.mms` 在这代机器上不存在），
+以及 `CallerPolicy` 的白名单——否则抓到了也唤醒不了模块。
+
+### 顺带修一个跨 ROM 的老问题
+
+去重指纹只记「写过」，不记「还在不在」：用户在日历里把待办删掉后，
+驿站重发同一条短信会被永久跳过（现象：取件记录里有、待办里没有）。
+现在命中指纹时先查一次「还有没有未完成的待办」，全被删掉才重写，已取件则不重写。
+
+### 顺手加固
+
+`CallerPolicy` 原来只按包名放行。白名单里 `com.huawei.mms` 这种「本机根本没有」的名字，
+可以被任意 App 占用后调 Provider 注入假取件码。现在再加一道：
+必须是系统应用，或者用户当前设置的默认短信 App。
 
 ## [4.0.6] - 2026-11-10 · 去重只认取件码 / 直写开关热生效 / 不再乱让人重启
 

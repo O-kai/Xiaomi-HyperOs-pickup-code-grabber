@@ -63,7 +63,10 @@ final class CallerPolicy {
             String[] packages = pm.getPackagesForUid(uid);
             if (packages != null) {
                 for (String pkg : packages) {
-                    if (isTrustedSmsPackage(pkg)) {
+                    // v4.1.0：光看包名不够。白名单里有 com.huawei.mms 这种
+                    // 「本机根本没有」的包名，任何 App 只要起个同名包就能调 Provider
+                    // 伪造取件码。再加一道：必须是系统应用（或用户自己设的默认短信 App）。
+                    if (isTrustedSmsPackage(pkg) && isSystemOrDefaultSms(ctx, pm, pkg)) {
                         return true;
                     }
                 }
@@ -75,6 +78,28 @@ final class CallerPolicy {
 
     static boolean isTrustedSmsPackage(String pkg) {
         return pkg != null && TRUSTED_SMS_PACKAGES.contains(pkg);
+    }
+
+    /**
+     * 白名单里的包名还必须「真的是那个 App」：系统应用（含被商店更新过的），
+     * 或者用户当前设置的默认短信 App。
+     *
+     * <p>只按包名判断时，白名单里那些本机不存在的名字（如小米机器上的
+     * {@code com.huawei.mms}）可以被任意 App 占用，进而调用 Provider 注入假取件码。
+     */
+    private static boolean isSystemOrDefaultSms(Context ctx, PackageManager pm, String pkg) {
+        try {
+            android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+            int sysFlags = android.content.pm.ApplicationInfo.FLAG_SYSTEM
+                    | android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP;
+            if ((ai.flags & sysFlags) != 0) return true;
+        } catch (Throwable ignored) { }
+        try {
+            String def = android.provider.Telephony.Sms.getDefaultSmsPackage(ctx);
+            return pkg.equals(def);
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /** 仅用于日志：UID + 包名，不包含短信内容。 */

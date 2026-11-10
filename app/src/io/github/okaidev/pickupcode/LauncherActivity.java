@@ -2383,6 +2383,9 @@ public class LauncherActivity extends Activity {
                         + "   通知通道参数校验、冻结后 Provider 唤醒放行、短信 Hook 类名；\n"
                         + "   4.0.4 起：ColorOS 唤醒体检改读 DEX 类定义（不再误报）、\n"
                         + "   设置开关的触摸与无障碍交互（含写入目标整行可点）\n\n"
+                        + "5. GXR-SX — 荣耀 MagicOS 适配\n"
+                        + "   日历待办走 CalendarProvider 写入（给日历权限即可，无需 root）、\n"
+                        + "   表结构运行时自适应、短信包名 com.hihonor.mms、小组件即时刷新\n\n"
                         + "LSPosed 模块仓库已上架，酷安同步更新\n"
                         + "遇到问题欢迎到 QQ 群或酷安主页找作者", null,
                 UiKit.primary("知道了", null),
