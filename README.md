@@ -277,6 +277,9 @@ CI 只产出 debug 包。改完规则可以跑 `bash tools/run_all_tests.sh`（1
   （4.0.3 已逐条移植，见 [`docs/PR-REVIEW-2026-11-05.md`](docs/PR-REVIEW-2026-11-05.md)）；
   4.0.4 又带来两笔：ColorOS 唤醒体检改读 DEX 类定义（原先在真机上必然误报）、
   设置开关的触摸与无障碍交互（`ACTION_MOVE` 一抖就点不动）。每份 PR 都带真机证据和测试。
+- [@wangzhen9331](https://github.com/wangzhen9331) —— 桌面小组件的社区改版
+  （[仓库](https://github.com/wangzhen9331/xiaomi-hyperos-pickup-code-grabber)）。
+  行数自适应与「立即刷 + 补刷」的刷新时序参考了它的做法；实现与数据口径仍以本项目为准。
 - [@Seven2023Six](https://github.com/Seven2023Six) —— 界面重构提案与讨论，其中不少判断被 4.0 的 UI 采纳。
 - [@VWV2005](https://github.com/VWV2005) —— 早期 ColorOS 16 适配（写入侧），v2.7.0 起整合进本仓库。
 - 以及所有提过 issue、贴过日志的人——这个模块的很多修复都是从一行日志开始的。

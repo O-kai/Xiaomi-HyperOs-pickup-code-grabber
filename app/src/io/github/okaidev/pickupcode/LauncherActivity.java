@@ -2400,31 +2400,103 @@ public class LauncherActivity extends Activity {
     }
 
     private void showAboutDialog() {
-        // v4.7：合作者改成编号列表，一行一个角色，格式统一，不再挤成一团
+        // v4.1.0：作者与版本固定在顶部，只有「合作者」列表滚动。
+        // 合作者只会越加越多，全塞进一个 TextView 的话，滚动条会从作者名字旁边开始，
+        // 而且以后再加人就得整段重排。
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.VERTICAL);
+
+        TextView ver = UiKit.text(this, "取件码助手 " + appVersionLabel(), 15.5f, UiKit.INK);
+        ver.setTypeface(null, Typeface.BOLD);
+        head.addView(ver);
+
+        TextView desc = UiKit.text(this,
+                "自动提取快递取件码，写入系统待办，并在 App 内留一份可查的记录",
+                12.5f, UiKit.INK3);
+        desc.setLineSpacing(dp(2), 1.05f);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.setMargins(0, dp(6), 0, 0);
+        head.addView(desc, dlp);
+
+        // —— 作者：单独一块，名字加粗放大，角色缩进在下面 ——
+        TextView authorTag = UiKit.text(this, "作者", 11.5f, P.label);
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        alp.setMargins(0, dp(14), 0, dp(4));
+        head.addView(authorTag, alp);
+
+        TextView authorName = UiKit.text(this, "欧锴（O-kai）", 16f, P.accentInk);
+        authorName.setTypeface(null, Typeface.BOLD);
+        head.addView(authorName);
+
+        TextView authorRole = UiKit.text(this, "项目发起与主要开发", 12f, UiKit.INK3);
+        authorRole.setPadding(dp(18), dp(3), 0, 0);
+        head.addView(authorRole);
+
+        // —— 合作者：可滚动区 ——
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+
+        TextView coTag = UiKit.text(this, "合作者", 11.5f, P.label);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.setMargins(0, 0, 0, dp(6));
+        list.addView(coTag, clp);
+
+        addCredit(list, 1, "VWV2005", "ColorOS 适配",
+                "最早实现 ColorOS 上的捕获与写入，奠定跨 ROM 支持基础");
+        addCredit(list, 2, "Artifical0", "ColorOS Hook 修正",
+                "修正 ColorOS 上失效的 Hook 类名，使短信在 ColorOS 16 可正常捕获");
+        addCredit(list, 3, "Seven2023Six", "界面布局重构",
+                "四 Tab 结构、UiKit 设计系统、矢量图标体系");
+        addCredit(list, 4, "ByteJuno", "ColorOS 适配与体检修正",
+                "通知通道参数校验、冻结后 Provider 唤醒放行、短信 Hook 类名；"
+                        + "4.0.4 起：唤醒体检改读 DEX 类定义、设置开关的触摸与无障碍交互");
+        addCredit(list, 5, "GXR-SX", "荣耀 MagicOS 适配",
+                "日历待办走 CalendarProvider 写入（给日历权限即可，无需 root）、"
+                        + "表结构运行时自适应、短信包名 com.hihonor.mms");
+        addCredit(list, 6, "wangzhen9331", "桌面小组件方案参考",
+                "小组件的行数自适应与「立即刷 + 补刷」时序参考其改版；"
+                        + "实现与数据口径仍为本项目自有");
+
+        TextView tail = UiKit.text(this,
+                "LSPosed 模块仓库已上架，酷安同步更新\n遇到问题欢迎到 QQ 群或酷安主页找作者",
+                12f, UiKit.INK3);
+        tail.setLineSpacing(dp(3), 1.05f);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.setMargins(0, dp(12), 0, 0);
+        list.addView(tail, tlp);
+
         UiKit.dialog(this, P, R.drawable.ic_info, "关于模块",
-                "取件码助手 " + appVersionLabel() + "\n"
-                        + "自动提取快递取件码，写入系统待办，并在 App 内留一份可查的记录\n\n"
-                        + "【作者】\n"
-                        + "欧锴（O-kai）— 项目发起与主要开发\n\n"
-                        + "【合作者】\n"
-                        + "1. VWV2005 — ColorOS 适配\n"
-                        + "   最早实现 ColorOS 上的捕获与写入，奠定跨 ROM 支持基础\n\n"
-                        + "2. Artifical0 — ColorOS Hook 修正\n"
-                        + "   修正 ColorOS 上失效的 Hook 类名，使短信在 ColorOS 16 可正常捕获\n\n"
-                        + "3. Seven2023Six — 界面布局重构\n"
-                        + "   四 Tab 结构、UiKit 设计系统、矢量图标体系\n\n"
-                        + "4. ByteJuno — ColorOS 适配与体检修正\n"
-                        + "   通知通道参数校验、冻结后 Provider 唤醒放行、短信 Hook 类名；\n"
-                        + "   4.0.4 起：ColorOS 唤醒体检改读 DEX 类定义（不再误报）、\n"
-                        + "   设置开关的触摸与无障碍交互（含写入目标整行可点）\n\n"
-                        + "5. GXR-SX — 荣耀 MagicOS 适配\n"
-                        + "   日历待办走 CalendarProvider 写入（给日历权限即可，无需 root）、\n"
-                        + "   表结构运行时自适应、短信包名 com.hihonor.mms、小组件即时刷新\n\n"
-                        + "LSPosed 模块仓库已上架，酷安同步更新\n"
-                        + "遇到问题欢迎到 QQ 群或酷安主页找作者", null,
+                null, head, list, 46,
                 UiKit.primary("知道了", null),
                 UiKit.ghost("用户协议", this::showAgreementDialog),
                 UiKit.ghost("更新日志", () -> openUrl(CHANGELOG_URL)));
+    }
+
+    /**
+     * 关于页里的一条合作者（v4.1.0）。
+     *
+     * <p>名字独占一行并加粗，职责与说明缩进到下一行——
+     * 合作者会一直加，条目必须能一行扫过去，又不能糊成一段。
+     */
+    private void addCredit(LinearLayout parent, int no, String name, String role, String detail) {
+        TextView line = UiKit.text(this, no + ". " + name + " · " + role, 13.5f, UiKit.INK);
+        line.setTypeface(null, Typeface.BOLD);
+        line.setLineSpacing(dp(2), 1.05f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(8), 0, 0);
+        parent.addView(line, lp);
+
+        TextView sub = UiKit.text(this, detail, 12f, UiKit.INK3);
+        sub.setLineSpacing(dp(3), 1.05f);
+        sub.setPadding(dp(18), dp(2), 0, 0);   // 缩进对齐到名字之后，视觉上从属
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        parent.addView(sub, slp);
     }
 
     // ================================================================
