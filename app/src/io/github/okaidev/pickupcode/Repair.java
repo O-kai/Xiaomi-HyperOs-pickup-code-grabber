@@ -45,7 +45,7 @@ public class Repair {
     /**
      * 作用域必需目标（v2.7.0 按 ROM 收敛）：
      *  - 通用（Hook 目标，两家 ROM 都要）：android、com.android.phone、com.android.mms；
-     *  - 小米侧追加 com.miui.notes（旧版要求，仅小米后端时校验——保留兼容旧用户已勾配置）；
+     *  - 小米笔记不再是必需项（v4.1.0）：写入走 root 直写，不经过 Hook；
      *  - com.android.providers.telephony 为可选（S8 主通道所在；实测 HyperOS 将其合并进
      *    phone 进程，勾上更稳，未勾也不报缺）。
      *  写入目标 App（笔记/日历）不是 Hook 目标（模块靠 su 直写其库），无需勾选。
@@ -53,7 +53,10 @@ public class Repair {
     public static String[] scopeRequired(Context ctx) {
         String backend = NotesBackend.detect(ctx);
         if (NotesBackend.BACKEND_XIAOMI.equals(backend)) {
-            return new String[]{"android", "com.android.phone", "com.android.mms", NotesBackend.PKG_XIAOMI};
+            // v4.1.0：不再要求「小米笔记」。写待办是 root 直写它的库，模块从不 Hook 它，
+            // 勾了只是白占一个作用域（还会在日志里刷 SCOPE-NOT-TARGET）。
+            // 老用户已经勾着的照旧，不影响功能。
+            return new String[]{"android", "com.android.phone", "com.android.mms"};
         }
         // v4.1.0：荣耀的短信 App 是 com.hihonor.mms，com.android.mms 在这代机器上根本不存在。
         // 继续按 AOSP 包名要求作用域，体检会一直报「作用域缺一项」——用户怎么勾都消不掉。

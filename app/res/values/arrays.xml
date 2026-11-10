@@ -8,7 +8,7 @@
          com.miui.notes = 小米笔记（MIUI/HyperOS 写入目标）；
          com.coloros.note = ColorOS 便签（ColorOS 16 写入目标）。
          未安装的目标 LSPosed 会自动忽略——各家 App 同时声明互不影响。
-         注意：系统框架的包名是 android（不是 system）；S8 所在的 providers.telephony 必勾。 -->
+         注意：系统框架在旧版 LSPosed 记作 android、2.x 记作 system，两者等价；S8 所在的 providers.telephony 建议勾。 -->
     <string-array name="xposed_scope">
         <item>android</item>
         <item>com.android.phone</item>

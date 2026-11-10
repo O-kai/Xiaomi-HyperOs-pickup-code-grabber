@@ -720,8 +720,10 @@ public class LauncherActivity extends Activity {
         boolean missingFramework = missing.contains("android") || missing.contains("system");
         if (missingFramework) {
             sb.append("\n")
-                    .append("「Android 系统」在作用域列表的**最底部**，没有「推荐应用」标记——")
-                    .append("很多人只勾了带标记的那几个，结果模块显示已激活却抓不到任何东西。\n");
+                    .append("**系统框架**（英文 system）是让模块进入系统进程的那一项，")
+                    .append("短信、通知都从那里经过；新版 LSPosed 把它置顶并标了「推荐应用」。\n")
+                    .append("如果你的列表里还有一个「Android 系统」（英文 android），")
+                    .append("它和「系统框架」指的是同一个进程，勾任何一个都行，不用两个都勾。\n");
         } else {
             sb.append("\n")
                     .append("这些项在作用域列表里都能搜到；漏勾时模块会显示已激活、但对应功能不生效。\n");
@@ -749,7 +751,11 @@ public class LauncherActivity extends Activity {
 
     /** 包名转成人话；认不出的原样显示，总比不提示强 */
     private String friendlyScopeName(String pkg) {
-        if ("android".equals(pkg) || "system".equals(pkg)) return "Android 系统（列表最底部）";
+        // 截图里能看到两条：置顶的「系统框架」(system) 与列表里的「Android 系统」(android)。
+        // 它们指的是同一个进程（system_server），勾任意一条即可；
+        // 新版 LSPosed 认 system，且会给它打「推荐应用」标记。
+        if ("system".equals(pkg)) return "系统框架（置顶那一项，带推荐标记）";
+        if ("android".equals(pkg)) return "Android 系统（列表里那个；与「系统框架」等价，勾一个即可）";
         if ("com.android.phone".equals(pkg)) return "电话";
         if ("com.android.mms".equals(pkg)) return "短信";
         if (Honor.PKG_MMS.equals(pkg)) return "信息（荣耀）";
