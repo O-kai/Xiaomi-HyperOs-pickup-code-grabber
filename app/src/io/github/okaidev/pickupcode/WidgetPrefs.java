@@ -47,6 +47,26 @@ public final class WidgetPrefs {
     }
 
     /** 取件码基准 17sp，副标题 11sp，按档位等比缩放。 */
+    // ==================== 外观主题 / 透明度（v4.1.0） ====================
+
+    /** dark / light / system */
+    public static String theme(Context ctx) {
+        return prefs(ctx).getString(PickupWidgetProvider.KEY_THEME, "dark");
+    }
+
+    public static void setTheme(Context ctx, String v) {
+        prefs(ctx).edit().putString(PickupWidgetProvider.KEY_THEME, v).apply();
+    }
+
+    /** solid / half / clear */
+    public static String alpha(Context ctx) {
+        return prefs(ctx).getString(PickupWidgetProvider.KEY_ALPHA, "solid");
+    }
+
+    public static void setAlpha(Context ctx, String v) {
+        prefs(ctx).edit().putString(PickupWidgetProvider.KEY_ALPHA, v).apply();
+    }
+
     public static float fontScale(Context ctx) {
         switch (fontLevel(ctx)) {
             case FONT_SMALL:

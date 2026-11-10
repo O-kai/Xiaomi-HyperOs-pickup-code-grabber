@@ -45,7 +45,11 @@
             android:text="待取件"
             android:textColor="#FFFFFFFF"
             android:textSize="18sp"
-            android:textStyle="bold" />
+            android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
         <TextView
             android:id="@+id/widget_count"
@@ -53,7 +57,11 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:textColor="#B3FFFFFF"
-            android:textSize="12sp" />
+            android:textSize="12sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
     </LinearLayout>
 
     <!-- 列表：weight 撑满剩余高度，行按权重均分 -->
@@ -73,7 +81,11 @@
             android:text="暂无待取件\n收到短信后会自动出现"
             android:textColor="#B3FFFFFF"
             android:textSize="12sp"
-            android:visibility="gone" />
+            android:visibility="gone"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
         <LinearLayout
             android:id="@+id/widget_row_1"
@@ -91,7 +103,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_1"
@@ -102,7 +118,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_1"
@@ -112,7 +132,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -131,7 +155,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_2"
@@ -142,7 +170,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_2"
@@ -152,7 +184,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -171,7 +207,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_3"
@@ -182,7 +222,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_3"
@@ -192,7 +236,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -211,7 +259,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_4"
@@ -222,7 +274,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_4"
@@ -232,7 +288,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -251,7 +311,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_5"
@@ -262,7 +326,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_5"
@@ -272,7 +340,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -292,7 +364,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_6"
@@ -303,7 +379,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_6"
@@ -313,7 +393,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -333,7 +417,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_7"
@@ -344,7 +432,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_7"
@@ -354,7 +446,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -374,7 +470,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_8"
@@ -385,7 +485,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_8"
@@ -395,7 +499,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -415,7 +523,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_9"
@@ -426,7 +538,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_9"
@@ -436,7 +552,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -456,7 +576,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_10"
@@ -467,7 +591,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_10"
@@ -477,7 +605,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -497,7 +629,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_11"
@@ -508,7 +644,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_11"
@@ -518,7 +658,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
 
         <LinearLayout
@@ -538,7 +682,11 @@
                 android:fontFamily="monospace"
                 android:textColor="#FFFFFFFF"
                 android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_place_12"
@@ -549,7 +697,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
 
             <TextView
                 android:id="@+id/widget_done_12"
@@ -559,7 +711,11 @@
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="#FFFFFFFF"
-                android:textSize="16sp" />
+                android:textSize="16sp"     android:shadowColor="#CC000000"
+    android:shadowRadius="4"
+    android:shadowDx="0"
+    android:shadowDy="1.5"
+/>
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

@@ -294,8 +294,66 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         }
     }
 
+    // ==================== 外观（v4.1.0） ====================
+
+    /** 外观主题：dark / light / system */
+    static final String KEY_THEME = "widget_theme";
+    /** 透明度：solid / half / clear */
+    static final String KEY_ALPHA = "widget_alpha";
+
+    /** 跟随系统时，在这里解析成实际主题（组件进程读到的是当前配置） */
+    static boolean isLightTheme(Context ctx) {
+        String t = WidgetPrefs.theme(ctx);
+        if ("light".equals(t)) return true;
+        if ("dark".equals(t)) return false;
+        try {
+            int mode = ctx.getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+            return mode != android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    static String alphaKey(Context ctx) {
+        return WidgetPrefs.alpha(ctx);
+    }
+
+    static int layoutId(Context ctx) {
+        return isLightTheme(ctx) ? R.layout.widget_pickup_v5_light : R.layout.widget_pickup_v4;
+    }
+
+    /** 背景：深/浅 × 实底/半透明/全透明 */
+    static int backgroundRes(Context ctx) {
+        boolean light = isLightTheme(ctx);
+        String a = alphaKey(ctx);
+        if ("clear".equals(a)) return light ? R.drawable.widget_bg_light_clear : R.drawable.widget_bg_dark_clear;
+        if ("half".equals(a)) return light ? R.drawable.widget_bg_light_half : R.drawable.widget_bg_dark_half;
+        return light ? R.drawable.widget_bg_light_solid : R.drawable.widget_bg_dark_solid;
+    }
+
+    /** 文字色：深色主题给白字，浅色主题给深字；alpha 沿用原来的层级 */
+    static int fg(Context ctx, int alpha) {
+        return isLightTheme(ctx) ? (alpha << 24) | 0x1C1C1E : (alpha << 24) | 0xFFFFFF;
+    }
+
+    /**
+     * 删除线（v4.1.0）。
+     *
+     * <p>试过用组合字符 U+0336 逐字叠加做「双横线」，结果在中文上翻车：
+     * 中文字体没有对应的组合字形，地址整段变成豆腐块，取件码也被压成一条糊线。
+     * 所以回到 Html 的 {@code <s>}：单线，但长度天然跟着文字走，
+     * 取件码和地址都能用，跨进程也稳定。
+     */
+    static CharSequence strikeText(String text) {
+        if (text == null || text.isEmpty()) return text;
+        return Html.fromHtml("<s>" + escapeHtml(text) + "</s>");
+    }
+
     private static RemoteViews buildClosed(Context context) {
-        RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_pickup_v4);
+        RemoteViews rv = new RemoteViews(context.getPackageName(), layoutId(context));
+        // 背景按「主题 × 透明度」切换；layout 里的默认背景只是兜底
+        rv.setInt(R.id.widget_root_v2, "setBackgroundResource", backgroundRes(context));
         rv.setTextViewText(R.id.widget_title, "取件记录已关闭");
         rv.setTextViewTextSize(R.id.widget_title, TypedValue.COMPLEX_UNIT_SP, 18f);
         rv.setTextViewText(R.id.widget_count, "");
@@ -360,7 +418,9 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         // v4.0.2 第八轮：布局换到 v3（新 layout 资源 id）。
         // 桌面不会重建已存在组件的视图树，换资源 id 是唯一能让
         // AppWidgetHostView 重新 inflate 的手段。
-        RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_pickup_v4);
+        RemoteViews rv = new RemoteViews(context.getPackageName(), layoutId(context));
+        // 背景按「主题 × 透明度」切换；layout 里的默认背景只是兜底
+        rv.setInt(R.id.widget_root_v2, "setBackgroundResource", backgroundRes(context));
 
         // v4.0.2 第三轮：一次算好行数与实际行高（补位动画的位移量要用真实行高）
         int[] metrics = widgetMetrics(context, widgetId);
@@ -454,32 +514,41 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             // v4.0.2：「显示全部信息」模式下，已取的取件码加删除线。
             // RemoteViews 没有设 PaintFlags 的接口，但 setTextViewText 接受
             // Spanned——用 Html.fromHtml("<s>…</s>") 就能拿到带删除线的文本。
+            // v4.1.0：已取的整行都要划掉，而且是**双横线**、长度跟着文字走。
+            // RemoteViews 里能用 Html 的 <s>（单横线、只作用在传入的那段文字），
+            // 但做不到「双线」也做不到「跨两个 TextView」。
+            // 这里用组合字符 U+0336（长删除线叠加）逐字叠加：
+            //   · 线长天然跟着字数走，不会划过头；
+            //   · 叠两次就是两条，看起来更明确；
+            //   · 纯字符，能跨进程传输，不需要自定义 Span。
+            boolean strike = showAll && !pending;
             if (!showCode) {
                 rv.setTextViewText(CODE_IDS[i], "");
-            } else if (showAll && !pending) {
-                rv.setTextViewText(CODE_IDS[i],
-                        Html.fromHtml("<s>" + escapeHtml(record.code) + "</s>"));
+            } else if (strike) {
+                rv.setTextViewText(CODE_IDS[i], strikeText(record.code));
             } else {
                 rv.setTextViewText(CODE_IDS[i], record.code);
             }
             rv.setTextViewTextSize(CODE_IDS[i], TypedValue.COMPLEX_UNIT_SP, 17f * scale);
             if (showAll && !pending) {
-                rv.setTextColor(CODE_IDS[i], 0x99FFFFFF);
+                rv.setTextColor(CODE_IDS[i], fg(context, 0x99));
             } else {
-                rv.setTextColor(CODE_IDS[i], 0xFFFFFFFF);
+                rv.setTextColor(CODE_IDS[i], fg(context, 0xFF));
             }
 
             // 关闭地点时不能 GONE：这一列是带 weight 的占位视图，
             // 一旦隐藏，右侧 ✓ 会贴到取件码旁边、右边留一大块空白。
             rv.setViewVisibility(PLACE_IDS[i], View.VISIBLE);
-            rv.setTextViewText(PLACE_IDS[i], !showPlace
+            String placeText = !showPlace
                     ? ""
-                    : (record.place == null || record.place.trim().isEmpty() ? "—" : record.place));
+                    : (record.place == null || record.place.trim().isEmpty() ? "—" : record.place);
+            // 已取的地址也要划掉，跟取件码保持一致
+            rv.setTextViewText(PLACE_IDS[i], strike ? strikeText(placeText) : placeText);
             rv.setTextViewTextSize(PLACE_IDS[i], TypedValue.COMPLEX_UNIT_SP, 11f * scale);
             if (showAll && !pending) {
-                rv.setTextColor(PLACE_IDS[i], 0x80FFFFFF);
+                rv.setTextColor(PLACE_IDS[i], fg(context, 0x80));
             } else {
-                rv.setTextColor(PLACE_IDS[i], 0xB3FFFFFF);
+                rv.setTextColor(PLACE_IDS[i], fg(context, 0xB3));
             }
 
             // 补位动画：刚顶上来的行先落在「下移一格 + 半透明」，再归位。

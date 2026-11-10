@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  预览的「壁纸」底（v4.1.0）。
+
+  为什么需要它：全透明档下组件本身没有底色，文字直接叠在桌面上。
+  预览如果直接放在页面白底上，深色主题的白字就成了「白底白字」——
+  看起来像什么都没画。这里给一层中间调的背景，模拟壁纸，
+  让三档透明度在预览里都能看出实际效果。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="#8FA9C4" />
+    <corners android:radius="16dp" />
+</shape>
