@@ -187,7 +187,7 @@ public final class AppParcelData {
             JSONObject result = new JSONObject(json).optJSONObject("result");
             if (result == null || result.optInt("status", -1) != 3
                     || result.optBoolean("showQrCodePickUp", false)) return out;
-            String code = result.optString("code", "").trim();
+            String code = pinduoduoCode(result.opt("code"));
             if (validCode(code)) out.add(new Event(code, result.optString("address", "")));
         } catch (Exception ignored) { }
         return out;
@@ -212,7 +212,7 @@ public final class AppParcelData {
                 for (int j = 0; j < tracks.length() && j < MAX_EVENTS && out.size() < MAX_EVENTS; j++) {
                     JSONObject track = tracks.optJSONObject(j);
                     if (track == null) continue;
-                    String code = pinduoduoCode(track.optString("pick_code", ""));
+                    String code = pinduoduoCode(track.opt("pick_code"));
                     if (validCode(code)) out.add(new Event(code, place));
                 }
             }
@@ -233,7 +233,7 @@ public final class AppParcelData {
             for (int i = 0; i < tracks.length() && i < 500 && out.size() < MAX_EVENTS; i++) {
                 JSONObject track = tracks.optJSONObject(i);
                 if (track == null || track.optInt("status_type", -1) != 400) continue;
-                String code = pinduoduoCode(track.optString("pick_code", ""));
+                String code = pinduoduoCode(track.opt("pick_code"));
                 // The list has no station address. Do not guess it from a truncated tracking description.
                 if (validCode(code)) out.add(new Event(code, null));
             }
@@ -241,8 +241,11 @@ public final class AppParcelData {
         return out;
     }
 
-    private static String pinduoduoCode(String value) {
-        String code = value.trim();
+    private static String pinduoduoCode(Object value) {
+        // These API fields are display strings. Never turn a JSON number/object into a code,
+        // or fall back to a phone suffix / tracking description when the field is absent.
+        if (!(value instanceof String)) return "";
+        String code = ((String) value).trim();
         if (code.startsWith("取件码")) code = code.substring(3).trim().replaceFirst("^[:：]\\s*", "");
         return code;
     }

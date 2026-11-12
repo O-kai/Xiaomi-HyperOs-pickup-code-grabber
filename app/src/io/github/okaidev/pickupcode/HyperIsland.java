@@ -21,7 +21,12 @@ final class HyperIsland {
     private HyperIsland() { }
 
     static int protocol(Context context) {
-        return Settings.System.getInt(context.getContentResolver(), "notification_focus_protocol", 0);
+        // Capability version, not the HyperOS marketing version. OS4+ must not be excluded.
+        try {
+            return Settings.System.getInt(context.getContentResolver(), "notification_focus_protocol", 0);
+        } catch (RuntimeException ignored) {
+            return 0;
+        }
     }
 
     /** Call off the main thread: SystemUI validates the real caller's UID. */

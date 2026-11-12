@@ -106,6 +106,20 @@ public class ParcelSurfacesTest {
         assertFalse(params.getBoolean("filterWhenNoPermission"));
     }
 
+    @Test public void newerSystemProtocolsKeepTheStandardTemplateAndNotificationActions() throws Exception {
+        // HyperOS marketing versions and notification protocol versions are independent.
+        for (int protocol : new int[]{2, 3, 4, 5}) {
+            Settings.System.putInt(context.getContentResolver(), "notification_focus_protocol", protocol);
+            Notification notification = notification("12-3-4567");
+            JSONObject params = new JSONObject(notification.extras.getString(HyperIsland.PARAM))
+                    .getJSONObject("param_v2");
+            assertEquals("express", params.getString("business"));
+            assertEquals("12-3-4567", params.getJSONObject("baseInfo").getString("title"));
+            assertNotNull(notification.contentIntent);
+            assertEquals(2, notification.actions.length);
+        }
+    }
+
     @Test public void lockscreenAndAodContainOnlyCount() throws Exception {
         Notification notification = notification("12-3-4567");
         assertEquals(Notification.VISIBILITY_PRIVATE, notification.visibility);

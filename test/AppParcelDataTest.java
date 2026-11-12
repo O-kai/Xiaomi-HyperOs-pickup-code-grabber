@@ -149,6 +149,36 @@ public final class AppParcelDataTest {
         stations.getJSONObject(0).getJSONArray("combine_track_list").getJSONObject(0).put("pick_code", "取件码 2-3-4567");
         check("PDD cabinet list also strips code prefix", AppParcelData.pinduoduoTrackbox(trackbox.put("success", true).toString()).get(0).code.equals("2-3-4567"));
 
+        // A pending row is not enough: only the API's explicit, visible code field is usable.
+        for (Object value : new Object[]{JSONObject.NULL, "", "  ", "暂无取件码", "取件码：",
+                "取件手机号 1234", "176****1234", "13800000000", true, 1234, 12.34,
+                new JSONObject().put("code", "123456"), new JSONArray().put("123456")}) {
+            JSONObject row = new JSONObject().put("status_type", 400).put("pick_code", value)
+                    .put("phone", "1234").put("tracking_number", "123456")
+                    .put("description", "请凭取件码 6-7-8901 到测试驿站取件");
+            check("PDD mixed list rejects absent/unusable code " + value,
+                    AppParcelData.pinduoduoList(new JSONObject().put("success", true)
+                            .put("result", new JSONObject().put("track_info_list", new JSONArray().put(row)))
+                            .toString()).isEmpty());
+            check("PDD cabinet list rejects absent/unusable code " + value,
+                    AppParcelData.pinduoduoTrackbox(new JSONObject().put("success", true)
+                            .put("result", new JSONObject().put("combine_list", new JSONArray()
+                                    .put(new JSONObject().put("combine_track_list", new JSONArray().put(row)))))
+                            .toString()).isEmpty());
+            check("PDD detail rejects absent/unusable code " + value,
+                    AppParcelData.pinduoduo(new JSONObject().put("result", new JSONObject()
+                            .put("status", 3).put("code", value)).toString()).isEmpty());
+        }
+        JSONObject noCode = new JSONObject().put("status_type", 400).put("code", "123456")
+                .put("phone", "1234").put("description", "取件码 6-7-8901");
+        check("PDD list never infers a missing pick_code", AppParcelData.pinduoduoList(new JSONObject()
+                .put("success", true).put("result", new JSONObject()
+                        .put("track_info_list", new JSONArray().put(noCode))).toString()).isEmpty());
+        check("PDD explicit four digit code is still usable", AppParcelData.pinduoduoList(new JSONObject()
+                .put("success", true).put("result", new JSONObject().put("track_info_list", new JSONArray()
+                        .put(new JSONObject().put("status_type", 400).put("pick_code", "1234"))))
+                .toString()).get(0).code.equals("1234"));
+
         for (String code : new String[]{"", "12**56", "暂无取件码", "https://example.test/1234", "13800000000", "A--123", "ABC", "1-2-3-4-5-6"}) {
             check("invalid code " + code, !AppParcelData.validCode(code));
         }

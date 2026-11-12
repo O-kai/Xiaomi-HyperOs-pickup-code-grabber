@@ -1924,6 +1924,11 @@ public class LauncherActivity extends Activity {
         reminderRow.setOnClickListener(v -> pickReminderTime());
         perCard.addView(reminderRow);
 
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(buildAppParcelRow());
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(buildXiaomiSurfacesRow());
+
         // 4.0：检查更新（自动开关与手动检查合并为一行）
         perCard.addView(UiKit.divider(this, P));
         netSw = new UiKit.Switch(this, P, NetPolicy.autoNetAllowed(this));
@@ -2444,6 +2449,8 @@ public class LauncherActivity extends Activity {
 
         wrap.addView(buildAppParcelRow());
         wrap.addView(UiKit.divider(this, P));
+        wrap.addView(buildXiaomiSurfacesRow());
+        wrap.addView(UiKit.divider(this, P));
 
         wrap.addView(toolRow(R.drawable.ic_heart, "打赏作者",
                 "纯自愿，不影响任何功能",
@@ -2477,7 +2484,12 @@ public class LauncherActivity extends Activity {
                     : "已关闭 App 内包裹提取", Toast.LENGTH_LONG).show();
         });
         return UiKit.row(this, P, R.drawable.ic_box, "App 内包裹提取",
-                "菜鸟、拼多多加载包裹时保存取件码 · 需勾选对应作用域", toggle);
+                "随 App 加载提取，不定时轮询 · 拼多多仅保存待取且有明确取件码的包裹", toggle);
+    }
+
+    private View buildXiaomiSurfacesRow() {
+        return toolRow(R.drawable.ic_bell, "超级岛与背屏",
+                "通知设置、HyperCeiler 解锁与背屏显示说明", v -> XiaomiSurfaces.prompt(this));
     }
 
     // ================================================================
