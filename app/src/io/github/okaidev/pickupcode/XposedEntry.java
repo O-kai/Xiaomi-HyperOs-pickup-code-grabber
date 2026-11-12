@@ -35,7 +35,9 @@ public class XposedEntry implements IXposedHookLoadPackage {
         }
 
         try {
-            if (pkg.equals("com.android.mms")) {
+            if (AppParcelData.supports(pkg)) {
+                AppParcelHook.install(pkg, lpparam.classLoader);
+            } else if (pkg.equals("com.android.mms")) {
                 hookMmsApp(lpparam);
             } else if (pkg.equals("com.android.phone")
                     || pkg.equals("android")          // 部分 ROM 将 systemserver 报告为 android

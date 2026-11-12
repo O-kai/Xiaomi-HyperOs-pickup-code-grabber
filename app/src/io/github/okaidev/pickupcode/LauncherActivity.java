@@ -1699,6 +1699,8 @@ public class LauncherActivity extends Activity {
         modeRow.setOnClickListener(v -> showModeSwitchDialog());
         perCard.addView(modeRow);
         perCard.addView(UiKit.divider(this, P));
+        perCard.addView(buildAppParcelRow());
+        perCard.addView(UiKit.divider(this, P));
 
         // 4.0：桌面小组件外观设置（改为二级页入口；右侧不再重复报「字号 · 条数」）
         // v4.0.3 第二轮：内部记录关着时不出现——组件读的就是那份记录，
@@ -2264,6 +2266,9 @@ public class LauncherActivity extends Activity {
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.VERTICAL);
 
+        wrap.addView(buildAppParcelRow());
+        wrap.addView(UiKit.divider(this, P));
+
         wrap.addView(toolRow(R.drawable.ic_heart, "打赏作者",
                 "纯自愿，不影响任何功能",
                 v -> startActivity(new Intent(this, DonateActivity.class))));
@@ -2283,6 +2288,20 @@ public class LauncherActivity extends Activity {
                 "更多规则、来源与设置", v -> showModeSwitchDialog()));
 
         UiKit.dialog(this, P, R.drawable.ic_grid, "更多选项", null, wrap, 0);
+    }
+
+    private View buildAppParcelRow() {
+        UiKit.Switch toggle = new UiKit.Switch(this, P,
+                getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(TodoProvider.APP_PARCEL_PREF, false));
+        toggle.setOnToggle(on -> {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putBoolean(TodoProvider.APP_PARCEL_PREF, on).apply();
+            Toast.makeText(this, on
+                    ? "请在 LSPosed 作用域勾选菜鸟、拼多多，然后重新打开对应 App"
+                    : "已关闭 App 内包裹提取", Toast.LENGTH_LONG).show();
+        });
+        return UiKit.row(this, P, R.drawable.ic_box, "App 内包裹提取",
+                "菜鸟、拼多多加载包裹时保存取件码 · 需勾选对应作用域", toggle);
     }
 
     // ================================================================

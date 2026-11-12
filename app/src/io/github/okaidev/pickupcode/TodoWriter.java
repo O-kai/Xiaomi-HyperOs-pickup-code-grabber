@@ -132,6 +132,21 @@ public class TodoWriter {
             return new HandleResult(codes, 0, 0, 0, "no_code", "");
         }
 
+        return handleParsedDetailed(ctx, codes, resolveSource(sender, body), extractPlace(sender, body));
+    }
+
+    /** Structured app data already contains a code and place; do not reparse it as SMS. */
+    static HandleResult handleAppParcel(Context ctx, String pkg, AppParcelData.Event event) {
+        String body = "取件码 " + event.code + "｜" + event.place;
+        if (isBlacklisted(ctx, body)) {
+            return new HandleResult(new ArrayList<>(), 0, 0, 0, "blacklisted", "");
+        }
+        return handleParsedDetailed(ctx, java.util.Collections.singletonList(event.code),
+                AppParcelData.label(pkg), event.place);
+    }
+
+    private static HandleResult handleParsedDetailed(Context ctx, List<String> codes,
+                                                     String source, String place) {
         String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date());
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         // v4.0.3 第二轮：写入目标 = 系统待办 + 软件内部记录。
@@ -141,8 +156,6 @@ public class TodoWriter {
         final boolean noTodo = todoTargets.isEmpty();
 
         List<String> wrote = new ArrayList<>();
-        String place = extractPlace(sender, body);
-        String source = resolveSource(sender, body);
         StringBuilder dedupBuf = new StringBuilder();
         int dedupCount = 0;
         int failedCount = 0;

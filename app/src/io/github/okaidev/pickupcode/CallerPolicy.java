@@ -75,6 +75,24 @@ final class CallerPolicy {
         return pkg != null && TRUSTED_SMS_PACKAGES.contains(pkg);
     }
 
+    /** App data has a separate endpoint; target apps never gain SMS/markDone access. */
+    static boolean isAppParcelUid(Context ctx, int uid, String claimedPackage) {
+        if (ctx == null || !AppParcelData.supports(claimedPackage)) return false;
+        try {
+            return matchesAppParcelPackages(claimedPackage, ctx.getPackageManager().getPackagesForUid(uid));
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    static boolean matchesAppParcelPackages(String claimedPackage, String[] actualPackages) {
+        if (!AppParcelData.supports(claimedPackage) || actualPackages == null) return false;
+        for (String pkg : actualPackages) {
+            if (claimedPackage.equals(pkg)) return true;
+        }
+        return false;
+    }
+
     /** 仅用于日志：UID + 包名，不包含短信内容。 */
     static String describe(Context ctx, int uid) {
         if (ctx == null) {

@@ -11,6 +11,8 @@
     <queries>
         <package android:name="com.coloros.note" />
         <package android:name="com.miui.notes" />
+        <package android:name="com.cainiao.wireless" />
+        <package android:name="com.xunmeng.pinduoduo" />
 
         <!--
           v4.4：允许看到「有桌面入口」的应用。
@@ -26,9 +28,11 @@
         </intent>
     </queries>
 
+    <!-- Target apps must resolve the exported provider without modifying their manifests. -->
     <application
         android:label="取件码助手"
         android:icon="@mipmap/ic_launcher"
+        android:forceQueryable="true"
         android:allowBackup="false"
         android:supportsRtl="true">
 

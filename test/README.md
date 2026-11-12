@@ -58,6 +58,9 @@ Android `Build`/`Log` 用最小替身；真正被测的是 `ColorOs.containsGate
 
 ## 一键跑完全部回归
 
+新增的 App 数据采集测试：`ANDROID_JAR=/path/to/android.jar bash tools/test_app_parcel.sh`。
+真实 Provider 的开关、来源校验测试：`./gradlew :app:testDebugUnitTest --tests '*AppParcelProviderTest'`。
+
 ```bash
 bash tools/run_all_tests.sh
 ```
@@ -129,7 +132,8 @@ java RulesRegression
 cd test
 mkdir -p out-security
 javac -encoding UTF-8 -cp "$ANDROID_JAR" -d out-security \
-  ../app/src/io/github/okaidev/pickupcode/CallerPolicy.java CallerPolicyTest.java
+  ../app/src/io/github/okaidev/pickupcode/CallerPolicy.java \
+  ../app/src/io/github/okaidev/pickupcode/AppParcelData.java CallerPolicyTest.java
 java -cp out-security io.github.okaidev.pickupcode.CallerPolicyTest
 ```
 

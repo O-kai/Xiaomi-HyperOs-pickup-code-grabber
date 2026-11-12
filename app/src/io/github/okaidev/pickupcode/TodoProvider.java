@@ -27,6 +27,7 @@ public class TodoProvider extends ContentProvider {
     private static final String TAG = "PICKUPDEBUG";
     private static final String METHOD_ON_SMS = "onSms";
     private static final String METHOD_MARK_DONE = "markDone";
+    static final String APP_PARCEL_PREF = "app_parcel_enabled";
 
     private static final int MAX_BODY_CHARS = 4000;
     private static final int MAX_SENDER_CHARS = 128;
@@ -49,6 +50,28 @@ public class TodoProvider extends ContentProvider {
     public Bundle call(String method, String arg, Bundle extras) {
         final Context ctx = getContext();
         final int callingUid = Binder.getCallingUid();
+
+        if ("appParcelEnabled".equals(method) || "onAppParcel".equals(method)) {
+            if (!CallerPolicy.isAppParcelUid(ctx, callingUid, arg)) {
+                return denied(ctx, callingUid, method);
+            }
+            boolean enabled = ctx.getSharedPreferences("dedup", Context.MODE_PRIVATE)
+                    .getBoolean(APP_PARCEL_PREF, false);
+            if ("appParcelEnabled".equals(method)) {
+                Bundle result = new Bundle();
+                result.putBoolean("enabled", enabled);
+                return result;
+            }
+            if (!enabled) return error("app_parcel_disabled");
+            // Authorization uses the producer UID; downstream writes and notifications
+            // must use this module's identity rather than the producer's Binder identity.
+            long identity = Binder.clearCallingIdentity();
+            try {
+                return ingestAppParcel(ctx, arg, extras);
+            } finally {
+                Binder.restoreCallingIdentity(identity);
+            }
+        }
 
         if (METHOD_MARK_DONE.equals(method)) {
             // 标记已取件只能由模块自身发起（通知动作/链路测试都在 App 进程）。
@@ -205,6 +228,38 @@ public class TodoProvider extends ContentProvider {
         b.putInt("rc", -3);
         b.putString("error", "unauthorized");
         return b;
+    }
+
+    private Bundle ingestAppParcel(Context ctx, String pkg, Bundle extras) {
+        if (extras == null) return error("empty_extras");
+        String code = extras.getString("code");
+        String place = extras.getString("place", "—");
+        if (!AppParcelData.validCode(code) || place == null || place.length() > 200) {
+            return error("invalid_parcel");
+        }
+        AppParcelData.Event event = new AppParcelData.Event(code, place);
+        String body = "取件码 " + code + "｜" + event.place;
+        if (TodoWriter.isBlacklisted(ctx, body)) return error("blacklisted");
+        java.util.List<String> codes = java.util.Collections.singletonList(code);
+        PickupRepository.IngestResult local = null;
+        try {
+            if (NotesBackend.localSelected(ctx)) {
+                local = PickupRepository.get(ctx).ingest("App:" + pkg, body, codes,
+                        AppParcelData.label(pkg), event.place, false);
+            }
+            TodoWriter.HandleResult outcome = TodoWriter.handleAppParcel(ctx, pkg, event);
+            if (!outcome.written.isEmpty() || (local != null && local.hasNew())) {
+                Notifier.notifyCodes(ctx, codes, null);
+            }
+            Bundle result = new Bundle();
+            // A failure must remain retryable by the producer.
+            result.putInt("rc", outcome.failedCount > 0 ? -1 : 0);
+            result.putString("status", outcome.status);
+            return result;
+        } catch (Throwable t) {
+            Log.w(TAG, "APP-DATA ingest failed: " + t.getClass().getSimpleName());
+            return error("ingest_failed");
+        }
     }
 
     private Bundle error(String reason) {
