@@ -40,6 +40,8 @@ public class WidgetSettingsActivity extends Activity {
     private boolean realigning = false;
     /** 桌面上到底有没有组件。示例预览要覆盖待取 + 已取，和真实组件分开算。 */
     private boolean previewOnDesktop = false;
+    /** 本次进页面是否已经做过「位置有没有被拖动」的静默检查 */
+    private boolean resumeChecked = false;
     private static final int REQ_BACKDROP = 1001;
 
     @Override
@@ -197,6 +199,38 @@ public class WidgetSettingsActivity extends Activity {
         setContentView(root);
         rebuildSegments();
         refreshPreview();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // v4.1.0：用户在桌面上把组件拖走 / 拉大拉小之后，缓存里的格子就过期了。
+        // 这里静默比一次：只有 root 通道已经建好（之前授权过）才做，
+        // 不会因为进这个页面就弹 Magisk 授权；位置真变了才重抓背景。
+        if (!previewOnDesktop || realigning || resumeChecked) return;
+        resumeChecked = true;
+        if (!RootShell.isReady()) return;
+
+        new Thread(() -> {
+            final WidgetPlacement now;
+            try {
+                now = WidgetPlacement.remeasure(this);
+            } catch (Throwable t) {
+                return;
+            }
+            if (now == null) return;
+            WidgetPlacement old = placement;
+            boolean moved = old == null
+                    || Math.abs(old.top - now.top) > 0.002f
+                    || Math.abs(old.bottom - now.bottom) > 0.002f
+                    || Math.abs(old.left - now.left) > 0.002f
+                    || Math.abs(old.right - now.right) > 0.002f;
+            if (!moved) return;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                captureBackdrop();
+            });
+        }, "placement-resume").start();
     }
 
     /** 文字色：深色主题白字、浅色主题深字（与组件里的 fg() 同一套口径） */
