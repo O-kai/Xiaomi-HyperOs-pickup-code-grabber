@@ -18,9 +18,21 @@ import android.content.SharedPreferences;
  * <p>Android 没有公开 API 能给这个：{@link AppWidgetManager} 只给宽高、不给位置，
  * 位置被当作 Launcher 的私有信息。所以这里要走 root 读库。
  *
- * <p><b>格子 → 像素是纯算术</b>：workspace 占屏幕纵向的 [{@link #WS_TOP},
- * {@link #WS_BOTTOM}]，{@code rows} 行等分。这组数在 K90 Pro Max 上校准过 ——
- * 由格子算出 831~1687，截图实测 831~1686，差 1 像素。
+ * <p><b>哪些来自系统、哪些是比例</b>：
+ * <ul>
+ *   <li>占哪几格（cellX/cellY/spanX/spanY）—— Launcher 的数据，来自桌面库或
+ *       {@code dumpsys activity top} 的 model dump，设备无关；</li>
+ *   <li>网格几行几列 —— 由「桌面上用到的最右/最下边界」推断，设备无关；</li>
+ *   <li>横向像素 —— 屏幕宽 ÷ 列数，设备无关（实测 400dp ÷ 5 = 80dp/列）；</li>
+ *   <li>纵向上下边界 —— <b>只能用比例</b>：Android 没有公开 API 给 workspace 的
+ *       上下留白（状态栏到 dock 之间），Launcher 的 DeviceProfile 也不落盘。
+ *       {@link #WS_TOP}/{@link #WS_BOTTOM} 是比例而不是像素，换分辨率会等比缩放。</li>
+ * </ul>
+ *
+ * <p>试过但拿不到的：{@code getAppWidgetOptions()} 返回 257×120dp，
+ * 是 Launcher 按我们声明的 minWidth 填的，不是格子尺寸；
+ * {@code dumpsys activity top} 只有 model 没有 View 树；
+ * MiuiHome 的 resources.arsc 里没有 dimen（网格是代码算的）。
  */
 public final class WidgetPlacement {
 
@@ -37,9 +49,22 @@ public final class WidgetPlacement {
     private static final String K_SPAN_X = "spanX";
     private static final String K_WIDGET_ID = "widgetId";
 
-    /** workspace 纵向占屏幕的比例：顶部是状态栏下方的留白，底部是 dock 上沿 */
-    private static final float WS_TOP = 0.072f;
-    private static final float WS_BOTTOM = 0.811f;
+    /**
+     * 网格顶部的留白，占屏幕高度的比例（v4.1.0 第三版）。
+     *
+     * <p>桌面的格子是<b>正方形</b>：每格边长 = 屏幕宽 ÷ 列数。
+     * 实测（K90，400dp 宽 5 列）：1200 ÷ 5 = 240px = 80dp，
+     * 而「尺寸调节」蓝框恰好是 240px 一格（4×2 的框高 479px，2 格）。
+     *
+     * <p>所以横向、纵向的格子尺寸都不用猜，只有「网格第一行从哪里开始」需要基准。
+     * 它等于屏幕高减去「行数 × 格高」和 dock 之后剩下的顶部那一截，
+     * 在小米桌面上是 17dp（约屏高 2%）。这个比例只在同一 Launcher 家族内稳定，
+     * 所以另外用 {@link #cellPx} 夹一道，避免行数多、格子大时算出屏幕外的位置。
+     */
+    private static final float WS_TOP_RATIO = 0.02f;
+
+    /** 网格最多占屏幕高度的多少（剩下的是 dock 与导航栏）；防止格子算得过高压出屏幕 */
+    private static final float WS_MAX_RATIO = 0.86f;
 
     /** 常见的桌面包名。命中一个就够了，全部找不到才放弃。 */
     private static final String[] LAUNCHER_PKGS = {
@@ -108,7 +133,7 @@ public final class WidgetPlacement {
      *
      * <p>大多数人的小组件都在这个范围，误差可接受；比「完全不预览」好得多。
      */
-    public static WidgetPlacement fallback() {
+    public static WidgetPlacement fallback(Context ctx) {
         WidgetPlacement p = new WidgetPlacement();
         // 按「4 列 × 2 行、居中偏上」估：这是最常见的添加尺寸，
         // 也是示例预览该有的样子 —— 横条，不是竖长条。
@@ -119,7 +144,8 @@ public final class WidgetPlacement {
         p.spanX = 4;
         p.spanY = 2;
         p.fromDb = false;
-        p.toRatios();
+        int[] size = screenSize(ctx);
+        p.toRatios(size[0], size[1]);
         return p;
     }
 
@@ -213,7 +239,8 @@ public final class WidgetPlacement {
             p.cols = (inferredCols > p.spanX && inferredCols <= 12) ? inferredCols : fromName[0];
             p.rows = (inferredRows > p.spanY && inferredRows <= 14) ? inferredRows : fromName[1];
 
-            p.toRatios();
+            int[] size = screenSize(ctx);
+            p.toRatios(size[0], size[1]);
             return p;
         } catch (Throwable t) {
             return null;
@@ -249,18 +276,59 @@ public final class WidgetPlacement {
         return new int[]{5, 9};
     }
 
-    /** 把格子坐标换算成屏幕比例 */
-    private void toRatios() {
-        float wsH = WS_BOTTOM - WS_TOP;
-        float cellH = wsH / Math.max(1, rows);
-        float cellW = 1f / Math.max(1, cols);
-        top = WS_TOP + cellY * cellH;
-        bottom = WS_TOP + (cellY + spanY) * cellH;
-        left = cellX * cellW;
-        right = (cellX + spanX) * cellW;
+    /**
+     * 把格子坐标换算成屏幕比例（v4.1.0 第三版）。
+     *
+     * <p>格子是正方形，边长 = 屏幕宽 ÷ 列数。这个值不需要任何校准：
+     * 桌面的横向就是「列数等分屏幕宽」，实测 1200 ÷ 5 = 240px 与调整框完全一致。
+     *
+     * <p>纵向：网格顶部有一小段留白（状态栏下方那一截），
+     * 取屏高的固定比例；再用 {@link #WS_MAX_RATIO} 夹住，
+     * 避免列数少、格子大时算出屏幕外。
+     */
+    private void toRatios(int screenW, int screenH) {
+        if (screenW <= 0 || screenH <= 0) {
+            // 拿不到屏幕尺寸时退回旧的固定比例，至少不是 NaN
+            top = 0.33f;
+            bottom = 0.62f;
+            left = 0f;
+            right = 1f;
+            return;
+        }
+        float cell = (float) screenW / Math.max(1, cols);
+        float maxCell = screenH * WS_MAX_RATIO / Math.max(1, rows);
+        if (cell > maxCell) cell = maxCell;
+
+        float wsTop = screenH * WS_TOP_RATIO;
+        top = (wsTop + cellY * cell) / screenH;
+        bottom = (wsTop + (cellY + spanY) * cell) / screenH;
+        left = (cellX * cell) / screenW;
+        right = ((cellX + spanX) * cell) / screenW;
+
         // 夹一下，防止脏数据把预览推到屏幕外
         top = Math.max(0f, Math.min(0.95f, top));
         bottom = Math.max(top + 0.05f, Math.min(1f, bottom));
+        left = Math.max(0f, Math.min(0.95f, left));
+        right = Math.max(left + 0.05f, Math.min(1f, right));
+    }
+
+    /** 真实屏幕尺寸（含系统栏），换算格子必须用这个 */
+    private static int[] screenSize(Context ctx) {
+        try {
+            android.view.WindowManager wm =
+                    (android.view.WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
+            if (wm != null) {
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    android.graphics.Rect b = wm.getMaximumWindowMetrics().getBounds();
+                    return new int[]{b.width(), b.height()};
+                }
+                android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+                wm.getDefaultDisplay().getRealMetrics(dm);
+                return new int[]{dm.widthPixels, dm.heightPixels};
+            }
+        } catch (Throwable ignored) { }
+        android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+        return new int[]{dm.widthPixels, dm.heightPixels};
     }
 
     private static int firstWidgetId(Context ctx) {

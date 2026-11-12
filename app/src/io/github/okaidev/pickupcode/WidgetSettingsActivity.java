@@ -38,6 +38,8 @@ public class WidgetSettingsActivity extends Activity {
     private float previewScale = 1f;
     /** 「重新对齐」进行中：连点会连开抓取页，用标志位挡住 */
     private boolean realigning = false;
+    /** 桌面上到底有没有组件。示例预览要覆盖待取 + 已取，和真实组件分开算。 */
+    private boolean previewOnDesktop = false;
     private static final int REQ_BACKDROP = 1001;
 
     @Override
@@ -82,8 +84,9 @@ public class WidgetSettingsActivity extends Activity {
         // 没有组件时不要用缓存：那是上一个组件的坐标/尺寸，套到「示例预览」上
         // 会得到一条形状奇怪的框（真机上出现过占满整屏的预览）。
         final boolean onDesktop = WidgetPlacement.hasWidget(this);
+        previewOnDesktop = onDesktop;
         WidgetPlacement pl = onDesktop ? WidgetPlacement.cached(this) : null;
-        if (pl == null) pl = WidgetPlacement.fallback();
+        if (pl == null) pl = WidgetPlacement.fallback(this);
         placement = pl;
 
         LinearLayout root = new LinearLayout(this);
@@ -574,8 +577,8 @@ public class WidgetSettingsActivity extends Activity {
         content.addView(previewRows, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // 一行说明，只在「画面不是真桌面」时出现：
-        // 没组件 → 这是示例；有组件但还没抓到图 → 告诉他点右上角。
+        // 一行说明，只在「画面不是真桌面」时出现。
+        // 放在卡片**外面**：示例有 3 行，压在里面会把第三行挡住（真机上出现过）。
         String hintText = null;
         if (!onDesktop) {
             hintText = "示例预览 · 添加到桌面后会自动换成你的桌面";
@@ -583,16 +586,12 @@ public class WidgetSettingsActivity extends Activity {
             hintText = "点右上角「重新对齐」，换成你的桌面背景";
         }
         if (hintText != null) {
-            TextView hint = UiKit.text(this, hintText, 11.5f, 0xE6FFFFFF);
+            TextView hint = UiKit.text(this, hintText, 11.5f, P.muteInk);
             hint.setGravity(Gravity.CENTER);
-            hint.setShadowLayer(dp(3), 0, dp(1), 0xB3000000);
-            android.widget.FrameLayout.LayoutParams hlp2 =
-                    new android.widget.FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT);
-            hlp2.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-            hlp2.bottomMargin = dp(6);
-            stage.addView(hint, hlp2);
+            LinearLayout.LayoutParams hlp2 = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            hlp2.setMargins(0, dp(8), 0, 0);
+            dock.addView(hint, hlp2);
         }
         return dock;
     }
@@ -745,7 +744,9 @@ public class WidgetSettingsActivity extends Activity {
     private void refreshPreview() {
         if (previewRows == null) return;
         float scale = WidgetPrefs.fontScale(this);
-        boolean showAll = WidgetPrefs.showAll(this);
+        // 没有组件时按「全部信息」画：示例要把待取、已取、划掉三种状态都覆盖到，
+        // 否则用户看不到「已取件」长什么样就没法调它的样式。
+        boolean showAll = WidgetPrefs.showAll(this) || !previewOnDesktop;
         boolean showCode = WidgetPrefs.showCode(this);
 
         // v4.1.0：背景是「抓下来的实景图」，不再由这里画底色，
@@ -773,7 +774,8 @@ public class WidgetSettingsActivity extends Activity {
         // 预览的条数跟着组件实际能放几行走：4×2 的组件在桌面上就是 2 条，
         // 这里塞 3 条会顶到卡片底边（真机上出现过第三行贴边）。
         // spanY 是组件占的行数，读不到时按 3 条估。
-        int maxRows = (placement != null && placement.spanY > 0) ? placement.spanY : 3;
+        int maxRows = previewOnDesktop && placement != null && placement.spanY > 0
+                ? placement.spanY : 3;
         int shown = 0;
         if (shown < maxRows) { addPreviewRow(false, "12-3-4567", "菜鸟驿站 · 1 号柜"); shown++; }
         if (shown < maxRows) { addPreviewRow(false, "58-2-9041", "顺丰速运 · 望江路驿站"); shown++; }

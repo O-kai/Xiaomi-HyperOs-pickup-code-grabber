@@ -30,10 +30,12 @@ public final class WidgetBackdrop {
     /**
      * 裁切时四周各外扩多少 dp（v4.1.0）。
      *
-     * <p>组件本身填满格子，贴着格子边界。如果严格按矩形裁，上下就顶到边，
-     * 看着很挤。桌面上格子之间本来就有空隙，把这一圈一起带进来才像真的。
+     * <p>取 0：实测「尺寸调节」的蓝框就落在格子边界上（K90 上 4×2 的框是
+     * 930×479，格子是 960×480），卡车之一圈反而多抓壁纸，
+     * 和桌面上那个框对不上。组件卡片本身在格子里还有 margin，
+     * 所以按格子裁出来仍然有一圈壁纸，不会显得挤。
      */
-    private static final int PAD_DP = 12;
+    private static final int PAD_DP = 0;
     private static final String PREFS = "widget_backdrop";
     private static final String K_WP_ID = "wallpaper_id";
 
@@ -108,7 +110,7 @@ public final class WidgetBackdrop {
      */
     public static boolean capture(Context ctx) {
         WidgetPlacement pl = WidgetPlacement.cached(ctx);
-        if (pl == null) pl = WidgetPlacement.fallback();
+        if (pl == null) pl = WidgetPlacement.fallback(ctx);
 
         // 1) 系统截屏到临时文件（root 通道，不切桌面）
         String out;
