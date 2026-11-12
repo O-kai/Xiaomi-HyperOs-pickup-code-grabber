@@ -10,6 +10,8 @@ import java.util.List;
 public final class AppParcelData {
     public static final String CAINIAO = "com.cainiao.wireless";
     public static final String PINDUODUO = "com.xunmeng.pinduoduo";
+    public static final String PDD_TRACKBOX = "/api/express_trackbox/list/cabinet/package";
+    public static final String PDD_LIST = "/api/express_trackbox/list";
     public static final int MAX_PAYLOAD = 256 * 1024;
     public static final int MAX_EVENTS = 100;
 
@@ -189,6 +191,60 @@ public final class AppParcelData {
             if (validCode(code)) out.add(new Event(code, result.optString("address", "")));
         } catch (Exception ignored) { }
         return out;
+    }
+
+    /** Logistics assistant's pending pickup list; contains no delivered/transport items. */
+    public static List<Event> pinduoduoTrackbox(String json) {
+        List<Event> out = new ArrayList<>();
+        if (!bounded(json)) return out;
+        try {
+            JSONObject root = new JSONObject(json);
+            if (!root.optBoolean("success", false)) return out;
+            JSONObject result = root.optJSONObject("result");
+            JSONArray stations = result == null ? null : result.optJSONArray("combine_list");
+            if (stations == null) return out;
+            for (int i = 0; i < stations.length() && i < MAX_EVENTS && out.size() < MAX_EVENTS; i++) {
+                JSONObject station = stations.optJSONObject(i);
+                if (station == null) continue;
+                JSONArray tracks = station.optJSONArray("combine_track_list");
+                if (tracks == null) continue;
+                String place = station.optString("address", "");
+                for (int j = 0; j < tracks.length() && j < MAX_EVENTS && out.size() < MAX_EVENTS; j++) {
+                    JSONObject track = tracks.optJSONObject(j);
+                    if (track == null) continue;
+                    String code = pinduoduoCode(track.optString("pick_code", ""));
+                    if (validCode(code)) out.add(new Event(code, place));
+                }
+            }
+        } catch (Exception ignored) { }
+        return out;
+    }
+
+    /** My Express list mixes transport, pickup and delivered parcels; 400 is awaiting pickup. */
+    public static List<Event> pinduoduoList(String json) {
+        List<Event> out = new ArrayList<>();
+        if (!bounded(json)) return out;
+        try {
+            JSONObject root = new JSONObject(json);
+            if (!root.optBoolean("success", false)) return out;
+            JSONObject result = root.optJSONObject("result");
+            JSONArray tracks = result == null ? null : result.optJSONArray("track_info_list");
+            if (tracks == null) return out;
+            for (int i = 0; i < tracks.length() && i < 500 && out.size() < MAX_EVENTS; i++) {
+                JSONObject track = tracks.optJSONObject(i);
+                if (track == null || track.optInt("status_type", -1) != 400) continue;
+                String code = pinduoduoCode(track.optString("pick_code", ""));
+                // The list has no station address. Do not guess it from a truncated tracking description.
+                if (validCode(code)) out.add(new Event(code, null));
+            }
+        } catch (Exception ignored) { }
+        return out;
+    }
+
+    private static String pinduoduoCode(String value) {
+        String code = value.trim();
+        if (code.startsWith("取件码")) code = code.substring(3).trim().replaceFirst("^[:：]\\s*", "");
+        return code;
     }
 
     private static boolean bounded(String value) {

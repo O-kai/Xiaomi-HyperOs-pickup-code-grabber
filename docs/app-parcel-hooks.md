@@ -43,13 +43,25 @@ Hook 只读取当前传入的一件包裹：`tb.ciR/ciS` 或 `tc/td.authCode/sta
 `isSigning != 0` 跳过。新动态卡片的内部字段尚未适配；这类页面需上游响应包含上述
 `PackageInfoDTO` 结构才会命中。
 
-拼多多入口：`CommonCallback.parseResponseStringWrapper(String)` 完成后，只接收返回类型为
-`com.xunmeng.pinduoduo.express.entry.CabinetInfo` 的结果。提取 `result.code/address`，
-仅接受 `status=3` 且 `showQrCodePickUp=false`。安装包中的快递柜逻辑在状态 3
-展示文本码；状态 1 展示获取按钮/倒计时，状态 2 隐藏码，状态 4 可展示配送文案。
-尚不处理二维码、物流轨迹里的自然语言取件码或其他返回类型。
+拼多多物流助手入口：在 `AMNetworkImpl.request(JSONObject, ICommonCallBack, ...)`
+关联请求与回调，只接受 `/api/express_trackbox/list` 和
+`/api/express_trackbox/list/cabinet/package` 两个路径。响应从
+`AMNetworkImpl.callbackToJS(int, String, ICommonCallBack, boolean, Map)` 的原始字符串参数
+读取，不读取 headers，不改变编码或回调；仅处理 HTTP 2xx 且业务 `success=true` 的响应。
 
-两个 Hook 均不更改原始返回值，也不读取 View、通知或网络输入流。
+- “我的快递”列表：`result.track_info_list[]` 中 `status_type=400` 为待取件，
+  读取 `pick_code`。该字段实际可能是“取件码 1-2-3456”，只去除明确的“取件码”前缀及冒号，
+  随后严格校验完整码。手机号文案、掩码、运输中和已签收条目均跳过。
+  列表未提供驿站地址，因此地点记为未知，不从截断的物流文案猜地点。
+- “取快递”汇总：`result.combine_list[].combine_track_list[].pick_code`，
+  地址取所属分组的 `address`；此接口本身为当前待取列表，同样校验码。
+
+拼多多订单物流补充入口：`CommonCallback.parseResponseStringWrapper(String)` 完成后，
+接收 `com.xunmeng.pinduoduo.express.entry.CabinetInfo` 结果的 `result.code/address`，
+仅接受 `status=3` 且 `showQrCodePickUp=false`。此入口尚未完成真实有件场景验收。
+不处理二维码或物流轨迹里的自然语言取件码。
+
+所有 Hook 均不更改原始返回值，也不读取 View、通知或网络输入流。
 JSON 解析和 IPC 在独立、有界的单线程队列执行；响应上限 256 KiB、队列 16 项、
 每次最多 100 个包裹。超限跳过并记录不含正文的诊断，不阻塞 App 的原回调。
 
@@ -72,6 +84,8 @@ JSON 解析和 IPC 在独立、有界的单线程队列执行；响应上限 256
 
 模块只观察 App 实际收到或加载到本地的数据，不主动请求平台接口。
 如果 App 没运行、未登录，或者尚未收到含取件码的数据，不能保证后台发现新包裹。
+拼多多页面可能沿用已有缓存；安装后可在“聊天 → 物流助手 → 查快递”切换到“待取件”，
+触发 App 自己重新加载列表。模块不会自动刷新页面或发起额外请求。
 
 ## 本地验证
 
@@ -98,8 +112,9 @@ Robolectric 测试验证真实 Provider 的开关和 IPC 拒绝路径。
 
 设备的取件码助手已在 ReSukiSU 中授权 root。手机未安装小米笔记，其 `todo.db` 不存在，
 因此当前写入目标已设为内部记录；小米笔记后端未完成验收。
-拼多多账号的待收货、待取件均为 0，已确认主进程和 Titan 进程挂载 Hook，
-真实 `CabinetInfo` 入库仍需有待取包裹时验证。
-
-调试期间 Zygote 异常退出，Android 应用运行环境重启，用户状态回到 `RUNNING_LOCKED`。
-临时调试服务和设备端文件均已清除。用户随后已解锁，以上菜鸟验收在解锁后完成。
+拼多多通过“聊天 → 物流助手 → 查快递 → 待取件”重新加载列表，
+两件带完整码的真实包裹均已入库，来源为拼多多、`PENDING`、`is_test=0`。
+第三件仅返回取件手机号，已跳过；列表无地址，两件地点均记为未知。
+间隔超过 30 秒后重新加载列表，再次收到两次成功投递，记录仍为菜鸟 2 件、拼多多 2 件，未增加重复行。
+“取快递”分组结构已核对并有合成测试；其完整入库链路及订单 `CabinetInfo` 后备入口
+尚未完成真实有件场景验收。

@@ -106,6 +106,36 @@ public final class AppParcelHook {
                         });
             }
         } else if (AppParcelData.PINDUODUO.equals(pkg)) {
+            // Bind the response callback to these two logistics endpoints only.
+            hook(loader, "com.xunmeng.pinduoduo.network_bridge.impl.AMNetworkImpl", "request", new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    try {
+                        if (param.args.length < 2 || !(param.args[0] instanceof JSONObject) || param.args[1] == null) return;
+                        String path = Uri.parse(((JSONObject) param.args[0]).optString("url")).getPath();
+                        XposedHelpers.removeAdditionalInstanceField(param.args[1], "pickup.endpoint");
+                        if (AppParcelData.PDD_TRACKBOX.equals(path) || AppParcelData.PDD_LIST.equals(path)) {
+                            XposedHelpers.setAdditionalInstanceField(param.args[1], "pickup.endpoint", path);
+                        }
+                    } catch (Throwable t) { logFailure("PDD request association", t); }
+                }
+            });
+            hook(loader, "com.xunmeng.pinduoduo.network_bridge.impl.AMNetworkImpl", "callbackToJS", new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    try {
+                        if (param.hasThrowable() || param.args.length != 5 || !(param.args[0] instanceof Integer)
+                                || !(param.args[1] instanceof String) || param.args[2] == null) return;
+                        int status = (Integer) param.args[0];
+                        if (status < 200 || status >= 300) return;
+                        Object endpoint = XposedHelpers.getAdditionalInstanceField(param.args[2], "pickup.endpoint");
+                        boolean cabinet = AppParcelData.PDD_TRACKBOX.equals(endpoint);
+                        if (!cabinet && !AppParcelData.PDD_LIST.equals(endpoint)) return;
+                        // This argument is already decoded. Do not retain headers or mutate the JS callback.
+                        String raw = (String) param.args[1];
+                        if (raw.length() <= AppParcelData.MAX_PAYLOAD) enqueue(pkg, () -> cabinet
+                                ? AppParcelData.pinduoduoTrackbox(raw) : AppParcelData.pinduoduoList(raw));
+                    } catch (Throwable t) { logFailure("PDD logistics response", t); }
+                }
+            });
             hook(loader, "com.xunmeng.pinduoduo.basekit.http.callback.CommonCallback",
                     "parseResponseStringWrapper", new XC_MethodHook() {
                         @Override protected void afterHookedMethod(MethodHookParam param) {

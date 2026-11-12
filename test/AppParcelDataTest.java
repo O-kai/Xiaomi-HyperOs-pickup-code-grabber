@@ -92,6 +92,63 @@ public final class AppParcelDataTest {
         check("PDD QR payload excluded", AppParcelData.pinduoduo(pdd.toString()).isEmpty());
         check("missing PDD result", AppParcelData.pinduoduo("{\"code\":\"123456\"}").isEmpty());
 
+        JSONArray stations = new JSONArray()
+                .put(new JSONObject().put("address", "测试点甲").put("combine_track_list", new JSONArray()
+                        .put(new JSONObject().put("pick_code", "2-3-4567"))
+                        .put(new JSONObject().put("pick_code", "176****1234"))
+                        .put(new JSONObject().put("pick_code", "暂无取件码"))))
+                .put(new JSONObject().put("address", "测试点乙").put("combine_track_list", new JSONArray()
+                        .put(new JSONObject().put("pick_code", "A12345"))))
+                .put(new JSONObject().put("combine_track_list", new JSONArray()
+                        .put(new JSONObject().put("pick_code", "123456"))))
+                .put(new JSONObject().put("pick_code", "654321"));
+        JSONObject trackbox = new JSONObject().put("success", true)
+                .put("result", new JSONObject().put("combine_list", stations));
+        List<AppParcelData.Event> pending = AppParcelData.pinduoduoTrackbox(trackbox.toString());
+        check("PDD assistant pickup list excludes masks and non-parcel fields", pending.size() == 3);
+        check("PDD assistant first station", pending.get(0).code.equals("2-3-4567") && pending.get(0).place.equals("测试点甲"));
+        check("PDD assistant second station", pending.get(1).code.equals("A12345") && pending.get(1).place.equals("测试点乙"));
+        check("PDD assistant missing address is unknown", pending.get(2).place.equals("—"));
+        check("PDD assistant failed response", AppParcelData.pinduoduoTrackbox(trackbox.put("success", false).toString()).isEmpty());
+        check("PDD assistant requires success", AppParcelData.pinduoduoTrackbox(new JSONObject().put("result", trackbox.getJSONObject("result")).toString()).isEmpty());
+        check("PDD assistant wrong schema", AppParcelData.pinduoduoTrackbox("{\"success\":true,\"result\":{\"code\":\"123456\"}}").isEmpty());
+        check("PDD assistant malformed", AppParcelData.pinduoduoTrackbox("bad").isEmpty());
+        check("PDD assistant payload limit", AppParcelData.pinduoduoTrackbox(" ".repeat(AppParcelData.MAX_PAYLOAD + 1)).isEmpty());
+        JSONArray manyTracks = new JSONArray();
+        for (int i = 0; i < 120; i++) manyTracks.put(new JSONObject().put("pick_code", "3-4-" + i));
+        check("PDD assistant event limit", AppParcelData.pinduoduoTrackbox(new JSONObject().put("success", true)
+                .put("result", new JSONObject().put("combine_list", new JSONArray().put(new JSONObject()
+                        .put("combine_track_list", manyTracks)))).toString()).size() == 100);
+
+        JSONObject codeTrack = new JSONObject().put("status_type", 400).put("pick_code", "取件码 2-3-4567");
+        JSONObject expressList = new JSONObject().put("success", true).put("result", new JSONObject()
+                .put("track_info_list", new JSONArray().put(codeTrack)
+                        .put(new JSONObject().put("status_type", 400).put("pick_code", "取件码：A12345"))
+                        .put(new JSONObject().put("status_type", 400).put("pick_code", "取件手机号 176****1234"))
+                        .put(new JSONObject().put("status_type", 400).put("pick_code", "取件手机号 1234"))
+                        .put(new JSONObject().put("status_type", 500).put("pick_code", "取件码 654321"))
+                        .put(new JSONObject().put("pick_code", "取件码 123456"))));
+        List<AppParcelData.Event> express = AppParcelData.pinduoduoList(expressList.toString());
+        check("PDD list pending codes only", express.size() == 2);
+        check("PDD list strips exact code prefix", express.get(0).code.equals("2-3-4567"));
+        check("PDD list accepts colon", express.get(1).code.equals("A12345"));
+        check("PDD list never guesses place from description", express.get(0).place.equals("—"));
+        for (int state : new int[]{0, 100, 200, 300, 500, 999}) {
+            codeTrack.put("status_type", state);
+            check("PDD list excludes state " + state, AppParcelData.pinduoduoList(new JSONObject().put("success", true)
+                    .put("result", new JSONObject().put("track_info_list", new JSONArray().put(codeTrack))).toString()).isEmpty());
+        }
+        check("PDD list failed response", AppParcelData.pinduoduoList(expressList.put("success", false).toString()).isEmpty());
+        check("PDD list malformed", AppParcelData.pinduoduoList("bad").isEmpty());
+        check("PDD list payload limit", AppParcelData.pinduoduoList(" ".repeat(AppParcelData.MAX_PAYLOAD + 1)).isEmpty());
+        check("PDD list response limit", AppParcelData.pinduoduoList(new JSONObject().put("success", true)
+                .put("result", new JSONObject().put("track_info_list", manyTracks)).toString()).isEmpty());
+        for (int i = 0; i < manyTracks.length(); i++) manyTracks.getJSONObject(i).put("status_type", 400);
+        check("PDD list event limit", AppParcelData.pinduoduoList(new JSONObject().put("success", true)
+                .put("result", new JSONObject().put("track_info_list", manyTracks)).toString()).size() == 100);
+        stations.getJSONObject(0).getJSONArray("combine_track_list").getJSONObject(0).put("pick_code", "取件码 2-3-4567");
+        check("PDD cabinet list also strips code prefix", AppParcelData.pinduoduoTrackbox(trackbox.put("success", true).toString()).get(0).code.equals("2-3-4567"));
+
         for (String code : new String[]{"", "12**56", "暂无取件码", "https://example.test/1234", "13800000000", "A--123", "ABC", "1-2-3-4-5-6"}) {
             check("invalid code " + code, !AppParcelData.validCode(code));
         }
