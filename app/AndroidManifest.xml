@@ -16,6 +16,8 @@
 
     <!-- v2.7.0：包可见性声明（Android 11+），保证后端探测能准确找到各 ROM 的目标 App -->
     <queries>
+        <package android:name="com.miui.personalassistant" />
+        <provider android:authorities="miui.statusbar.notification.public" />
         <package android:name="com.coloros.note" />
         <package android:name="com.miui.notes" />
         <package android:name="com.cainiao.wireless" />
@@ -105,7 +107,9 @@
             android:exported="false"
             android:theme="@style/AppTheme.NoActionBar" />
 
-        <!-- 4.0 桌面小组件 -->
+        <meta-data android:name="miuiWidgetVersion" android:value="1" />
+        <meta-data android:name="com.xiaomi.xms.APP_ID" android:value="@string/xiaomi_xms_app_id" />
+        <!-- Keep the native widget discoverable on other launchers. -->
         <receiver
             android:name=".PickupWidgetProvider"
             android:exported="true">
@@ -115,6 +119,20 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/pickup_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".XiaomiPickupWidgetProvider"
+            android:label="取件随行"
+            android:process=":widgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="miui.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="miuiWidget" android:value="true" />
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/pickup_xiaomi_widget_info" />
         </receiver>
 
         <!-- 小组件动作入口：exported=false -->

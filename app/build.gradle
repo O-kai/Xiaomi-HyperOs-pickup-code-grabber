@@ -153,6 +153,8 @@ android {
         targetSdk 34
         versionCode pickupVersionCode
         versionName pickupVersionName
+        // Public application ID from the Xiaomi developer console; never an APP_SECRET.
+        resValue 'string', 'xiaomi_xms_app_id', providers.gradleProperty('PICKUP_XIAOMI_APP_ID').getOrElse('')
     }
 
     // 正式签名（v2.2.0）：仅当传入 -PPICKUP_KEYSTORE=... 时启用；CI / 无参数构建不受影响
@@ -190,6 +192,10 @@ android {
 
     // 非标准源码布局，与 Termux 手工构建脚本保持一致
     sourceSets {
+        debug {
+            java.srcDirs = ['debug-src']
+            manifest.srcFile 'debug/AndroidManifest.xml'
+        }
         test {
             java.srcDirs = ['../test/ui']
         }

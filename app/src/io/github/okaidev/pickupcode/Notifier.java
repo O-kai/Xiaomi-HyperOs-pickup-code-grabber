@@ -11,6 +11,8 @@ import android.os.Build;
 import android.util.Log;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 通知（平台 API，无 androidx 依赖）：
@@ -22,61 +24,129 @@ public class Notifier {
     private static final String TAG = "PICKUPDEBUG";
     private static final String CHANNEL_ID = "pickup";
 
+    static final int PICKUP_ID = 1001;
+    private static final AtomicLong REVISION = new AtomicLong();
+
     public static void notifyCodes(Context ctx, List<String> codes, String titleExtra) {
-        if (codes == null || codes.isEmpty()) return;
+        if (ctx == null || codes == null || codes.isEmpty()) return;
+        Context app = ctx.getApplicationContext();
+        long revision = REVISION.incrementAndGet();
+        List<String> fallback = new ArrayList<>(codes);
+        if (!NotesBackend.localSelected(app)) {
+            post(app, fallback, titleExtra, fallback.size(), true);
+            return;
+        }
+        PickupRepository.get(app).pendingSnapshotAsync(12, snapshot -> {
+            if (REVISION.get() != revision) return;
+            postSnapshot(app, snapshot, true);
+        });
+    }
+
+    /** Keep an existing reminder consistent after completion/deletion, without resurrecting a swipe. */
+    static void refreshExisting(Context ctx) {
         try {
-            if (Build.VERSION.SDK_INT >= 26) {
-                NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "取件码通知",
-                        NotificationManager.IMPORTANCE_HIGH);
-                ch.setDescription("收到快递取件码时提醒");
-                ctx.getSystemService(NotificationManager.class).createNotificationChannel(ch);
+            NotificationManager manager = ctx.getSystemService(NotificationManager.class);
+            boolean active = false;
+            for (android.service.notification.StatusBarNotification n : manager.getActiveNotifications()) {
+                if (n.getId() == PICKUP_ID) { active = true; break; }
             }
-
-            String codesJoined = String.join(" ", codes);
-            String title = codesJoined;
-            String text = titleExtra == null || titleExtra.isEmpty()
-                    ? "点击复制并查看待办" : titleExtra + " · 点击复制";
-
-            Intent open = new Intent(ctx, NotificationActionActivity.class);
-            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            open.putExtra("copy", codesJoined);
-            PendingIntent pi = PendingIntent.getActivity(ctx, 0, open,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-            Notification.Builder b = (Build.VERSION.SDK_INT >= 26)
-                    ? new Notification.Builder(ctx, CHANNEL_ID)
-                    : new Notification.Builder(ctx);
-            b.setSmallIcon(ctx.getApplicationInfo().icon);
-            b.setContentTitle(title);
-            b.setContentText(text);
-            b.setStyle(new Notification.BigTextStyle().bigText(text));
-            b.setContentIntent(pi);
-            b.setAutoCancel(true);
-
-            // 动作按钮：已取件（Activity 通道，可唤醒冻结进程）/ 查看待办（逐码添加）
-            int req = 100;
-            for (String c : codes) {
-                Intent done = new Intent(ctx, NotificationActionActivity.class);
-                done.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                done.putExtra("done", c);
-                PendingIntent pd = PendingIntent.getActivity(ctx, req++, done,
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                b.addAction(new Notification.Action.Builder(
-                        android.R.drawable.ic_menu_agenda, "已取件 " + c, pd).build());
+            if (!active) return;
+            long revision = REVISION.incrementAndGet();
+            if (!NotesBackend.localSelected(ctx)) {
+                manager.cancel(PICKUP_ID);
+                return;
             }
-            Intent notesIntent = ctx.getPackageManager().getLaunchIntentForPackage(NotesBackend.targetPkg(ctx));
-            if (notesIntent != null) {
-                PendingIntent pn = PendingIntent.getActivity(ctx, 300, notesIntent,
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                b.addAction(new Notification.Action.Builder(
-                        android.R.drawable.ic_menu_agenda, "查看待办", pn).build());
-            }
+            PickupRepository.get(ctx).pendingSnapshotAsync(12, snapshot -> {
+                if (REVISION.get() == revision) postSnapshot(ctx, snapshot, false);
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "notification refresh failed: " + e.getClass().getSimpleName());
+        }
+    }
 
-            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-            nm.notify(1001, b.build());
-            Log.i(TAG, "NOTIFY: " + title);
-        } catch (Throwable t) {
-            Log.e(TAG, "notify err: " + t);
+    static void postSnapshot(Context ctx, PickupRepository.PendingSnapshot snapshot, boolean alert) {
+        // The user may have dismissed the reminder while the asynchronous DB read was running.
+        if (!alert && !hasActiveReminder(ctx)) return;
+        List<String> codes = new ArrayList<>();
+        for (PickupRecord item : snapshot.items) codes.add(item.code);
+        if (codes.isEmpty()) {
+            ctx.getSystemService(NotificationManager.class).cancel(PICKUP_ID);
+            return;
+        }
+        PickupRecord first = snapshot.items.get(0);
+        String place = first.place == null || first.place.isEmpty() ? first.source : first.place;
+        post(ctx, codes, place, snapshot.pendingTotal, alert);
+    }
+
+    private static boolean hasActiveReminder(Context context) {
+        for (android.service.notification.StatusBarNotification notification :
+                context.getSystemService(NotificationManager.class).getActiveNotifications()) {
+            if (notification.getId() == PICKUP_ID) return true;
+        }
+        return false;
+    }
+
+    static Notification build(Context ctx, List<String> codes, String place, int count, boolean alert) {
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "取件码通知",
+                NotificationManager.IMPORTANCE_HIGH);
+        channel.setDescription("收到取件码时提醒，支持小米超级岛");
+        ctx.getSystemService(NotificationManager.class).createNotificationChannel(channel);
+        String first = codes.get(0);
+        String summary = count + " 件待取";
+        String text = place == null || place.isEmpty() ? summary : place + " · " + summary;
+        PendingIntent copy = action(ctx, "copy", first, 10);
+        PendingIntent done = action(ctx, "done", first, 11);
+        Intent listIntent = new Intent(ctx, PickupListActivity.class);
+        if (!NotesBackend.localSelected(ctx)) {
+            Intent backend = ctx.getPackageManager().getLaunchIntentForPackage(NotesBackend.targetPkg(ctx));
+            if (backend != null) listIntent = backend;
+        }
+        PendingIntent list = PendingIntent.getActivity(ctx, 12, listIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification.Action openAction = new Notification.Action.Builder(
+                android.graphics.drawable.Icon.createWithResource(ctx, R.drawable.ic_pickup_parcel),
+                "查看全部", list).build();
+        Notification.Action doneAction = new Notification.Action.Builder(
+                android.graphics.drawable.Icon.createWithResource(ctx, android.R.drawable.checkbox_on_background),
+                "已取件", done).build();
+        Notification publicVersion = new Notification.Builder(ctx, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_pickup_parcel).setContentTitle(summary)
+                .setContentText("解锁后查看取件码").setContentIntent(list).build();
+        Notification.Builder builder = new Notification.Builder(ctx, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_pickup_parcel).setColor(0xFF315CE8)
+                .setContentTitle(first).setContentText(text).setContentIntent(copy)
+                .setStyle(new Notification.BigTextStyle().bigText(text + "\n" + String.join("  ·  ", codes)))
+                .setSubText("取件码助手").setCategory(Notification.CATEGORY_REMINDER)
+                .setVisibility(Notification.VISIBILITY_PRIVATE).setPublicVersion(publicVersion)
+                .setOnlyAlertOnce(!alert).setAutoCancel(false)
+                .addAction(doneAction).addAction(openAction);
+        if (HyperIsland.protocol(ctx) >= 2) {
+            try {
+                builder.addExtras(HyperIsland.extras(ctx, first,
+                        place == null || place.isEmpty() ? "点击查看取件记录" : place,
+                        count, openAction, doneAction, alert));
+            } catch (org.json.JSONException e) {
+                Log.w(TAG, "island parameters unavailable");
+            }
+        }
+        return builder.build();
+    }
+
+    private static PendingIntent action(Context ctx, String key, String code, int request) {
+        Intent intent = new Intent(ctx, NotificationActionActivity.class)
+                .setData(Uri.parse("pickupcode://notification/" + key + "/" + Uri.encode(code)))
+                .putExtra(key, code);
+        return PendingIntent.getActivity(ctx, request, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    private static void post(Context ctx, List<String> codes, String place, int count, boolean alert) {
+        try {
+            ctx.getSystemService(NotificationManager.class).notify(PICKUP_ID,
+                    build(ctx, codes, place, count, alert));
+            Log.i(TAG, "NOTIFY pending=" + count + " alert=" + alert);
+        } catch (Exception e) {
+            Log.e(TAG, "notify failed: " + e.getClass().getSimpleName());
         }
     }
 

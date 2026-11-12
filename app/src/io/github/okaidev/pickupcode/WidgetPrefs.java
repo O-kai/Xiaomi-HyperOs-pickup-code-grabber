@@ -46,7 +46,7 @@ public final class WidgetPrefs {
         prefs(ctx).edit().putInt(KEY_FONT, Math.max(FONT_SMALL, Math.min(FONT_LARGE, level))).apply();
     }
 
-    /** 取件码基准 17sp，副标题 11sp，按档位等比缩放。 */
+    /** 取件码基准 24sp，副标题 11sp，按档位等比缩放。 */
     public static float fontScale(Context ctx) {
         switch (fontLevel(ctx)) {
             case FONT_SMALL:
@@ -85,7 +85,7 @@ public final class WidgetPrefs {
      * 来展示就可以了。组件够大，展示的内容就多，反正用户会自己调整大小，
      * 他自己能感知得到。」
      *
-     * <p>所以现在条数完全由组件高度决定（见 PickupWidgetProvider.rowsFor），
+     * <p>所以现在条数完全由组件高度决定（见 PickupWidgetProvider.build），
      * 这个值只作为「用户手动设定的上限」，0 表示不限。
      * 保留这个设置是为了兼容旧数据与将来可能的降级需求。
      */
@@ -120,47 +120,29 @@ public final class WidgetPrefs {
     }
 
     /**
-     * 按组件高度算能显示几行（纯逻辑，可离线单测）。
-     *
-     * <p>v4.0.2：条数完全由组件的实际尺寸决定，不再有「最多 5 条」这种硬上限——
-     * 用户原话「最多可显示条数不应该有太明显的限制框架，
-     * 我们只需要根据小组件的实际大小来展示就可以了」。
-     *
-     * <p>与 {@code PickupWidgetProvider.rowsFor} 用的是同一套算法，
-     * 抽到这里是为了能离线跑（Provider 那一层依赖 Android 上下文）。
-     *
-     * <p>v4.0.2 第八轮：常量与布局 v3 对齐（padding 20 / 标题 26 / 行 36）。
-     *
-     * <p>行高固定、行数按高度取满，剩不到一行的零头留在底部——
-     * 绝不把行拉高去填满（用户原话：「明明没几个件要取的，
-     * 我把尺寸调大了，你就把它全部填满，这种效果显得太低端了」）。
-     *
-     * <p><b>为什么只需要一个高度值就够</b>：实测桌面给的高度比真实可用高度
-     * 少约 15dp（左右各 7.5dp 的单元格内边距被扣掉了）。按偏小的值算行数
-     * 只会少显示一行、留一点空白；算多了则会出现「半个取件码」——
-     * 两害相权取其轻，所以这里一律用偏保守的高度。
-     *
-     * @param heightDp 组件高度（dp）
-     * @param widthDp  组件宽度（dp）；窄组件（&lt;150dp）最多 3 行
-     * @param maxRows  布局允许的最大行数
-     * @return 实际显示的行数
+     * Count complete rows after card padding and header. A row never stretches to fill a card.
+     * The renderer supplies a larger row height for increased font preferences.
      */
     public static int rowsForHeight(int heightDp, int widthDp, int maxRows) {
-        if (heightDp <= 0) return 3;                       // 拿不到尺寸时的保守值
+        return rowsForHeight(heightDp, widthDp, maxRows, ROW_DP);
+    }
+
+    static int rowsForHeight(int heightDp, int widthDp, int maxRows, int rowDp) {
+        if (heightDp <= 0) return Math.min(3, Math.max(1, maxRows));
         int avail = heightDp - PAD_DP - HEADER_DP;
         if (avail <= 0) return 1;                          // 极小高度：至少留一行
-        int rows = avail / ROW_DP;
+        int rows = avail / Math.max(1, rowDp);
         rows = Math.min(rows, Math.max(1, maxRows));
         if (widthDp > 0 && widthDp < 150) rows = Math.min(rows, 3);
         return Math.max(1, rows);
     }
 
-    /** 上下内边距之和（dp）——与布局 v3 的 padding 10dp 对齐 */
-    public static final int PAD_DP = 20;
-    /** 标题行高度（dp）——与布局 v3 的 minHeight 26dp 对齐 */
-    public static final int HEADER_DP = 26;
-    /** 单行高度（dp）——固定值，内容多少都不变，与布局 v3 对齐 */
-    public static final int ROW_DP = 36;
+    /** 上下内边距之和（dp）——与 v5 的上下 padding 12dp 对齐 */
+    public static final int PAD_DP = 24;
+    /** 标题行高度（dp）——与 v5 的标题 28dp 对齐 */
+    public static final int HEADER_DP = 28;
+    /** 单行高度（dp）——基准值；大字偏好会增加行高，与 v5 对齐 */
+    public static final int ROW_DP = 56;
     /** 兼容旧名（补位动画位移量要用） */
     public static final int ROW_MIN_DP = ROW_DP;
 

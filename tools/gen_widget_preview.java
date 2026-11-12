@@ -4,7 +4,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 
 /**
- * 生成桌面小组件的预览图（widget_preview.png）。
+ * 历史 v4 布局预览生成器。当前 v5 预览请按 docs/xiaomi-surfaces.md 从 Android 真实布局导出。
  *
  * 为什么需要：MIUI 桌面在选择器里会读取 AppWidgetProviderInfo.previewImage，
  * 没有预览图的小组件可能不会出现在「全部应用」列表里，requestPinAppWidget 也会被直接取消。

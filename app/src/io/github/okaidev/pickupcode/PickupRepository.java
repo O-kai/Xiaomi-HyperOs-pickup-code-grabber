@@ -100,6 +100,7 @@ public final class PickupRepository {
     }
 
     private void notifyChanged() {
+        Notifier.refreshExisting(appContext);
         if (LISTENERS.isEmpty()) return;
         main.post(() -> {
             for (ChangeListener listener : LISTENERS) {

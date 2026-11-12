@@ -96,7 +96,7 @@ public class WidgetDiagActivity extends Activity {
         // ---- 检查 1：布局能否 inflate ----
         Throwable layoutErr = null;
         try {
-            RemoteViews bare = new RemoteViews(getPackageName(), R.layout.widget_pickup_v4);
+            RemoteViews bare = new RemoteViews(getPackageName(), R.layout.widget_pickup_v5);
             View v = bare.apply(this, new FrameLayout(this));
             layoutErr = null;
             Log.i(TAG, "自检: 裸布局 apply 成功 view=" + (v == null ? "null" : v.getClass().getName()));
@@ -157,7 +157,7 @@ public class WidgetDiagActivity extends Activity {
 
     /** 用真实布局渲染一份小组件出来看看 */
     private void addLivePreview(UiKit.Palette P) {
-        TextView title = UiKit.text(this, "真实渲染（模拟 3 排格子高度）", 14.5f, P.navInk);
+        TextView title = UiKit.text(this, "真实布局预览（示例包裹）", 14.5f, P.navInk);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -186,7 +186,7 @@ public class WidgetDiagActivity extends Activity {
 
         // 说明
         TextView note = UiKit.text(this,
-                "每一行固定 40dp，一个一个往下排：内容少时下面留白，不会把行拉高；"
+                "每一行至少 56dp，一个一个往下排：内容少时下面留白，不会把行拉高；"
                         + "组件更高时则多显示几行。放不下的整行直接不显示，"
                         + "不会只显示半个取件码。",
                 12f, P.muteInk);
@@ -236,7 +236,7 @@ public class WidgetDiagActivity extends Activity {
     private String findBannedClasses() {
         String xml;
         try {
-            java.io.InputStream in = getResources().openRawResource(R.layout.widget_pickup_v4);
+            java.io.InputStream in = getResources().openRawResource(R.layout.widget_pickup_v5);
             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
             byte[] buf = new byte[8192];
             int n;
