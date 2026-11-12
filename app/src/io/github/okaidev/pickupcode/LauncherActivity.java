@@ -65,10 +65,10 @@ public class LauncherActivity extends Activity {
     private static final String TPL_DEFAULT = TodoWriter.TPL_DEFAULT;
     /** 缺作用域时的统一提示文案（Toast 与开关态共用一份，避免两处说法不一致） */
     private static final String NOTI_SCOPE_TOAST =
-            "开关虽已打开，但 LSPosed 作用域没勾「Android 系统（android）」，\n"
+            "开关虽已打开，但 LSPosed 作用域没勾「系统框架」，\n"
             + "这种状态下通知取件【不会生效】。\n"
-            + "请到：LSPosed → 模块 → 取件码助手 → 作用域勾选「Android 系统」\n"
-            + "（列表底部、不带推荐角标的那一项），再重启手机。";
+            + "请到：LSPosed → 模块 → 取件码助手 → 作用域勾选「系统框架」\n"
+            + "（置顶、带推荐标记那一项；旧版叫「Android 系统」），再重启手机。";
     /** 作用域校验节流窗口：同一次打开里 onResume 可能连着触发多次，不必每次都 su+sqlite3 */
     private static final long NOTI_SCOPE_CHECK_INTERVAL = 60_000L;
 
@@ -239,6 +239,12 @@ public class LauncherActivity extends Activity {
                 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1001);
+        }
+        // v4.1.0：荣耀侧优先用 CalendarProvider 写待办（这条路不需要 root），
+        // 首次打开时问一次日历权限。用户拒绝也不影响后续的 root 直写路径，
+        // 所以这里不拦、不提示、不重复弹。
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(NotesBackend.detect(this))) {
+            Honor.requestCalendarPermission(this, 1002);
         }
 
         // 4.0 双模式：首次启动先让用户选「简洁 / 完整」。
@@ -650,6 +656,159 @@ public class LauncherActivity extends Activity {
      *
      * <p>首次安装不提示（没有「升级」这回事）；点关闭后记住当前版本，不再出现。
      */
+    /**
+     * system_server 里的模块代码是不是「安装之后加载的」（v4.1.0）。
+     *
+     * <p>LSPosed 只在进程启动时注入，而 system_server 只在开机时启动一次——
+     * 所以「本次开机时间晚于 APK 安装时间」就等于「系统进程里跑的是新代码」，
+     * 不需要重启。反过来，装完还没重启过，就该提示一次。
+     *
+     * <p>这里不用写标记文件：system_server 是 system uid，
+     * 没法往 App 的私有目录里写东西（试过，静默失败）。
+     */
+    // 作用域引导：每个版本只在第一次打开时查一次（查作用域要 su，
+    // 不能每次启动都弹 Magisk 授权），勾齐或点过「稍后」就不再打扰。
+    private static final String KEY_SCOPE_GUIDE_VER = "scope_guide_version";
+    private static final String KEY_SCOPE_GUIDE_SNOOZE = "scope_guide_snooze_until";
+    private boolean scopeGuideStarted = false;
+
+    /**
+     * 首启引导（v4.1.0）：LSPosed 的作用域里「Android 系统」排在列表最底部、
+     * 不带「推荐应用」标记，新用户按推荐勾完 5 项就开始用，结果什么都抓不到。
+     *
+     * <p>这里只在缺项时提示一次，讲清楚「它在最底下、没有推荐标记」，
+     * 并给一个直达 LSPosed 的按钮。不改任何系统配置，只做提醒和指路。
+     */
+    private void maybeGuideMissingScope() {
+        if (scopeGuideStarted) return;
+        scopeGuideStarted = true;
+        final int cur = AppVersion.code(this);
+        if (cur <= 0) return;
+        final android.content.SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (sp.getInt(KEY_SCOPE_GUIDE_VER, 0) == cur) return;                 // 这个版本查过了
+        if (System.currentTimeMillis() < sp.getLong(KEY_SCOPE_GUIDE_SNOOZE, 0L)) return;
+
+        new Thread(() -> {
+            Repair.LsposedStatus st;
+            try {
+                st = Repair.lsposedStatus(LauncherActivity.this);
+            } catch (Throwable t) {
+                return;   // 读不到就不打扰（多半是没 root / 没授权）
+            }
+            // 只有「库读到了、模块已启用、确实缺项」才提示；
+            // 读不到配置库不等于没勾，按既有原则不据此断言。
+            if (!st.dbReadable || !st.moduleEnabled || st.missingScope == null
+                    || st.missingScope.trim().isEmpty()) {
+                sp.edit().putInt(KEY_SCOPE_GUIDE_VER, cur).apply();
+                return;
+            }
+            final String missing = st.missingScope;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                showScopeGuide(missing, cur, sp);
+            });
+        }, "scope-guide").start();
+    }
+
+    private void showScopeGuide(String missing, int cur, android.content.SharedPreferences sp) {
+        // 包名 -> 用户能认出来的名字；顺序按 LSPosed 列表里的位置排
+        StringBuilder sb = new StringBuilder();
+        sb.append("这几项还没勾：\n");
+        for (String p : missing.split("、")) {
+            sb.append("· ").append(friendlyScopeName(p.trim())).append("\n");
+        }
+        // 注意：不能用 contains——"com.android.providers.telephony" 里也含 android，
+        // 会把「只少了短信存储」误判成「少了框架」。
+        boolean missingFramework = hasScopeToken(missing, "android") || hasScopeToken(missing, "system");
+        if (missingFramework) {
+            sb.append("\n")
+                    .append("**系统框架**（英文 system）是让模块进入系统进程的那一项，")
+                    .append("短信、通知都从那里经过；新版 LSPosed 把它置顶并标了「推荐应用」。\n")
+                    .append("如果你的列表里还有一个「Android 系统」（英文 android），")
+                    .append("它和「系统框架」指的是同一个进程，勾任何一个都行，不用两个都勾。\n");
+        } else {
+            sb.append("\n")
+                    .append("这些项在作用域列表里都能搜到；漏勾时模块会显示已激活、但对应功能不生效。\n");
+        }
+        sb.append("\n勾齐后重启手机，回来点「我已勾好」重新检查。");
+
+        UiKit.dialog(this, P, R.drawable.ic_shield, "还差几项才能用",
+                sb.toString().replace("**", ""), null,
+                UiKit.primary("打开 LSPosed", () -> {
+                    openLsposedManager();
+                    // 从管理器回来后允许再查一次：把「本版本已查过」清掉
+                    sp.edit().putInt(KEY_SCOPE_GUIDE_VER, 0).apply();
+                    scopeGuideStarted = false;
+                }),
+                UiKit.ghost("重新检查", () -> {
+                    sp.edit().putInt(KEY_SCOPE_GUIDE_VER, 0).apply();
+                    scopeGuideStarted = false;
+                    maybeGuideMissingScope();
+                }),
+                UiKit.ghost("稍后再说", () -> sp.edit()
+                        .putInt(KEY_SCOPE_GUIDE_VER, cur)
+                        .putLong(KEY_SCOPE_GUIDE_SNOOZE, System.currentTimeMillis() + 24L * 3600_000L)
+                        .apply()));
+    }
+
+    /** 缺项串（顿号分隔）里是否有某一项——按整项比对，不做子串匹配 */
+    private static boolean hasScopeToken(String missing, String pkg) {
+        if (missing == null) return false;
+        for (String p : missing.split("、")) {
+            if (pkg.equals(p.trim())) return true;
+        }
+        return false;
+    }
+
+    /** 包名转成人话；认不出的原样显示，总比不提示强 */
+    private String friendlyScopeName(String pkg) {
+        // 截图里能看到两条：置顶的「系统框架」(system) 与列表里的「Android 系统」(android)。
+        // 它们指的是同一个进程（system_server），勾任意一条即可；
+        // 新版 LSPosed 认 system，且会给它打「推荐应用」标记。
+        if ("system".equals(pkg)) return "系统框架（置顶那一项，带推荐标记）";
+        // 只在「框架项缺失」时才会显示到这一行——优先让用户勾带推荐标记的那个
+        if ("android".equals(pkg)) return "系统框架（置顶、带推荐标记；旧版显示为「Android 系统」）";
+        if ("com.android.phone".equals(pkg)) return "电话";
+        if ("com.android.mms".equals(pkg)) return "短信";
+        if (Honor.PKG_MMS.equals(pkg)) return "信息（荣耀）";
+        if ("com.android.providers.telephony".equals(pkg)) return "电话和短信存储";
+        if (NotesBackend.PKG_XIAOMI.equals(pkg)) return "小米笔记";
+        if (NotesBackend.PKG_COLOROS_NOTE.equals(pkg)) return "ColorOS 便签";
+        return pkg;
+    }
+
+    /** 尽量直接把用户送到 LSPosed 管理器；找不到就告诉他从哪进 */
+    private void openLsposedManager() {
+        String[] pkgs = {"org.lsposed.manager", "io.github.lsposed.manager",
+                "org.lsposed.manager.debug"};
+        for (String pkg : pkgs) {
+            try {
+                android.content.Intent i = getPackageManager().getLaunchIntentForPackage(pkg);
+                if (i != null) {
+                    i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                    return;
+                }
+            } catch (Throwable ignored) { }
+        }
+        Toast.makeText(this,
+                "没找到 LSPosed 管理器入口——从 LSPosed 的通知或快捷方式打开，"
+                        + "再进「模块 → 取件码助手 → 作用域」",
+                Toast.LENGTH_LONG).show();
+    }
+
+    private boolean systemHookFresh(long lastUpdateTime) {
+        if (lastUpdateTime <= 0) return false;
+        try {
+            long uptime = android.os.SystemClock.elapsedRealtime();
+            long bootWallClock = System.currentTimeMillis() - uptime;
+            // 留 5 秒余量：安装动作与开机时间都可能被取整
+            return bootWallClock > lastUpdateTime + 5_000L;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private void maybeAddUpgradeNotice(LinearLayout box) {
         final int cur = AppVersion.code(this);
         if (cur <= 0) return;
@@ -666,12 +825,24 @@ public class LauncherActivity extends Activity {
         // 而且首次安装本来也必须重启——LSPosed 只在进程启动时注入，
         // 不重启的话用户会以为「装完就能用」，结果什么都抓不到。
         boolean upgraded = false;
+        long lastUpdateTime = 0L;
         try {
             android.content.pm.PackageInfo pi = getPackageManager()
                     .getPackageInfo(getPackageName(), 0);
             upgraded = pi.lastUpdateTime - pi.firstInstallTime > 60_000L;
+            lastUpdateTime = pi.lastUpdateTime;
         } catch (Throwable ignored) { }
         if (seen != 0 && seen >= cur) return;   // 这个版本已经提示过，点掉后不再出现
+
+        // v4.1.0：别没事就让人重启。
+        // 真正需要重启的只有一种情况：APK 换过了，但系统进程里跑的还是旧代码。
+        // 判断依据是 system_server 注入时写的时间戳（只在 system_server 里写）
+        // 和本次安装时间——安装之后系统进程已经加载过，就说明代码是新的，不提示。
+        if (systemHookFresh(lastUpdateTime)) {
+            sp.edit().putInt(KEY_SEEN_VERSION_CODE, cur)
+                    .putString(KEY_SEEN_VERSION_NAME, curName).apply();
+            return;
+        }
         final boolean firstInstall = seen == 0 && !upgraded;
 
         final String head;
@@ -1162,7 +1333,7 @@ public class LauncherActivity extends Activity {
         notiCard.addView(notiRow);
 
         notiScopeHintView = UiKit.text(this,
-                "LSPosed 作用域未勾选「Android 系统（android）」，此时通知取件提取不会生效（重启手机也没用）。",
+                "LSPosed 作用域未勾选「系统框架」（旧版叫「Android 系统」），此时通知取件提取不会生效。",
                 11.5f, UiKit.INK3);
         notiScopeHintView.setLineSpacing(dp(2), 1.0f);
         notiScopeHintView.setVisibility(View.GONE);
@@ -1493,6 +1664,7 @@ public class LauncherActivity extends Activity {
         String b = NotesBackend.detect(this);
         if (NotesBackend.BACKEND_COLOROS_TODO.equals(b)
                 || NotesBackend.BACKEND_COLOROS_NOTE.equals(b)) return "ColorOS 16";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(b)) return "荣耀 MagicOS";
         return "小米 / 红米";
     }
 
@@ -1500,6 +1672,7 @@ public class LauncherActivity extends Activity {
         String b = NotesBackend.detect(this);
         if (NotesBackend.BACKEND_COLOROS_TODO.equals(b)
                 || NotesBackend.BACKEND_COLOROS_NOTE.equals(b)) return "一加 / OPPO / realme · 已适配";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(b)) return "HONOR · MagicOS · 已适配";
         return "MIUI · HyperOS · 已适配";
     }
 
@@ -1507,11 +1680,14 @@ public class LauncherActivity extends Activity {
         CharSequence[] items = {
                 "小米 / 红米（MIUI · HyperOS）— 已适配",
                 "ColorOS 16（一加 / OPPO / realme）— 已适配",
+                "荣耀（MagicOS 7+）— 已适配",
                 "其他 ROM（OriginOS / Flyme / HarmonyOS …）— 可写自定义规则"
         };
-        int checked = "ColorOS 16".equals(envLabel()) ? 1 : 0;
+        int checked = 0;
+        if ("ColorOS 16".equals(envLabel())) checked = 1;
+        else if ("荣耀 MagicOS".equals(envLabel())) checked = 2;
         UiKit.chooser(this, P, R.drawable.ic_phone, "环境适配", items, checked, w -> {
-            if (w == 2) {
+            if (w == 3) {
                 Toast.makeText(this, "其他 ROM 可通过「规则 → 我的规则」为各驿站单独写规则；"
                         + "写入目标需社区适配", Toast.LENGTH_LONG).show();
             }
@@ -1663,7 +1839,7 @@ public class LauncherActivity extends Activity {
         sdwSw = new UiKit.Switch(this, P, sdwOn);
         sdwSw.setOnToggle(this::onSdwToggle);
         LinearLayout sdwItem = UiKit.row(this, P, R.drawable.ic_shield, "冻结免疫直写",
-                "仅 ColorOS：划掉后台仍可写入（需给系统进程授权 root）", sdwSw);
+                "ColorOS / 荣耀：划掉后台仍可写入（需给系统进程授权 root）", sdwSw);
         sdwRow.addView(sdwItem);
         updateSdwDisplay();
         // updateSdwDisplay() 内部会按环境把 sdwRow 设为 GONE/VISIBLE，这里先挂上再判断
@@ -1842,10 +2018,10 @@ public class LauncherActivity extends Activity {
     /** v4.3：使用说明弹窗（原先是页面底部一大段裸露文字） */
     private void showUsageDialog() {
         String text =
-                "1. 在 LSPosed 里启用本模块，作用域必勾「Android 系统」\n"
-                        + "   （列表底部、不带推荐角标的那一项），再加：\n"
-                        + "   电话、短信、com.android.providers.telephony\n"
-                        + "   小米设备另勾「小米笔记」\n\n"
+                "1. 在 LSPosed 里启用本模块，作用域必勾「系统框架」\n"
+                        + "   （置顶、带推荐标记那一项；旧版叫「Android 系统」）\n"
+                        + "   再加：电话、短信、电话和短信存储\n"
+                        + "   「笔记」和「Android 系统」可勾可不勾（后者与「系统框架」重复）\n\n"
                         + "2. 收到取件短信后自动保存：系统待办里一码一条、新码置顶，\n"
                         + "   App 内「待取件」同步出现，桌面小组件跟着刷新\n\n"
                         + "3. 通知可点击复制取件码；通知上「已取件」可一键勾选\n\n"
@@ -2374,28 +2550,106 @@ public class LauncherActivity extends Activity {
     }
 
     private void showAboutDialog() {
-        // v4.7：合作者改成编号列表，一行一个角色，格式统一，不再挤成一团
+        // v4.1.0：作者与版本固定在顶部，只有「合作者」列表滚动。
+        // 合作者只会越加越多，全塞进一个 TextView 的话，滚动条会从作者名字旁边开始，
+        // 而且以后再加人就得整段重排。
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.VERTICAL);
+
+        TextView ver = UiKit.text(this, "取件码助手 " + appVersionLabel(), 15.5f, UiKit.INK);
+        ver.setTypeface(null, Typeface.BOLD);
+        head.addView(ver);
+
+        TextView desc = UiKit.text(this,
+                "自动提取快递取件码，写入系统待办，并在 App 内留一份可查的记录",
+                12.5f, UiKit.INK3);
+        desc.setLineSpacing(dp(2), 1.05f);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.setMargins(0, dp(6), 0, 0);
+        head.addView(desc, dlp);
+
+        // —— 作者：单独一块，名字加粗放大，角色缩进在下面 ——
+        TextView authorTag = UiKit.text(this, "作者", 11.5f, P.label);
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        alp.setMargins(0, dp(14), 0, dp(4));
+        head.addView(authorTag, alp);
+
+        TextView authorName = UiKit.text(this, "欧锴（O-kai）", 16f, P.accentInk);
+        authorName.setTypeface(null, Typeface.BOLD);
+        head.addView(authorName);
+
+        TextView authorRole = UiKit.text(this, "项目发起与主要开发", 12f, UiKit.INK3);
+        authorRole.setPadding(dp(18), dp(3), 0, 0);
+        head.addView(authorRole);
+
+        // v4.1.0：「合作者」这个小标题也固定在头部。
+        // 跟着列表滚的话，往下滑会看到「1.」「2.」前面空一截，
+        // 标题却跑到屏幕外，反而看不出这串名字是什么分组。
+        TextView coTag = UiKit.text(this, "合作者", 11.5f, P.label);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.setMargins(0, dp(14), 0, dp(3));
+        head.addView(coTag, clp);
+
+        // —— 合作者列表：只有这一块滚动 ——
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+
+        addCredit(list, 1, "VWV2005", "ColorOS 适配",
+                "最早实现 ColorOS 上的捕获与写入，奠定跨 ROM 支持基础");
+        addCredit(list, 2, "Artifical0", "ColorOS Hook 修正",
+                "修正 ColorOS 上失效的 Hook 类名，使短信在 ColorOS 16 可正常捕获");
+        addCredit(list, 3, "Seven2023Six", "界面布局重构",
+                "四 Tab 结构、UiKit 设计系统、矢量图标体系");
+        addCredit(list, 4, "ByteJuno", "ColorOS 适配与体检修正",
+                "通知通道参数校验、冻结后 Provider 唤醒放行、短信 Hook 类名；"
+                        + "4.0.4 起：唤醒体检改读 DEX 类定义、设置开关的触摸与无障碍交互");
+        addCredit(list, 5, "GXR-SX", "荣耀 MagicOS 适配",
+                "日历待办走 CalendarProvider 写入（给日历权限即可，无需 root）、"
+                        + "表结构运行时自适应、短信包名 com.hihonor.mms");
+        addCredit(list, 6, "wangzhen9331", "桌面小组件方案参考",
+                "小组件的行数自适应与「立即刷 + 补刷」时序参考其改版；"
+                        + "实现与数据口径仍为本项目自有");
+
+        TextView tail = UiKit.text(this,
+                "LSPosed 模块仓库已上架，酷安同步更新\n遇到问题欢迎到 QQ 群或酷安主页找作者",
+                12f, UiKit.INK3);
+        tail.setLineSpacing(dp(3), 1.05f);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.setMargins(0, dp(12), 0, 0);
+        list.addView(tail, tlp);
+
         UiKit.dialog(this, P, R.drawable.ic_info, "关于模块",
-                "取件码助手 " + appVersionLabel() + "\n"
-                        + "自动提取快递取件码，写入系统待办，并在 App 内留一份可查的记录\n\n"
-                        + "【作者】\n"
-                        + "欧锴（O-kai）— 项目发起与主要开发\n\n"
-                        + "【合作者】\n"
-                        + "1. VWV2005 — ColorOS 适配\n"
-                        + "   最早实现 ColorOS 上的捕获与写入，奠定跨 ROM 支持基础\n\n"
-                        + "2. Artifical0 — ColorOS Hook 修正\n"
-                        + "   修正 ColorOS 上失效的 Hook 类名，使短信在 ColorOS 16 可正常捕获\n\n"
-                        + "3. Seven2023Six — 界面布局重构\n"
-                        + "   四 Tab 结构、UiKit 设计系统、矢量图标体系\n\n"
-                        + "4. ByteJuno — ColorOS 适配与体检修正\n"
-                        + "   通知通道参数校验、冻结后 Provider 唤醒放行、短信 Hook 类名；\n"
-                        + "   4.0.4 起：ColorOS 唤醒体检改读 DEX 类定义（不再误报）、\n"
-                        + "   设置开关的触摸与无障碍交互（含写入目标整行可点）\n\n"
-                        + "LSPosed 模块仓库已上架，酷安同步更新\n"
-                        + "遇到问题欢迎到 QQ 群或酷安主页找作者", null,
+                null, head, list, 46,
                 UiKit.primary("知道了", null),
                 UiKit.ghost("用户协议", this::showAgreementDialog),
                 UiKit.ghost("更新日志", () -> openUrl(CHANGELOG_URL)));
+    }
+
+    /**
+     * 关于页里的一条合作者（v4.1.0）。
+     *
+     * <p>名字独占一行并加粗，职责与说明缩进到下一行——
+     * 合作者会一直加，条目必须能一行扫过去，又不能糊成一段。
+     */
+    private void addCredit(LinearLayout parent, int no, String name, String role, String detail) {
+        TextView line = UiKit.text(this, no + ". " + name + " · " + role, 13.5f, UiKit.INK);
+        line.setTypeface(null, Typeface.BOLD);
+        line.setLineSpacing(dp(2), 1.05f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(8), 0, 0);
+        parent.addView(line, lp);
+
+        TextView sub = UiKit.text(this, detail, 12f, UiKit.INK3);
+        sub.setLineSpacing(dp(3), 1.05f);
+        sub.setPadding(dp(18), dp(2), 0, 0);   // 缩进对齐到名字之后，视觉上从属
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        parent.addView(sub, slp);
     }
 
     // ================================================================
@@ -2447,12 +2701,13 @@ public class LauncherActivity extends Activity {
         }
     }
 
-    /** 冻结直写：仅 ColorOS 环境显示（小米不需要此功能，默认关闭） */
+    /** 冻结直写：ColorOS / 荣耀环境显示（小米不需要此功能，默认关闭） */
     private void updateSdwDisplay() {
         String currentBackend = NotesBackend.detect(this);
         boolean isColorOs = NotesBackend.BACKEND_COLOROS_TODO.equals(currentBackend)
                 || NotesBackend.BACKEND_COLOROS_NOTE.equals(currentBackend);
-        if (!isColorOs) {
+        boolean supported = isColorOs || NotesBackend.BACKEND_HONOR_TODO.equals(currentBackend);
+        if (!supported) {
             sdwRow.setVisibility(View.GONE);
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SYS_DIRECT, false).apply();
             if (sdwSw != null) sdwSw.setChecked(false, false);
@@ -2656,12 +2911,14 @@ public class LauncherActivity extends Activity {
 
     private String todoLabel(String backend) {
         if (NotesBackend.BACKEND_XIAOMI.equals(backend)) return "小米笔记 待办";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) return "荣耀日历 待办";
         if (NotesBackend.BACKEND_COLOROS_NOTE.equals(backend)) return "ColorOS 便签 笔记";
         return "ColorOS 日历 待办";
     }
 
     private String todoSub(String backend) {
         if (NotesBackend.BACKEND_XIAOMI.equals(backend)) return "写进小米笔记的待办列表";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) return "写进日历的「待办」（MagicOS 默认，无需 root）";
         if (NotesBackend.BACKEND_COLOROS_NOTE.equals(backend)) return "在便签里建一条置顶笔记";
         return "写进日历的「待办」（ColorOS 16 默认）";
     }
@@ -2696,6 +2953,7 @@ public class LauncherActivity extends Activity {
 
     private static String backendAppName(String value) {
         if (NotesBackend.BACKEND_XIAOMI.equals(value)) return "小米笔记";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(value)) return "荣耀日历";
         if (NotesBackend.BACKEND_COLOROS_TODO.equals(value)) return "ColorOS 日历";
         if (NotesBackend.BACKEND_COLOROS_NOTE.equals(value)) return "ColorOS 便签";
         return "";
@@ -2737,6 +2995,7 @@ public class LauncherActivity extends Activity {
 
     private String shortName(String backend) {
         if (NotesBackend.BACKEND_XIAOMI.equals(backend)) return "小米笔记待办";
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) return "日历待办";
         if (NotesBackend.BACKEND_COLOROS_NOTE.equals(backend)) return "便签";
         return "日历待办";
     }
@@ -2901,7 +3160,7 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * 后台核对 LSPosed 作用域里有没有勾「Android 系统（android）」，有结论再回来改按钮。
+     * 后台核对 LSPosed 作用域里有没有勾框架那一项（系统框架 system / 旧版 Android 系统 android）。
      *
      * 复用现成能力，不自己重写查库逻辑：Diagnostics.checkScope 内部就是调
      * Repair.lsposedStatus(ctx)（root 跑 sqlite3 读 /data/adb/lspd/config/modules_config.db），
@@ -3298,6 +3557,7 @@ public class LauncherActivity extends Activity {
         // 或某次刷新回调丢了，组件就会停在旧快照上（真机上出现过：库里已删的码
         // 还挂在组件第一行）。这条刷新很便宜，相当于给组件一个自愈机会。
         PickupWidgetProvider.refreshAsync(this);
+        maybeGuideMissingScope();
         refreshPickupCard();
         refreshHealth();
         notiSwitchOn = isNotiHookFlagOn();
@@ -3366,12 +3626,18 @@ public class LauncherActivity extends Activity {
         }
         TextView body = UiKit.text(this, sb.toString().trim(), 12.5f, UiKit.INK2);
         body.setLineSpacing(dp(3), 1.15f);
-        wrap.addView(body);
+        // v4.1.0：样本放进单独的滚动容器，开关那一行留在滚动区外面。
+        // 否则滚动条会从开关旁边开始，看着像「开关也能滚」。
+        LinearLayout bodyWrap = new LinearLayout(this);
+        bodyWrap.setOrientation(LinearLayout.VERTICAL);
+        bodyWrap.addView(body);
 
         // 先声明再赋值：清空后要能关掉这一层，而 lambda 里需要引用它自己。
         final android.app.Dialog[] outer = new android.app.Dialog[1];
+        // v4.1.0：正文限高。20 条样本时内容比屏幕还高，按钮会被顶出去——
+        // 表现就是「手动上报 / 清空」凭空消失。给个 45% 的高度让它自己滚。
         outer[0] = UiKit.dialog(this, P, R.drawable.ic_notebook, "疑似漏抓错题本（" + list.size() + " 条）",
-                null, wrap, 0,
+                null, wrap, bodyWrap, 45,
                 UiKit.primary("复制上报文本", () -> {
                     String report = MissedSmsStore.formatReport(list);
                     try {
@@ -3634,6 +3900,8 @@ public class LauncherActivity extends Activity {
             if (inject == null || !inject.ok) {
                 String backendHint = NotesBackend.BACKEND_XIAOMI.equals(NotesBackend.detect(this))
                         ? "（小米侧含 com.miui.notes；写入目标 App 无需勾选）"
+                        : NotesBackend.BACKEND_HONOR_TODO.equals(NotesBackend.detect(this))
+                        ? "（荣耀侧短信 App 是 com.hihonor.mms；写入目标 App 无需勾选）"
                         : "（勾 3 项即可；写入目标 App 无需勾选）";
                 showTroubleshootDialog(
                         "【第 1 步：让模块生效】\n\n"
@@ -3657,9 +3925,9 @@ public class LauncherActivity extends Activity {
             if (scope != null && !scope.ok) {
                 showTroubleshootDialog(
                         "【第 3 步：补齐作用域】\n\n" + nz(scope.detail)
-                        + "\n\n特别提醒：「Android 系统（android）」在列表底部，"
-                        + "【不带\"推荐应用\"角标】也必须勾选（带角标的 5 个推荐应用不含它）；"
-                        + "别勾成中部的「系统框架（system）」——勾了无效！\n补勾后务必【重启手机】",
+                        + "\n\n特别提醒：框架那一项叫「系统框架（system）」，"
+                        + "在列表置顶、带「推荐应用」标记；旧版 LSPosed 显示为「Android 系统（android）」，"
+                        + "两者指同一个进程，勾一个即可。\n补勾后务必【重启手机】",
                         null, null);
                 return;
             }

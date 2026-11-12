@@ -45,18 +45,43 @@ public class Repair {
     /**
      * 作用域必需目标（v2.7.0 按 ROM 收敛）：
      *  - 通用（Hook 目标，两家 ROM 都要）：android、com.android.phone、com.android.mms；
-     *  - 小米侧追加 com.miui.notes（旧版要求，仅小米后端时校验——保留兼容旧用户已勾配置）；
+     *  - 小米笔记不再是必需项（v4.1.0）：写入走 root 直写，不经过 Hook；
      *  - com.android.providers.telephony 为可选（S8 主通道所在；实测 HyperOS 将其合并进
      *    phone 进程，勾上更稳，未勾也不报缺）。
      *  写入目标 App（笔记/日历）不是 Hook 目标（模块靠 su 直写其库），无需勾选。
      */
     public static String[] scopeRequired(Context ctx) {
-        String backend = NotesBackend.detect(ctx);
-        if (NotesBackend.BACKEND_XIAOMI.equals(backend)) {
-            return new String[]{"android", "com.android.phone", "com.android.mms", NotesBackend.PKG_XIAOMI};
-        }
-        return new String[]{"android", "com.android.phone", "com.android.mms"};
+        java.util.List<String> need = new java.util.ArrayList<>();
+        need.add("android");                       // 框架：system/android 任一即可
+        need.add("com.android.phone");             // 电话进程
+        need.add(smsAppPackage(ctx));              // 短信 App（按机型取实际安装的那个）
+        // v4.1.0：从「建议」升级为「必须」——它是短信库主通道，
+        // 少勾时短信仍可能抓到（走电话进程），但会少一层兜底，行为不稳定。
+        // 只在本机确实装了这个包时才要求，避免某些 ROM 上永远「缺一项」。
+        if (isInstalled(ctx, SCOPE_OPTIONAL)) need.add(SCOPE_OPTIONAL);
+        return need.toArray(new String[0]);
     }
+
+    /** 各 ROM 的短信 App 包名，按优先级；返回本机真正装着的那个 */
+    private static String smsAppPackage(Context ctx) {
+        String[] cands = Honor.isHonor()
+                ? new String[]{Honor.PKG_MMS, "com.android.mms", "com.coloros.mms", "com.oplus.mms"}
+                : new String[]{"com.android.mms", "com.coloros.mms", "com.oplus.mms", Honor.PKG_MMS};
+        for (String p : cands) {
+            if (isInstalled(ctx, p)) return p;
+        }
+        return "com.android.mms";   // 都查不到（极少见）→ 回落 AOSP 包名，至少不误伤老逻辑
+    }
+
+    private static boolean isInstalled(Context ctx, String pkg) {
+        try {
+            ctx.getPackageManager().getPackageInfo(pkg, 0);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public static final String SCOPE_OPTIONAL = "com.android.providers.telephony";
 
     // ==================== 一键部署 sqlite3 ====================
@@ -737,7 +762,6 @@ public class Repair {
         st.dbReadable = true;
 
         java.util.List<String> scopePkgs = new java.util.ArrayList<>();
-        boolean stale = false;
         boolean sawEnabledRow = false;
         for (String line : out.split("\n")) {
             line = line.trim();
@@ -749,11 +773,12 @@ public class Repair {
                 String pkg = line.substring(3).trim();
                 if (pkg.isEmpty()) continue;
                 scopePkgs.add(pkg);
-                if ("system".equals(pkg)) stale = true;
             }
         }
         st.scopeList = join(scopePkgs, ", ");
-        st.hasStaleSystem = stale;
+        // v4.1.0：LSPosed 2.x 把系统框架记作 system，旧版记作 android，两者等价。
+        // 这里不再把任何一方标成「无效」，只在两者同时存在时提示可以清理旧的那条。
+        st.hasStaleSystem = scopePkgs.contains("system") && scopePkgs.contains("android");
 
         if (modTable == null) {
             // 没有模块状态表可用：只能用「有没有作用域行」间接判断是否启用；
@@ -762,7 +787,8 @@ public class Repair {
             if (st.moduleEnabled) {
                 java.util.List<String> missing = new java.util.ArrayList<>();
                 for (String need : scopeRequired(ctx)) {
-                    if (!scopePkgs.contains(need)) missing.add(need);
+                    if (scopeSatisfied(scopePkgs, need)) continue;
+                    missing.add(need);
                 }
                 st.missingScope = missing.isEmpty() ? null : join(missing, "、");
             }
@@ -779,11 +805,25 @@ public class Repair {
             // 精确集合比对（不能用子串：com.android.phone 会误匹配 android）
             java.util.List<String> missing = new java.util.ArrayList<>();
             for (String need : scopeRequired(ctx)) {
-                if (!scopePkgs.contains(need)) missing.add(need);
+                if (scopeSatisfied(scopePkgs, need)) continue;
+                missing.add(need);
             }
             st.missingScope = missing.isEmpty() ? null : join(missing, "、");
         }
         return st;
+    }
+
+    /**
+     * 某一项必需作用域是否已满足（v4.1.0）。
+     *
+     * <p>系统框架在配置库里可能是 {@code android}（旧写法）或 {@code system}
+     * （LSPosed 2.x 的写法），两者等价——只认一种会把正常配置判成缺项。
+     */
+    private static boolean scopeSatisfied(java.util.List<String> scopePkgs, String need) {
+        if (scopePkgs.contains(need)) return true;
+        if ("android".equals(need)) return scopePkgs.contains("system");
+        if ("system".equals(need)) return scopePkgs.contains("android");
+        return false;
     }
 
     /** 在候选列名里挑第一个存在的列 */

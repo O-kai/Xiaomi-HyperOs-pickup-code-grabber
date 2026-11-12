@@ -243,6 +243,27 @@ public class SystemDirectWriter {
             int totalWrote = 0;
             for (String backend : targets) {
                 String db = NotesBackend.dbPathOf(backend);
+                // v4.1.0：荣耀侧没有静态 SQL 模板（要先读表结构），走 HonorWriter 的自适应直写。
+                // 这条路本来就在「模块 App 被冻结」时才启用，直写比跨进程调 CalendarProvider 更可靠。
+                if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) {
+                    int wrote = 0;
+                    // 荣耀有 task.db / calendar.db 两个候选库，工厂按库路径给 Runner
+                    HonorWriter.RunnerFactory f = d -> sql -> runSqlForOutput(ctx, d, sql);
+                    for (String code : codes) {
+                        if (HonorWriter.existsWithFactory(f, code)) {
+                            XposedEntry.log("SYS-WRITE dedup skip: " + backend + " " + code);
+                            continue;
+                        }
+                        String content = TodoWriter.buildContent(mode, customTpl, code, source, place, time);
+                        if (HonorWriter.writeWithFactory(f, content)) {
+                            wrote++;
+                        }
+                    }
+                    totalWrote += wrote;
+                    XposedEntry.log("SYS-WRITE honor backend=" + backend + " codes=" + wrote
+                            + " diag=" + HonorWriter.getLastDiag());
+                    continue;
+                }
                 StringBuilder sql = new StringBuilder(".timeout 5000\n");
                 int wrote = 0;
                 for (String code : codes) {

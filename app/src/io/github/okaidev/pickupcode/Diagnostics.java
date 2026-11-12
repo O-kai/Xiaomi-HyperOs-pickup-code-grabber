@@ -355,8 +355,8 @@ public class Diagnostics {
             return new Check("LSPosed 作用域", false,
                     "无法自动核对（" + st.detail + "）。\n"
                             + "这不代表配置有问题——请手动确认一次：LSPosed / Vector → 模块 → 取件码助手 →"
-                            + " 作用域已勾选「Android 系统（android）」+ 电话 + 短信 + com.android.providers.telephony"
-                            + "（小米设备再加「小米笔记」）。\n"
+                            + " 作用域已勾选「系统框架」（旧版叫「Android 系统」）+ 电话 + 短信"
+                            + " + 电话和短信存储（com.android.providers.telephony）。\n"
                             + "核对无误即可忽略本项。");
         }
         if (!st.moduleEnabled) {
@@ -364,19 +364,28 @@ public class Diagnostics {
                     "模块在 LSPosed 中未启用 → LSPosed 管理器 → 模块 → 勾选「取件码助手」，然后重启手机");
         }
         if (st.missingScope == null) {
+            // v4.1.0：不再说 system 无效——LSPosed 2.x 里它就是系统框架。
+            // 两者同时存在只是旧写法残留，不影响功能。
             String extra = st.hasStaleSystem
-                    ? "（发现勾了「系统框架/system」——它无效，请直接在 LSPosed 作用域里删除这一项）"
+                    ? "（android 与 system 同时勾着，其中一条是旧写法残留，留着无害）"
                     : "";
             return new Check("LSPosed 作用域", true,
                     "必需目标齐全 ✓ " + st.scopeList + extra);
         }
-        boolean missAndroid = st.missingScope.contains("android");
+        // 按整项比对：com.android.providers.telephony 里也含 "android"，子串匹配会误报
+        boolean missFramework = false;
+        for (String p : st.missingScope.split("、")) {
+            String t = p.trim();
+            if ("android".equals(t) || "system".equals(t)) missFramework = true;
+        }
         return new Check("LSPosed 作用域", false,
                 "缺少必需作用域：" + st.missingScope
                         + " → LSPosed 管理器 → 模块 → 取件码助手 → 作用域补勾后【重启手机】；"
-                        + (missAndroid
-                            ? "android 在列表底部「Android 系统」——该条目【不带推荐角标】也必须勾选；"
-                              + "带角标的 5 个推荐应用不含它，别勾成中部的「系统框架（system）」；"
+                        + (missFramework
+                            // v4.1.0：LSPosed 2.x 把框架记作 system（置顶、带推荐标记），
+                            // 旧版记作 android。原先这段写反了（让人别勾系统框架），已纠正。
+                            ? "框架那一项是「系统框架（system）」，置顶、带推荐标记；"
+                              + "旧版 LSPosed 显示为「Android 系统（android）」。两者指同一个进程，勾一个即可；"
                             : "")
                         + "当前：" + (st.scopeList.isEmpty() ? "(空)" : st.scopeList));
     }
@@ -455,6 +464,11 @@ public class Diagnostics {
     private static Check checkNotesDb(Context ctx) {
         String db = NotesBackend.dbPath(ctx);
         String backend = NotesBackend.detect(ctx);
+        // v4.1.0：荣耀有 task.db / calendar.db 两个候选库，表名也不固定，
+        // 通用分支的「一个路径 + 一个表名」模型套不上，单独一条探测。
+        if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) {
+            return checkHonorDb(ctx, backend);
+        }
         String table = NotesBackend.BACKEND_COLOROS_TODO.equals(backend) ? "Tasks"
                 : NotesBackend.BACKEND_COLOROS_NOTE.equals(backend) ? "rich_notes" : "todo";
         String dbFile = db.substring(db.lastIndexOf('/') + 1);
@@ -506,6 +520,45 @@ public class Diagnostics {
         return new Check("待办库访问", false, "探测失败：" + tail(e, 140));
     }
 
+    /**
+     * 荣耀专属体检项（v4.1.0）：把两个候选库的真实表/列写进报告。
+     *
+     * <p>为什么不能套通用分支：荣耀的待办库是 {@code task.db}（不是 calendar.db），
+     * 表名也未必叫 {@code Tasks}，一条「路径 + 表名」的探针根本不成立。
+     *
+     * <p>判绿的条件是「找到一个有正文列 + 有完成列的待办表」——缺一样，
+     * 写入或标记已取件就会降级；这时候报告里的列名就是适配依据。
+     */
+    private static Check checkHonorDb(Context ctx, String backend) {
+        java.util.Map<String, HonorSql.Schema> probes;
+        try {
+            probes = HonorWriter.probeAll(ctx, backend);
+        } catch (Throwable t) {
+            return new Check("待办库访问", false, "探测异常：" + tail(String.valueOf(t), 140));
+        }
+        StringBuilder all = new StringBuilder();
+        String bestDb = null;
+        HonorSql.Schema best = null;
+        for (java.util.Map.Entry<String, HonorSql.Schema> e : probes.entrySet()) {
+            String name = e.getKey().substring(e.getKey().lastIndexOf('/') + 1);
+            HonorSql.Schema s = e.getValue();
+            all.append(name).append(" → ").append(s.describe()).append("\n");
+            if (best == null && s.usable() && s.textColumn() != null && s.doneColumn() != null) {
+                best = s;
+                bestDb = e.getKey();
+            }
+        }
+        if (best == null) {
+            return new Check("待办库访问", false,
+                    "两个候选库里都没有能写待办的表。\n" + all
+                            + "把这几行发给开发者即可适配（不影响短信与通知抓取）");
+        }
+        String count = TodoWriter.runSqlForPath(ctx, backend, bestDb, HonorSql.countSql(best));
+        String countText = count == null ? "读不到条数" : count.trim();
+        return new Check("待办库访问", true,
+                best.describe() + "，当前 " + countText + " 条 ✓（库：" 
+                        + bestDb.substring(bestDb.lastIndexOf('/') + 1) + "）");
+    }
 
     /** 扫一遍常见的待办库路径（只读）。用来在「默认路径不存在」时给出线索。 */
     private static String discoverTodoDbs() {
@@ -558,6 +611,11 @@ public class Diagnostics {
         // v2.7.0：多 ROM 支持——ColorOS 版本与当前写入后端一并写入报告
         String oplus = prop("ro.build.version.oplusRom");
         if (oplus != null && !oplus.isEmpty()) sb.append("ColorOS: ").append(oplus).append("\n");
+        // v4.1.0：荣耀（MagicOS）——版本号取自 ro.build.version.magic，老机型回落 EMUI
+        if (Honor.isHonor()) {
+            sb.append("荣耀: ").append(Honor.describe()).append("\n");
+            sb.append("荣耀待办库: ").append(Honor.dbHint()).append("\n");
+        }
         sb.append("写入后端: ").append(NotesBackend.detect(ctx)).append("（")
           .append(NotesBackend.targetAppName(ctx)).append("）\n");
         sb.append("Magisk: ").append(prop("magisk.version") ).append("\n");
@@ -884,6 +942,7 @@ public class Diagnostics {
             putIf(dev, "miOs", prop("ro.mi.os.version.name"));
             putIf(dev, "miui", prop("ro.miui.ui.version.name"));
             putIf(dev, "colorOs", prop("ro.build.version.oplusRom"));
+            putIf(dev, "magicOs", Honor.isHonor() ? Honor.magicVersion() : "");
             putIf(dev, "magisk", prop("magisk.version"));
             root.put("device", dev);
 

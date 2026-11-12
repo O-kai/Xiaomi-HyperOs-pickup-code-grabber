@@ -39,6 +39,9 @@ public class XposedEntry implements IXposedHookLoadPackage {
                 AppParcelHook.install(pkg, lpparam.classLoader);
             } else if (pkg.equals("com.android.mms")) {
                 hookMmsApp(lpparam);
+            } else if (pkg.equals(Honor.PKG_MMS)) {
+                // v4.1.0：荣耀的「信息」是独立包名，AOSP 的 com.android.mms 在这代机器上不存在
+                hookHonorMms(lpparam);
             } else if (pkg.equals("com.android.phone")
                     || pkg.equals("android")          // 部分 ROM 将 systemserver 报告为 android
                     || pkg.equals("system")) {         // LSPosed 常见写法
@@ -172,6 +175,63 @@ public class XposedEntry implements IXposedHookLoadPackage {
         hookReceiver(lpparam, "com.android.mms.receiver.SmsReceiver", "S9");
         hookReceiver(lpparam, "com.android.mms.receiver.SmsDeliverReceiver", "S10");
         hookReceiver(lpparam, "com.oplus.mms.datamodel.SmsReceivedReceiver", "S11");
+    }
+
+    /**
+     * 荣耀「信息」进程（com.hihonor.mms，v4.1.0）。
+     *
+     * <p>荣耀独立后短信 App 换了包名，但内核仍是 EMUI 那套 Mms 的延续，
+     * 所以接收器类名大概率还叫 {@code com.android.mms.transaction.*}；
+     * 独立后又出现过 {@code com.hihonor.mms.*} 的重命名。两族都挂一遍，
+     * 找不到的自动跳过——**抓不到也不影响主通道**：S8 挂在 AOSP 的
+     * {@code SmsProvider.insert} 上，荣耀同样有这条路径。
+     *
+     * <p>这里额外补 {@code handleSmsMessage}：EMUI 系把真正的 PDU 解析放在
+     * {@code SmsReceiverService} 里，只挂 onReceive 时，某些机型上广播先到
+     * Receiver、短信正文却要到 Service 才成形。
+     */
+    private void hookHonorMms(XC_LoadPackage.LoadPackageParam lpparam) {
+        int ok = 0;
+        for (int i = 0; i < Honor.MMS_RECEIVER_CANDIDATES.length; i++) {
+            String cn = Honor.MMS_RECEIVER_CANDIDATES[i];
+            if (hookReceiverQuiet(lpparam, cn, "H" + i)) ok++;
+        }
+        for (String cn : new String[]{
+                "com.android.mms.transaction.SmsReceiverService",
+                "com.hihonor.mms.transaction.SmsReceiverService"}) {
+            try {
+                Class<?> cls = XposedHelpers.findClass(cn, lpparam.classLoader);
+                XposedBridge.hookAllMethods(cls, "handleSmsMessage", new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        try { SmsBridge.processArguments(param); } catch (Throwable t) { log("H-SVC err: " + t); }
+                    }
+                });
+                log("H-SVC OK (handleSmsMessage) " + cn);
+                ok++;
+            } catch (Throwable t) {
+                log("H-SVC NOT FOUND " + cn + ": " + t);
+            }
+        }
+        log("HONOR mms hook done: " + ok + " 个入口 @" + lpparam.packageName);
+    }
+
+    /** 同 hookReceiver，但不刷 "NOT FOUND" 噪音（荣耀候选多，逐个报错会淹掉日志） */
+    private boolean hookReceiverQuiet(XC_LoadPackage.LoadPackageParam lpparam, String className, String tag) {
+        try {
+            Class<?> cls = XposedHelpers.findClass(className, lpparam.classLoader);
+            XposedBridge.hookAllMethods(cls, "onReceive", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    try { SmsBridge.processArguments(param); } catch (Throwable t) { log(tag + " err: " + t); }
+                }
+            });
+            log(tag + " OK (" + className + ") @" + lpparam.packageName);
+            return true;
+        } catch (Throwable t) {
+            log(tag + " 跳过 (" + className + ")：类不存在");
+            return false;
+        }
     }
 
     private void hookReceiver(XC_LoadPackage.LoadPackageParam lpparam, String className, String tag) {

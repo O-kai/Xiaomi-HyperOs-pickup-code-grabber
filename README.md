@@ -56,13 +56,13 @@
 
 | 项目 | 要求 |
 |---|---|
-| 系统 | HyperOS / MIUI，或 ColorOS 16（一加 / OPPO / realme）；Android 9 及以上 |
-| Root | Magisk 或 KernelSU（需要 `su`；写入系统待办依赖 root） |
+| 系统 | HyperOS / MIUI、ColorOS 16（一加 / OPPO / realme），或荣耀 MagicOS 7+；Android 9 及以上 |
+| Root | Magisk 或 KernelSU（需要 `su`；写入系统待办依赖 root。荣耀侧给日历权限后可不 root 写入） |
 | 框架 | LSPosed 或兼容实现（Vector 等） |
-| 作用域 | **Android 系统（android）**、电话、短信、`com.android.providers.telephony`；小米设备再加「小米笔记」 |
+| 作用域 | 必勾 4 项：**系统框架**（LSPosed 2.x 叫「系统框架 / system」，旧版叫「Android 系统 / android」，两者等价，勾一个即可）、**电话**、**短信**（小米/一加是 `com.android.mms`，荣耀是 `com.hihonor.mms`）、**电话和短信存储**（`com.android.providers.telephony`）。；「小米笔记」和重复的「Android 系统」不再推荐勾选（勾着也不影响） |
 
-> ⚠️ 作用域里的 **「Android 系统」在列表最底部，不带推荐角标**——
-> 很多人漏勾它，结果模块显示已激活却什么都抓不到。勾完必须**重启手机**。
+> ⚠️ 作用域里的**框架那一项**（新版叫「系统框架」、旧版叫「Android 系统」）最容易被漏掉——
+> 漏勾它，模块会显示已激活却什么都抓不到。勾完必须**重启手机**。
 
 ---
 
@@ -70,12 +70,12 @@
 
 1. 从 [Releases](https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases) 下载 APK 安装；
 2. 打开 **LSPosed** → 模块 → 启用「取件码助手」；
-3. 进「作用域」，按上表勾选（别漏「Android 系统」）；
+3. 进「作用域」，勾上表那 4 项（最常漏的是「系统框架」）；
 4. **重启手机**；
 5. 打开 App → 点开首页状态卡 → **点击体检**。全绿就装好了。
 
 `sqlite3` 会由 App 自己部署到应用私有目录——**不需要手动推文件、不需要 Termux**。
-写入目标默认按系统自动选（小米笔记 / ColorOS 日历待办），也能在首页手动调整。
+写入目标默认按系统自动选（小米笔记 / ColorOS 日历待办 / 荣耀日历待办），也能在首页手动调整。
 
 ---
 
@@ -102,7 +102,7 @@
 
 | 目标 | 表现 |
 |---|---|
-| 系统待办 | 小米笔记待办；ColorOS 是日历待办与便签（两个独立的库，可同时写） |
+| 系统待办 | 小米笔记待办；ColorOS 是日历待办与便签（两个独立的库，可同时写）；荣耀是日历「待办」（MagicOS 走 CalendarProvider，给日历权限后无需 root） |
 | 软件内部记录 | 首页顶部「待取件」；桌面小组件读的也是它 |
 
 桌面小组件不是第三个目标——它没有自己的库，只是「软件内部记录」的展示投影。
@@ -164,6 +164,18 @@
 但这三处**维护者没有实机验证过**。体检里会多一项「ColorOS 唤醒」告诉你适配目标还在不在——
 用 ColorOS 的话欢迎带日志反馈，我按你的日志调。
 
+**荣耀能用吗？**
+4.1.0 起支持：短信抓取走 AOSP 的 `SmsProvider`（与 ROM 无关），
+待办写入目标是**日历 → 待办**，先试 CalendarProvider（给日历权限就不需要 root），
+不行再按真实表结构 `su sqlite3` 直写 `calendar.db`。
+作用域里勾的是 `com.hihonor.mms`，不是 `com.android.mms`——荣耀这代机器上后者不存在。
+已在荣耀 MagicOS 11（Android 17）真机上端到端跑通：短信 → 提取 → 写入
+`task.db` 的 `Tasks` 表 → 日历「待办」与桌面小组件实时刷新。
+写入优先走荣耀自己的待办 Provider（`com.android.calendar.task`，只要日历权限，**不需要 root**），
+它不可用时才回落 `su` 直写；直写会按真实表结构自适应，并在写完后补发变更通知。
+体检里有一项「荣耀待办库」，会把真实列名打出来。
+详见 [`docs/18-honor-adaptation.md`](docs/18-honor-adaptation.md)。
+
 ---
 
 ## 隐私与安全
@@ -192,6 +204,10 @@
   **同步这一步在系统那边完成，本模块不参与、也不联网。**
 - **ColorOS 16 的 4.0 新适配路径**（`ColorOsProviderWake`、配置文件的 SELinux 标签、
   日历待办与便签双库同时写）维护者没有实机验证，用 ColorOS 的话欢迎带日志反馈。
+- **荣耀 MagicOS 的写入路径**（`honor_todo`）：已在 MagicOS 11（Android 17）实测，
+  覆盖 Provider 写入、`su` 直写兜底、已取件、重复短信重发四条路径。
+  更早的 MagicOS 版本（7/8/9）结构可能有差异，靠运行时的表结构自适应兜住；
+  真遇到不认识的结构，体检里的「荣耀待办库」会列出真实列名，带它反馈即可适配。
 
 ---
 
@@ -264,6 +280,9 @@ CI 只产出 debug 包。改完规则可以跑 `bash tools/run_all_tests.sh`（1
   （4.0.3 已逐条移植，见 [`docs/PR-REVIEW-2026-11-05.md`](docs/PR-REVIEW-2026-11-05.md)）；
   4.0.4 又带来两笔：ColorOS 唤醒体检改读 DEX 类定义（原先在真机上必然误报）、
   设置开关的触摸与无障碍交互（`ACTION_MOVE` 一抖就点不动）。每份 PR 都带真机证据和测试。
+- [@wangzhen9331](https://github.com/wangzhen9331) —— 桌面小组件的社区改版
+  （[仓库](https://github.com/wangzhen9331/xiaomi-hyperos-pickup-code-grabber)）。
+  行数自适应与「立即刷 + 补刷」的刷新时序参考了它的做法；实现与数据口径仍以本项目为准。
 - [@Seven2023Six](https://github.com/Seven2023Six) —— 界面重构提案与讨论，其中不少判断被 4.0 的 UI 采纳。
 - [@VWV2005](https://github.com/VWV2005) —— 早期 ColorOS 16 适配（写入侧），v2.7.0 起整合进本仓库。
 - 以及所有提过 issue、贴过日志的人——这个模块的很多修复都是从一行日志开始的。
