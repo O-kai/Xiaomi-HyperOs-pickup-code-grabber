@@ -59,10 +59,10 @@ public class Repair {
         // 少勾时短信仍可能抓到（走电话进程），但会少一层兜底，行为不稳定。
         // 只在本机确实装了这个包时才要求，避免某些 ROM 上永远「缺一项」。
         if (isInstalled(ctx, SCOPE_OPTIONAL)) need.add(SCOPE_OPTIONAL);
-        // v4.1.0：桌面进程用来读小组件真实像素矩形（预览 1:1 对齐）。
-        // 少了不影响抓取，只影响预览精度，所以只在「确实装了桌面」时才要求。
-        String launcher = launcherPackage(ctx);
-        if (launcher != null) need.add(launcher);
+        // 桌面作用域是「增强项」，不进必需清单：
+        // 有它 → 读桌面 View 的真实像素矩形，预览 1:1；
+        // 没有 / LSPosed 没注入桌面 → 退回「格子 = 屏幕宽 ÷ 列数」，误差 1~2px。
+        // 放进必需清单会让部分机型永远显示「缺一项」，反而制造焦虑。
         return need.toArray(new String[0]);
     }
 

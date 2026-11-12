@@ -528,7 +528,10 @@ public class WidgetSettingsActivity extends Activity {
         hlp.setMargins(0, dp(10), 0, dp(8));
         dock.addView(head, hlp);
 
-        TextView title = UiKit.text(this, "小组件实时预览", 13f, P.muteInk);
+        // 告诉用户当前预览是「桌面给的精确矩形」还是「按格子估算」——
+        // 加了桌面作用域就能变前者，用户自己看得见，不用猜。
+        String src = pl != null && pl.fromLauncher ? "精确对齐" : "按格子估算";
+        TextView title = UiKit.text(this, "小组件实时预览 · " + src, 13f, P.muteInk);
         head.addView(title, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 

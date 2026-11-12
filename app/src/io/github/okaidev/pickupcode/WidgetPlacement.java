@@ -85,6 +85,8 @@ public final class WidgetPlacement {
     public int widgetId = -1;
     /** true = 从桌面数据库读到的；false = 估的默认位置 */
     public boolean fromDb;
+    /** true = 用桌面进程给的真实 View 矩形（比格子换算更准） */
+    public boolean fromLauncher;
 
     // ==================== 对外 ====================
 
@@ -298,6 +300,7 @@ public final class WidgetPlacement {
             p.top = top / (float) sh;
             p.bottom = bottom / (float) sh;
             p.fromDb = true;
+            p.fromLauncher = true;
             android.util.Log.d("PICKUPDEBUG", "使用桌面真实矩形: "
                     + left + "," + top + " - " + right + "," + bottom);
         } catch (Throwable t) {
