@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">取件码助手</string>
     <string name="widget_description">显示待取件码，可复制或标记已取件</string>
+    <string name="a11y_service_label">桌面位置读取</string>
+    <string name="a11y_service_desc">读取桌面小组件在屏幕上的位置，用于预览精确对齐。只读取窗口结构，不读取其他应用内容，也不执行任何操作。</string>
 </resources>
