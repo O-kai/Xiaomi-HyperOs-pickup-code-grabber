@@ -1,9 +1,11 @@
 # 推荐作用域（LSPosed 现代模块格式，v4.1.0 起）
 # 一行一个包名；系统框架写 system（不是 android），这是新版 LSPosed 的约定：
 #   写 android 时它只被当成普通包名，框架那一项不会被算进「推荐应用」。
+# com.miui.home 用于读取小组件在桌面上的真实像素矩形（预览 1:1）
 # 不含小米笔记 / ColorOS 便签：写待办走 root 直写它们的库，模块从不 Hook 这两个 App。
 system
 com.android.phone
+com.miui.home
 com.android.mms
 com.hihonor.mms
 com.android.providers.telephony

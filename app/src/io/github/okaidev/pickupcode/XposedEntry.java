@@ -57,6 +57,13 @@ public class XposedEntry implements IXposedHookLoadPackage {
                 }
             } else if (pkg.equals("com.android.providers.telephony")) {
                 hookSmsProvider(lpparam);             // S8：短信库写入兜底（网络短信也走这里）
+            } else if (isLauncher(pkg)) {
+                // v4.1.0：桌面进程里读小组件真实像素矩形，供外观页的预览对齐
+                if (lpparam.appInfo != null && lpparam.appInfo.dataDir != null) {
+                    LauncherProbe.install(lpparam.classLoader, lpparam.appInfo.dataDir, pkg);
+                } else {
+                    log("launcher probe skipped: no dataDir");
+                }
             } else if (unexpectedLogCount < 20) {
                 // 用户勾选了非目标应用：明确记录，方便诊断报告看出"作用域勾错"
                 unexpectedLogCount++;
@@ -66,6 +73,33 @@ public class XposedEntry implements IXposedHookLoadPackage {
         } catch (Throwable t) {
             log("hook setup err [" + pkg + "]: " + t);
         }
+    }
+
+    /**
+     * 各家桌面的包名（v4.1.0）。
+     *
+     * <p>桌面进程里能直接读到小组件的真实像素矩形（{@link LauncherProbe}），
+     * 这是唯一能拿到「布局边界」的途径 —— Android 没有公开 API，
+     * dumpsys 与 uiautomator 都被桌面屏蔽了。
+     *
+     * <p>和 {@link WidgetPlacement} 里的候选列表保持一致。
+     */
+    private static final String[] LAUNCHER_PKGS = {
+            "com.miui.home",                        // 小米 / HyperOS
+            "com.hihonor.home",                     // 荣耀
+            "com.android.launcher3",                // AOSP
+            "com.google.android.apps.nexuslauncher",// Pixel
+            "com.coloros.launcher",                 // ColorOS
+            "com.oppo.launcher",
+            "com.bbk.launcher2",                    // vivo
+            "com.sec.android.app.launcher"          // 三星
+    };
+
+    private static boolean isLauncher(String pkg) {
+        for (String p : LAUNCHER_PKGS) {
+            if (p.equals(pkg)) return true;
+        }
+        return false;
     }
 
     /** 在模块自身 dataDir 写标记文件（v2.1.2）：诊断报告据此判断模块是否真的被 LSPosed 加载 */

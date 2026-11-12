@@ -199,7 +199,18 @@ public final class WidgetPlacement {
           .append(" and itemType=4 limit 1\" 2>/dev/null); ");
         sb.append("[ -n \"$R\" ] && { RES=\"HIT|$F|$R\"; break; }; ");
         sb.append("done; done; done; ");
-        sb.append("[ -n \"$RES\" ] && echo \"$RES\" || echo NONE");
+        sb.append("[ -n \"$RES\" ] && echo \"$RES\" || echo NONE; ");
+        // v4.1.0：桌面进程（LauncherProbe）会把组件的真实像素矩形写到它自己的
+        // files/ 下。这里顺带读一次 —— 有它就用真实边界，没有就退回格子换算。
+        sb.append("RB=''; for Q in");
+        for (String pkg : LAUNCHER_PKGS) sb.append(' ').append(pkg);
+        sb.append("; do ");
+        sb.append("F2=/data/data/$Q/files/").append(LauncherProbe.FILE_NAME).append("; ");
+        sb.append("[ -f \"$F2\" ] || continue; ");
+        sb.append("RB=$(grep -m1 \"^").append(widgetId).append("|\" \"$F2\" 2>/dev/null); ");
+        sb.append("[ -n \"$RB\" ] && break; ");
+        sb.append("done; ");
+        sb.append("echo \"RECT|$RB\"");
 
         String out;
         try {
@@ -214,9 +225,18 @@ public final class WidgetPlacement {
         int hit = out.indexOf("HIT|");
         if (hit < 0) return null;
 
+        // 输出现在有两段：HIT|路径|数据 和 RECT|id|left|top|right|bottom|w|h
+        String rectLine = null;
+        String hitLine = null;
+        for (String l : out.split("\n")) {
+            String t = l.trim();
+            if (t.startsWith("HIT|")) hitLine = t;
+            else if (t.startsWith("RECT|")) rectLine = t;
+        }
+        if (hitLine == null) return null;
+
         try {
-            String line = out.substring(hit);
-            String[] seg = line.split("\\|");
+            String[] seg = hitLine.split("\\|");
             if (seg.length < 3) return null;
             String dbPath = seg[1];
             String[] v = seg[2].trim().split(",");
@@ -241,9 +261,47 @@ public final class WidgetPlacement {
 
             int[] size = screenSize(ctx);
             p.toRatios(size[0], size[1]);
+
+            // 桌面进程给的矩形优先：它是 View 的真实边界（等同「显示布局边界」那个框），
+            // 不需要任何比例常量。
+            applyLauncherRect(p, rectLine);
             return p;
         } catch (Throwable t) {
             return null;
+        }
+    }
+
+    /**
+     * 用桌面写下的真实矩形覆盖换算结果（v4.1.0）。
+     *
+     * <p>格式：{@code RECT|id|left|top|right|bottom|screenW|screenH}，
+     * 由 {@link LauncherProbe} 在桌面进程里从 {@code AppWidgetHostView}
+     * 的 {@code getLocationOnScreen()} 与宽高直接读出。
+     *
+     * <p>读不到（没勾桌面作用域、桌面还没重启、或数据是空的）就保持格子换算的结果。
+     */
+    private static void applyLauncherRect(WidgetPlacement p, String rectLine) {
+        if (rectLine == null) return;
+        try {
+            String[] r = rectLine.split("\\|");
+            if (r.length < 8) return;
+            int left = Integer.parseInt(r[2].trim());
+            int top = Integer.parseInt(r[3].trim());
+            int right = Integer.parseInt(r[4].trim());
+            int bottom = Integer.parseInt(r[5].trim());
+            int sw = Integer.parseInt(r[6].trim());
+            int sh = Integer.parseInt(r[7].trim());
+            if (sw <= 0 || sh <= 0 || right <= left || bottom <= top) return;
+
+            p.left = left / (float) sw;
+            p.right = right / (float) sw;
+            p.top = top / (float) sh;
+            p.bottom = bottom / (float) sh;
+            p.fromDb = true;
+            android.util.Log.d("PICKUPDEBUG", "使用桌面真实矩形: "
+                    + left + "," + top + " - " + right + "," + bottom);
+        } catch (Throwable t) {
+            android.util.Log.w("PICKUPDEBUG", "解析桌面矩形失败: " + t);
         }
     }
 

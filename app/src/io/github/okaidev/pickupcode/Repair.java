@@ -59,6 +59,10 @@ public class Repair {
         // 少勾时短信仍可能抓到（走电话进程），但会少一层兜底，行为不稳定。
         // 只在本机确实装了这个包时才要求，避免某些 ROM 上永远「缺一项」。
         if (isInstalled(ctx, SCOPE_OPTIONAL)) need.add(SCOPE_OPTIONAL);
+        // v4.1.0：桌面进程用来读小组件真实像素矩形（预览 1:1 对齐）。
+        // 少了不影响抓取，只影响预览精度，所以只在「确实装了桌面」时才要求。
+        String launcher = launcherPackage(ctx);
+        if (launcher != null) need.add(launcher);
         return need.toArray(new String[0]);
     }
 
@@ -71,6 +75,19 @@ public class Repair {
             if (isInstalled(ctx, p)) return p;
         }
         return "com.android.mms";   // 都查不到（极少见）→ 回落 AOSP 包名，至少不误伤老逻辑
+    }
+
+    /** 当前默认桌面的包名（系统层查询，不写死小米） */
+    private static String launcherPackage(Context ctx) {
+        try {
+            android.content.Intent i = new android.content.Intent(
+                    android.content.Intent.ACTION_MAIN)
+                    .addCategory(android.content.Intent.CATEGORY_HOME);
+            android.content.pm.ResolveInfo ri = ctx.getPackageManager()
+                    .resolveActivity(i, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+            if (ri != null && ri.activityInfo != null) return ri.activityInfo.packageName;
+        } catch (Throwable ignored) { }
+        return null;
     }
 
     private static boolean isInstalled(Context ctx, String pkg) {

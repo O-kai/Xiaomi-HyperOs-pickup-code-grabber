@@ -772,6 +772,12 @@ public class LauncherActivity extends Activity {
         if ("com.android.mms".equals(pkg)) return "短信";
         if (Honor.PKG_MMS.equals(pkg)) return "信息（荣耀）";
         if ("com.android.providers.telephony".equals(pkg)) return "电话和短信存储";
+        // v4.1.0：桌面进程 —— 用来读小组件在桌面上的真实像素位置
+        if ("com.miui.home".equals(pkg)) return "系统桌面";
+        if ("com.hihonor.home".equals(pkg)) return "系统桌面（荣耀）";
+        if (pkg != null && (pkg.contains("launcher") || pkg.endsWith(".home"))) {
+            return "系统桌面";
+        }
         if (NotesBackend.PKG_XIAOMI.equals(pkg)) return "小米笔记";
         if (NotesBackend.PKG_COLOROS_NOTE.equals(pkg)) return "ColorOS 便签";
         return pkg;
