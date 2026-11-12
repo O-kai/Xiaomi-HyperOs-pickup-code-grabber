@@ -1,6 +1,8 @@
 package io.github.okaidev.pickupcode;
 
 import android.accessibilityservice.AccessibilityService;
+import android.appwidget.AppWidgetManager;
+import android.content.ComponentName;
 import android.graphics.Rect;
 import android.os.Build;
 import android.util.DisplayMetrics;
@@ -35,6 +37,7 @@ public class WidgetA11yService extends AccessibilityService {
     static final String FILE_NAME = "a11y_widget_rect.txt";
 
     private int cellW, cellH, spanX, spanY;
+    private String status = "SUSPECT";
     private Rect lastRect;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -120,8 +123,10 @@ public class WidgetA11yService extends AccessibilityService {
             } else {
                 cellW = cellH = spanX = spanY = 0;
             }
+            status = verify(root, card);
             Log.i(TAG, "a11y card=" + card + " host=" + host
-                    + " cell=" + cellW + "x" + cellH + " span=" + spanX + "x" + spanY);
+                    + " cell=" + cellW + "x" + cellH + " span=" + spanX + "x" + spanY
+                    + " status=" + status);
             return card;
         }
         return null;
@@ -243,12 +248,60 @@ public class WidgetA11yService extends AccessibilityService {
             int[] size = screenSize();
             w.write("RECT|0|" + r.left + "|" + r.top + "|" + r.right + "|" + r.bottom
                     + "|" + size[0] + "|" + size[1]
-                    + "|" + cellW + "|" + cellH + "|" + spanX + "|" + spanY);
+                    + "|" + cellW + "|" + cellH + "|" + spanX + "|" + spanY
+                    + "|" + status);
             w.close();
             Log.i(TAG, "a11y rect written: " + r);
         } catch (Throwable t) {
             Log.w(TAG, "a11y write err: " + t);
         }
+    }
+
+    /**
+     * 自校验：节点内容 + 系统给的尺寸，两道都对才写 OK。
+     *
+     * <p>1) 节点子树里必须有我们的文字（待取件 / 取件记录），排除"标签相同但不是组件"；
+     * 2) 矩形尺寸要落在 AppWidgetOptions（桌面按格子算出的 dp 尺寸）的 0.75~1.30 倍内，
+     *    排除"抓到了别的容器"。
+     */
+    private String verify(AccessibilityNodeInfo root, Rect card) {
+        boolean content = containsText(root, "待取件") || containsText(root, "取件记录");
+        boolean size = true;
+        try {
+            AppWidgetManager m = AppWidgetManager.getInstance(this);
+            int[] ids = m.getAppWidgetIds(new ComponentName(this, PickupWidgetProvider.class));
+            if (ids.length > 0) {
+                android.os.Bundle o = m.getAppWidgetOptions(ids[0]);
+                int w = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
+                int h = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0);
+                float d = getResources().getDisplayMetrics().density;
+                if (w > 0 && h > 0) {
+                    float rw = card.width() / (w * d);
+                    float rh = card.height() / (h * d);
+                    size = rw > 0.75f && rw < 1.30f && rh > 0.75f && rh < 1.30f;
+                    Log.i(TAG, "a11y verify opt=" + w + "x" + h + "dp ratio=" + rw + "/" + rh);
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "a11y verify err: " + t);
+        }
+        // MIUI 的 AppWidgetOptions 会滞后（实测 5×3 的卡片仍报 4×3 的 257dp），
+        // 所以尺寸只作为告警，不参与判定；内容命中 + 边界合理才算 OK。
+        if (!size) Log.w(TAG, "a11y verify: options mismatch (stale?)");
+        return content ? "OK" : "SUSPECT";
+    }
+
+    private boolean containsText(AccessibilityNodeInfo node, String needle) {
+        if (node == null) return false;
+        CharSequence t = node.getText();
+        if (t != null && t.toString().contains(needle)) return true;
+        // RemoteViews 里的标题/件数多用 contentDescription 暴露，text 是空的
+        CharSequence c = node.getContentDescription();
+        if (c != null && c.toString().contains(needle)) return true;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            if (containsText(node.getChild(i), needle)) return true;
+        }
+        return false;
     }
 
     /** 真实屏幕尺寸（含系统栏）；getDisplayMetrics 会少掉状态栏和导航栏 */

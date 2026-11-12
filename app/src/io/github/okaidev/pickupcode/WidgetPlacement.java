@@ -87,6 +87,12 @@ public final class WidgetPlacement {
     public boolean fromDb;
     /** true = 用桌面进程给的真实 View 矩形（比格子换算更准） */
     public boolean fromLauncher;
+    /** v4.2：矩形来自无障碍服务（不需要 root） */
+    public boolean fromA11y;
+    /** 无障碍测到的单格像素尺寸（0 = 没测到） */
+    public int cellWpx, cellHpx;
+    /** 这份数据是什么时候拿到的（毫秒），用于和无障碍文件比新旧 */
+    public long savedAt;
 
     // ==================== 对外 ====================
 
@@ -99,6 +105,12 @@ public final class WidgetPlacement {
     public static WidgetPlacement detect(Context ctx) {
         WidgetPlacement cached = load(ctx);
         if (cached != null) return cached;
+        // 无障碍写出的矩形最便宜：不碰 su，也不依赖桌面库
+        WidgetPlacement a11y = readA11yRect(ctx);
+        if (a11y != null) {
+            save(ctx, a11y);
+            return a11y;
+        }
         WidgetPlacement p = readFromDb(ctx);
         if (p != null) {
             save(ctx, p);
@@ -114,6 +126,11 @@ public final class WidgetPlacement {
      * 读到了会顺带刷新缓存。
      */
     public static WidgetPlacement remeasure(Context ctx) {
+        WidgetPlacement a11y = readA11yRect(ctx);
+        if (a11y != null) {
+            save(ctx, a11y);
+            return a11y;
+        }
         WidgetPlacement p = readFromDb(ctx);
         if (p != null) save(ctx, p);
         return p;
@@ -122,6 +139,13 @@ public final class WidgetPlacement {
     /** 只读缓存，不碰 su。页面初始化时用这个。 */
     public static WidgetPlacement cached(Context ctx) {
         WidgetPlacement p = load(ctx);
+        // 无障碍矩形是像素级的，只要文件在就优先用它。
+        // 用户要挪组件必然在桌面上，服务那时已经刷新过文件，不存在"用旧位置"的情况。
+        WidgetPlacement a11y = readA11yRect(ctx);
+        if (a11y != null) {
+            save(ctx, a11y);
+            return a11y;
+        }
         if (p == null) return null;
         // 缓存属于另一个组件实例（用户删了重加、或换了尺寸）→ 作废。
         // 否则会把上一个组件的形状套到新组件上（真机上出现过竖长条预览）。
@@ -165,6 +189,60 @@ public final class WidgetPlacement {
         try {
             ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply();
         } catch (Throwable ignored) { }
+    }
+
+    /**
+     * 无障碍服务写下的矩形（v4.2）。
+     *
+     * <p>格式：{@code RECT|id|left|top|right|bottom|screenW|screenH|cellW|cellH|spanX|spanY}，
+     * 后四项可能为 0（服务没测到图标）。这是唯一不需要 root、也不需要 LSPosed 的来源。
+     */
+    private static WidgetPlacement readA11yRect(Context ctx) {
+        try {
+            java.io.File f = new java.io.File(ctx.getFilesDir(), "a11y_widget_rect.txt");
+            if (!f.exists()) return null;
+            String line = null;
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f))) {
+                line = r.readLine();
+            }
+            if (line == null || !line.startsWith("RECT|")) return null;
+            String[] v = line.split("\\|");
+            if (v.length < 8) return null;
+            int l = Integer.parseInt(v[2].trim());
+            int t = Integer.parseInt(v[3].trim());
+            int rr = Integer.parseInt(v[4].trim());
+            int b = Integer.parseInt(v[5].trim());
+            int sw = Integer.parseInt(v[6].trim());
+            int sh = Integer.parseInt(v[7].trim());
+            if (sw <= 0 || sh <= 0 || rr <= l || b <= t || rr > sw || b > sh) return null;
+
+            WidgetPlacement p = new WidgetPlacement();
+            p.widgetId = firstWidgetId(ctx);
+            p.left = l / (float) sw;
+            p.right = rr / (float) sw;
+            p.top = t / (float) sh;
+            p.bottom = b / (float) sh;
+            p.fromDb = true;
+            p.fromLauncher = true;
+            p.fromA11y = true;
+            p.savedAt = f.lastModified();
+            if (v.length >= 12) {
+                p.cellWpx = parseIntOr(v[8], 0);
+                p.cellHpx = parseIntOr(v[9], 0);
+                p.spanX = parseIntOr(v[10], 0);
+                p.spanY = parseIntOr(v[11], 0);
+            }
+            if (p.spanX <= 0 || p.spanY <= 0) {
+                p.spanX = 0;
+                p.spanY = 0;
+            }
+            android.util.Log.d("PICKUPDEBUG", "使用无障碍矩形: " + l + "," + t + " - " + rr + "," + b
+                    + " cell=" + p.cellWpx + "x" + p.cellHpx + " span=" + p.spanX + "x" + p.spanY);
+            return p;
+        } catch (Throwable t) {
+            android.util.Log.w("PICKUPDEBUG", "读无障碍矩形失败: " + t);
+            return null;
+        }
     }
 
     // ==================== 读桌面数据库 ====================
@@ -422,6 +500,9 @@ public final class WidgetPlacement {
             p.spanX = sp.getInt(K_SPAN_X, 1);
             p.spanY = sp.getInt(K_SPAN_Y, 1);
             p.widgetId = sp.getInt(K_WIDGET_ID, -1);
+            p.fromLauncher = sp.getBoolean("from_launcher", false);
+            p.fromA11y = sp.getBoolean("from_a11y", false);
+            p.savedAt = sp.getLong("saved_at", 0);
             p.fromDb = true;
             return p;
         } catch (Throwable t) {
@@ -443,7 +524,11 @@ public final class WidgetPlacement {
                     .putInt(K_SPAN_X, p.spanX)
                     .putInt(K_SPAN_Y, p.spanY)
                     .putInt(K_WIDGET_ID, p.widgetId)
+                    .putBoolean("from_launcher", p.fromLauncher)
+                    .putBoolean("from_a11y", p.fromA11y)
+                    .putLong("saved_at", System.currentTimeMillis())
                     .apply();
+            p.savedAt = System.currentTimeMillis();
         } catch (Throwable ignored) { }
     }
 }
