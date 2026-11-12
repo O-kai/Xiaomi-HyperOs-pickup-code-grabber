@@ -51,6 +51,14 @@ K90 上的实测（2026-11-11）：
   AOSP 的默认值是 **false**（`ZygoteConfig.USAP_POOL_ENABLED_DEFAULT`），
   但桌面父进程确实是 `usap64`，说明小米在 `dalvik.vm.usap_pool_enabled` 里把它打开了。
 
+> **2026-11-13 更正（重要）**：上面三条只能证明「桌面进程里没有模块」，
+> 不能证明是 USAP 造成的。当天复查 `/data/adb/lspd/config/modules_config.db` 的 `scope` 表：
+> 本模块只勾了 `com.android.phone` / `com.android.mms` / `system` /
+> `com.android.providers.telephony`，**没有 `com.miui.home`**。
+> 同时 `usap64`（pid 4673）自己在 LSPosed 日志里有 `HyperOS Runtime injected`——
+> 池进程是带框架的。**直接原因是作用域没勾，USAP 阻断不成立。**
+> 第 7 节的「重启桌面」方案作废，见更正后的第 7 节。
+
 开关：`device_config put runtime_native usap_pool_enabled false`（或 `setprop dalvik.vm.usap_pool_enabled false`）。
 读发生在 zygote 启动时，**要重启才生效**；改的是全局，所有 App 的启动路径一起变。
 
@@ -130,19 +138,22 @@ K90 的抓取里，图标格是 `37 + 225.2×5`，而 4.1 代码按 `1200÷5 = 2
 组件是半透明卡片，颜色随壁纸变；模板匹配 / 边缘检测都受壁纸干扰，
 成本高、稳定性差。除非前面几条都失败，不做。
 
-## 7. 还有一条：让 LSPosed 重新注入桌面（先验证）
+## 7. 更正后的第一步：补作用域，而不是重启桌面
 
-如果桌面只是因为**开机早期从旧池子拿的进程**才漏注入，那么
-`am force-stop com.miui.home` → 回桌面，新进程可能来自注入后的池子。
-验证两点：
+2026-11-13 复查发现，桌面压根不在本模块的 LSPosed 作用域里（见第 2 节更正）。
+所以正确的顺序是：
+
+1. LSPosed 管理器里给本模块勾上 **系统桌面**（包名用 `PackageManager` 查默认桌面，别写死 `com.miui.home`）；
+2. 重启桌面进程（`am force-stop com.miui.home` → 回桌面）或重启手机；
+3. 看探针有没有写文件：
 
 ```bash
-adb shell "ps -A -o PID,PPID,NAME | grep miui.home"     # 新 pid 的父进程
-adb shell "su -c 'grep -i miui.home /data/adb/lspd/log/*'"  # 是否出现在注入列表
+adb shell "su -c 'cat /data/user/0/com.miui.home/files/pickup_widget_rect.txt'"
+adb shell "su -c 'grep -i com.miui.home /data/adb/lspd/log/modules_*.log'"
 ```
 
-如果成立：一次「重启桌面」就能让 4.1 的探针复活，代价远小于关 USAP。
-副作用要实测（图标重排？组件重载？壁纸闪一下？）。
+有了文件，4.1 的 `LauncherProbe` 直接复活，不需要关 USAP、也不需要无障碍。
+作用域要**保持**：覆盖安装如果把它重置成推荐集合，就会再次失效。
 
 ## 8. 建议的架构
 
