@@ -147,6 +147,21 @@ LSPosed 作用域里只有 5 项带「推荐应用」标记，「Android 系统�
 
 已经在作用域里勾着的老用户不受影响，手动取消即可。
 
+### 桌面作用域：直接读组件在桌面上的真实矩形
+
+Android 没有公开 API 给「小组件在桌面上的位置」：`getAppWidgetOptions` 返回的是
+我们声明的 minWidth 附近的值，`dumpsys` 与 `uiautomator` 都被桌面屏蔽。
+
+唯一准确的数据在桌面进程的 View 树里：`AppWidgetHostView.getLocationOnScreen()`
+加宽高，就是「开发者选项 → 显示布局边界」画出来的那个框。
+
+- 新增 `LauncherProbe`：在桌面进程 hook `Activity.onResume`，延迟 800ms 遍历 View 树，
+  把所有 `AppWidgetHostView` 的 id 与矩形写进桌面私有目录
+- App 在「重新对齐」时顺带用 root 读一次，读到就用真实像素，读不到退回格子换算
+- 预览标题会标出当前是「精确对齐」还是「按格子估算」
+
+> 桌面作用域是**增强项**，不进必需清单：少了只影响预览精度，不影响抓取。
+
 ### 预览背景与桌面「调整框」对不齐（已修）
 
 上一版是按「组件卡片的深色边缘」反推网格的，而卡片在格子里还有一圈 margin，
