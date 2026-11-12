@@ -18,4 +18,31 @@
     <style name="AppTheme.NoActionBar.Dark" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/window_bg_dark</item>
     </style>
+
+    <!--
+      v4.1.0：外观页专用（浅色 / 深色两版）。
+      窗口完全透明 + windowShowWallpaper，让系统把真实壁纸直接画在窗口后面。
+
+      为什么要有两个变体：UiKit.applyTheme 会按用户的深浅设置 setTheme，
+      单一主题会被覆盖掉，windowIsTranslucent 也随之失效（实测预览区退化成白底）。
+      必须让「深浅」和「透壁纸」同时成立。
+
+      windowIsTranslucent 是前提：它为 false 时 windowShowWallpaper 不生效。
+    -->
+    <style name="AppTheme.Wallpaper" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:backgroundDimAmount">0.0</item>
+    </style>
+
+    <style name="AppTheme.Wallpaper.Dark" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:backgroundDimAmount">0.0</item>
+    </style>
+
 </resources>

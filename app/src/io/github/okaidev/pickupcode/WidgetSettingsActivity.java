@@ -32,20 +32,63 @@ public class WidgetSettingsActivity extends Activity {
     private UiKit.Switch codeSwitch;
     /** 下级的整行容器——上级关掉时要整行变淡 */
     private LinearLayout placeRow;
+    /** 组件在桌面上的位置（v4.1.0）：预览卡片按它的宽高比渲染 */
+    private WidgetPlacement placement;
+    /** 预览内容相对真实组件的缩放系数 */
+    private float previewScale = 1f;
+    /** 「重新对齐」进行中：连点会连开抓取页，用标志位挡住 */
+    private boolean realigning = false;
+    private static final int REQ_BACKDROP = 1001;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // v4.0：先定主题再 setContentView，否则会先按浅色建界面
+        // v4.1.0：这一页要透出真实壁纸，用 wallpaper 变体
+        // v4.1.0：这一页恢复成**不透明**页面 —— 背景由「抓下来的那块壁纸」提供，
+        // 不再靠窗口透明。这样布局完全自由：预览放哪、放多大都行。
         UiKit.applyTheme(this);
         super.onCreate(savedInstanceState);
         P = UiKit.palette(this);
         getWindow().setStatusBarColor(P.bg);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        try {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    UiKit.isDark(this) ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        } catch (Throwable ignored) { }
+
+        final int screenW;
+        final int screenH;
+        {
+            int ww, hh;
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    android.graphics.Rect b = getWindowManager()
+                            .getMaximumWindowMetrics().getBounds();
+                    ww = b.width();
+                    hh = b.height();
+                } else {
+                    android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+                    getWindowManager().getDefaultDisplay().getRealMetrics(dm);
+                    ww = dm.widthPixels;
+                    hh = dm.heightPixels;
+                }
+            } catch (Throwable t) {
+                ww = getResources().getDisplayMetrics().widthPixels;
+                hh = getResources().getDisplayMetrics().heightPixels;
+            }
+            screenW = ww;
+            screenH = hh;
+        }
+
+        // 没有组件时不要用缓存：那是上一个组件的坐标/尺寸，套到「示例预览」上
+        // 会得到一条形状奇怪的框（真机上出现过占满整屏的预览）。
+        final boolean onDesktop = WidgetPlacement.hasWidget(this);
+        WidgetPlacement pl = onDesktop ? WidgetPlacement.cached(this) : null;
+        if (pl == null) pl = WidgetPlacement.fallback();
+        placement = pl;
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(P.bg);
-
         root.addView(buildHeader());
 
         ScrollView sv = new ScrollView(this);
@@ -57,12 +100,19 @@ public class WidgetSettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(sv, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        // v4.1.0：实时预览固定在底部，不参与滚动 —— 调上面任何一项都能立刻看到，
+        // 不会因为滚动把预览滚出屏幕。
+        root.addView(buildPreviewDock(pl, onDesktop, screenW, screenH));
 
-        box.addView(buildFontCard(), UiKit.cardLp(this, 0));
+        // v4.1.0：第一次进这个页面、还没有背景图时，自动抓一次。
+        // 不让用户先面对一块灰底发愣，也不用教他再点一次按钮。
+        if (onDesktop && !WidgetBackdrop.exists(this)) {
+            root.postDelayed(this::captureBackdrop, 350);
+        }
         box.addView(buildLookCard(), UiKit.cardLp(this, 10));
+        box.addView(buildFontCard(), UiKit.cardLp(this, 10));
         box.addView(buildShowCard(), UiKit.cardLp(this, 10));
         box.addView(buildRowsCard(), UiKit.cardLp(this, 10));
-        box.addView(buildPreviewCard(), UiKit.cardLp(this, 10));
 
         // v4.0.2：加「重新添加」入口。
         //
@@ -224,6 +274,8 @@ public class WidgetSettingsActivity extends Activity {
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(14), dp(14), dp(20), dp(10));
+        // v4.1.0：这一页整窗透明（透壁纸），标题栏不加底色就会被壁纸糊住。
+        header.setBackgroundColor(P.bg);
 
         TextView back = UiKit.text(this, "‹", 30f, P.navInk);
         back.setGravity(Gravity.CENTER);
@@ -236,6 +288,44 @@ public class WidgetSettingsActivity extends Activity {
         header.addView(title, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         return header;
+    }
+
+    /**
+     * 「重新对齐」（v4.1.0）。
+     *
+     * <p>把「重测位置」和「重抓背景」合成动作。这两件事对用户是同一件事——
+     * 都是「让预览和桌面一致」，拆成两个按钮只会让人犹豫点哪个。
+     * 所以原来那张「预览位置」卡片整个去掉了，入口就留在预览区右上角。
+     *
+     * <p>位置读不到也照样抓背景：至少壁纸那块能对上，不至于白点一下。
+     */
+    private void realign() {
+        if (realigning) return;
+        realigning = true;
+        Toast.makeText(this, "正在对齐桌面…", Toast.LENGTH_SHORT).show();
+
+        new Thread(() -> {
+            WidgetPlacement p = null;
+            try {
+                p = WidgetPlacement.remeasure(this);
+            } catch (Throwable t) {
+                android.util.Log.w("PICKUPDEBUG", "realign 读位置失败: " + t);
+            }
+            final WidgetPlacement got = p;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    realigning = false;
+                    return;
+                }
+                if (got == null) {
+                    Toast.makeText(this,
+                            "没读到桌面位置（可能需要 root 授权），先按原有位置更新背景",
+                            Toast.LENGTH_LONG).show();
+                }
+                // 走到这里交给抓取页；回来后整页 recreate，realigning 自然复位
+                captureBackdrop();
+            });
+        }, "realign").start();
     }
 
     private View buildFontCard() {
@@ -359,50 +449,183 @@ public class WidgetSettingsActivity extends Activity {
         return card;
     }
 
-    private View buildPreviewCard() {
-        LinearLayout card = UiKit.card(this, P);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+    /**
+     * 底部固定预览（v4.1.0）。
+     *
+     * <p>背景完全透明：窗口后面是系统画的真实壁纸，所以这里看到的就是
+     * 桌面上那张壁纸的原始渲染 —— 不截图、不读图、不要任何权限。
+     *
+     * <p>它挂在根布局底部而不是滚动区里：调上面的控件时它始终露着，
+     * 不用来回滚。
+     */
+    /**
+     * 底部固定的「实时预览」区（v4.1.0）。
+     *
+     * <p>不参与滚动：调上面的字号、配色、显示项时它始终露着，改一下就能看到结果。
+     *
+     * <p><b>桌面上有没有组件，这里都画预览。</b>没有组件时用一块中性渐变当背景，
+     * 用户照样能先把样式调好，等他添加了组件，同一套设置直接生效——不让「还没添加」
+     * 变成「什么都不能试」。
+     *
+     * <p>右上角只有一个动作：有组件是「重新对齐」（重测位置 + 重抓背景），
+     * 没组件是「添加到桌面」。位置信息不再单独占一行。
+     */
+    private View buildPreviewDock(WidgetPlacement pl, boolean onDesktop,
+                                  int screenW, int screenH) {
 
-        TextView title = UiKit.text(this, "预览", 14.5f, P.navInk);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        card.addView(title);
+        LinearLayout dock = new LinearLayout(this);
+        dock.setOrientation(LinearLayout.VERTICAL);
+        dock.setBackgroundColor(P.bg);
+        dock.setPadding(dp(18), dp(12), dp(18), dp(18));
 
-        // v4.1.0：预览先铺一层「壁纸」，组件再叠在上面。
-        // 否则全透明档 + 深色主题（白字）在页面白底上就是白底白字，看着像没画东西。
-        LinearLayout stage = new LinearLayout(this);
-        stage.setOrientation(LinearLayout.VERTICAL);
-        stage.setBackgroundResource(R.drawable.widget_preview_stage);
-        stage.setPadding(dp(10), dp(10), dp(10), dp(10));
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.setMargins(0, dp(10), 0, 0);
-        card.addView(stage, slp);
-
-        LinearLayout preview = new LinearLayout(this);
-        previewBox = preview;
-        preview.setOrientation(LinearLayout.VERTICAL);
-        preview.setBackgroundResource(PickupWidgetProvider.backgroundRes(this));
-        preview.setPadding(dp(12), dp(12), dp(12), dp(12));
-        stage.addView(preview, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        View line = new View(this);
+        line.setBackgroundColor(0x1A888888);
+        dock.addView(line, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(0.8f))));
 
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        previewTitle = UiKit.text(this, "待取件", 18f, 0xFFFFFFFF);
-        previewTitle.setTypeface(null, Typeface.BOLD);
-        head.addView(previewTitle, new LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hlp.setMargins(0, dp(10), 0, dp(8));
+        dock.addView(head, hlp);
+
+        TextView title = UiKit.text(this, "小组件实时预览", 13f, P.muteInk);
+        head.addView(title, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        previewCount = UiKit.text(this, "2 个", 12f, 0xB3FFFFFF);
-        head.addView(previewCount);
-        preview.addView(head);
+
+        TextView action = UiKit.text(this, onDesktop ? "重新对齐" : "添加到桌面",
+                12.5f, P.accentInk);
+        action.setPadding(dp(14), dp(10), dp(2), dp(10));
+        if (onDesktop) {
+            action.setOnClickListener(v -> realign());
+        } else {
+            action.setOnClickListener(v -> WidgetPin.prompt(this));
+        }
+        head.addView(action);
+
+        // 没组件时不读旧图：那可能是上一个组件留下的，容易误导。
+        android.graphics.Bitmap bg = onDesktop ? WidgetBackdrop.load(this) : null;
+
+        float ratio;
+        if (bg != null && bg.getWidth() > 0) {
+            ratio = bg.getHeight() / (float) bg.getWidth();
+        } else {
+            float realW = Math.max(1f, (pl.right - pl.left) * screenW);
+            float realH = Math.max(1f, (pl.bottom - pl.top) * screenH);
+            ratio = realH / realW;
+        }
+
+        int availW = screenW - dp(18) * 2;
+        int maxH = (int) (screenH * 0.40f);
+        int boxW = availW;
+        int boxH = (int) (boxW * ratio);
+        if (boxH > maxH) {
+            boxH = maxH;
+            boxW = (int) (boxH / Math.max(0.01f, ratio));
+        }
+
+        android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
+        if (bg != null) {
+            stage.setBackground(new android.graphics.drawable.BitmapDrawable(getResources(), bg));
+        } else {
+            stage.setBackgroundResource(R.drawable.widget_preview_placeholder);
+        }
+        // 圆角裁切：桌面上的组件本身是圆角，这里跟着做才像
+        stage.setClipToOutline(true);
+        stage.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(android.view.View v, android.graphics.Outline o) {
+                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(18));
+            }
+        });
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(boxW, boxH);
+        slp.gravity = Gravity.CENTER_HORIZONTAL;
+        dock.addView(stage, slp);
+
+        // 内容按「真实组件宽度 → 卡片宽度」等比缩
+        float realW = Math.max(1f, (pl.right - pl.left) * screenW);
+        float k = boxW / realW;
+        k = Math.max(0.4f, Math.min(1.4f, k));
+
+        int padPx = (int) (WidgetBackdrop.PAD_DP_PX(this) * k);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(padPx, padPx, padPx, padPx);
+        stage.addView(content, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        previewBox = content;
+        previewScale = k;
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        previewTitle = UiKit.text(this, "取件记录", 18f * k, 0xFFFFFFFF);
+        previewTitle.setTypeface(null, Typeface.BOLD);
+        row.addView(previewTitle, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        previewCount = UiKit.text(this, "", 12f * k, 0xB3FFFFFF);
+        row.addView(previewCount);
+        content.addView(row);
 
         previewRows = new LinearLayout(this);
         previewRows.setOrientation(LinearLayout.VERTICAL);
-        preview.addView(previewRows, new LinearLayout.LayoutParams(
+        content.addView(previewRows, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        return card;
+        // 一行说明，只在「画面不是真桌面」时出现：
+        // 没组件 → 这是示例；有组件但还没抓到图 → 告诉他点右上角。
+        String hintText = null;
+        if (!onDesktop) {
+            hintText = "示例预览 · 添加到桌面后会自动换成你的桌面";
+        } else if (bg == null) {
+            hintText = "点右上角「重新对齐」，换成你的桌面背景";
+        }
+        if (hintText != null) {
+            TextView hint = UiKit.text(this, hintText, 11.5f, 0xE6FFFFFF);
+            hint.setGravity(Gravity.CENTER);
+            hint.setShadowLayer(dp(3), 0, dp(1), 0xB3000000);
+            android.widget.FrameLayout.LayoutParams hlp2 =
+                    new android.widget.FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT);
+            hlp2.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+            hlp2.bottomMargin = dp(6);
+            stage.addView(hint, hlp2);
+        }
+        return dock;
+    }
+
+    /** 开一次透明页抓背景，回来刷新界面 */
+    private void captureBackdrop() {
+        try {
+            android.util.Log.d("PICKUPDEBUG", "captureBackdrop: 启动抓取页");
+            Toast.makeText(this, "正在抓取桌面背景…", Toast.LENGTH_SHORT).show();
+            startActivityForResult(
+                    new android.content.Intent(this, BackdropCaptureActivity.class), REQ_BACKDROP);
+        } catch (Throwable t) {
+            Toast.makeText(this, "打不开抓取页：" + t, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_BACKDROP) {
+            if (resultCode == RESULT_OK) recreate();
+            else Toast.makeText(this,
+                    "没抓到背景（可能需要 root 授权），可以再试一次", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** 状态栏高度：整屏铺满后，标题栏要自己让出这一段 */
+    private int statusBarHeight() {
+        try {
+            int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+            if (id > 0) return getResources().getDimensionPixelSize(id);
+        } catch (Throwable ignored) { }
+        return dp(28);
     }
 
     /** 预览里加一行（picked = true 表示已取件那一行：划掉 + 变灰 + 无 ✓） */
@@ -416,9 +639,13 @@ public class WidgetSettingsActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        // 行高与真实布局的下限一致（真实布局按权重均分，实际会略大于 40dp）
+        // 行高与真实布局的下限一致（真实布局按权重均分，实际会略大于 40dp）。
+        // v4.1.0：再乘预览缩放系数——预览比真实组件小时，行高和字号要同步缩，
+        // 否则会出现「字小了、行没小」的错位。
+        float k = previewScale;
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(WidgetPrefs.ROW_DP));
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Math.max(dp(18), (int) (dp(WidgetPrefs.ROW_DP) * k)));
         previewRows.addView(row, rlp);
 
         boolean showCode = WidgetPrefs.showCode(this);
@@ -427,28 +654,29 @@ public class WidgetSettingsActivity extends Activity {
         // 已取的用与组件同一套「双横线」实现，避免预览和实际长得不一样
         CharSequence codeLabel = picked
                 ? PickupWidgetProvider.strikeText(codeText) : codeText;
-        TextView code = UiKit.text(this, "", 17f, picked ? fg(0x99) : fg(0xFF));
+        TextView code = UiKit.text(this, "", 17f * k, picked ? fg(0x99) : fg(0xFF));
         code.setText(codeLabel);   // 保留 Html 的删除线 span
         code.setTypeface(Typeface.create("monospace", Typeface.BOLD));
         if (!showCode) code.setText("");
         row.addView(code);
 
-        TextView place = UiKit.text(this, placeText, 11f,
+        TextView place = UiKit.text(this, placeText, 11f * k,
                 picked ? 0x80FFFFFF : 0xB3FFFFFF);
         place.setMaxLines(1);
         LinearLayout.LayoutParams plp2 = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        plp2.setMargins(dp(10), 0, dp(8), 0);
+        plp2.setMargins((int) (dp(10) * k), 0, (int) (dp(8) * k), 0);
         row.addView(place, plp2);
 
-        TextView check = UiKit.text(this, "✓", 16f, 0xFFFFFFFF);
+        TextView check = UiKit.text(this, "✓", 16f * k, 0xFFFFFFFF);
         check.setGravity(Gravity.CENTER);
         check.setBackgroundResource(R.drawable.widget_done_bg);
         if (picked) {
             // 已取的不再显示 ✓（小组件里也是这样）
             check.setVisibility(View.INVISIBLE);
         }
-        row.addView(check, new LinearLayout.LayoutParams(dp(28), dp(28)));
+        int box = Math.max(dp(16), (int) (dp(28) * k));
+        row.addView(check, new LinearLayout.LayoutParams(box, box));
 
         // 「显示取件地点」关掉时：地点列【保留占位】只清空文字——
         // 与真实小组件一致（PickupWidgetProvider.build 里也是 setViewVisibility(VISIBLE)
@@ -520,9 +748,8 @@ public class WidgetSettingsActivity extends Activity {
         boolean showAll = WidgetPrefs.showAll(this);
         boolean showCode = WidgetPrefs.showCode(this);
 
-        if (previewBox != null) {
-            previewBox.setBackgroundResource(PickupWidgetProvider.backgroundRes(this));
-        }
+        // v4.1.0：背景是「抓下来的实景图」，不再由这里画底色，
+        // 否则会把图片盖掉。文字色仍然按深浅主题走。
         previewTitle.setTextColor(fg(0xFF));
         previewCount.setTextColor(fg(0xB3));
         previewTitle.setText(showAll ? "取件记录" : "待取件");
@@ -535,16 +762,22 @@ public class WidgetSettingsActivity extends Activity {
             previewCount.setText("");
             TextView sum = UiKit.text(this,
                     showAll ? "2 个待取 · 1 个已取" : "2 个待取",
-                    16f, fg(0xFF));
+                    16f * previewScale, fg(0xFF));
             sum.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    Math.max(dp(30), (int) (dp(56) * previewScale)));
             previewRows.addView(sum, slp);
             return;
         }
-        addPreviewRow(false, "12-3-4567", "菜鸟驿站 · 1 号柜");
-        addPreviewRow(false, "58-2-9041", "顺丰速运 · 望江路驿站");
-        if (showAll) {
+        // 预览的条数跟着组件实际能放几行走：4×2 的组件在桌面上就是 2 条，
+        // 这里塞 3 条会顶到卡片底边（真机上出现过第三行贴边）。
+        // spanY 是组件占的行数，读不到时按 3 条估。
+        int maxRows = (placement != null && placement.spanY > 0) ? placement.spanY : 3;
+        int shown = 0;
+        if (shown < maxRows) { addPreviewRow(false, "12-3-4567", "菜鸟驿站 · 1 号柜"); shown++; }
+        if (shown < maxRows) { addPreviewRow(false, "58-2-9041", "顺丰速运 · 望江路驿站"); shown++; }
+        if (showAll && shown < maxRows) {
             // 全部信息模式：已取的也画出来（划掉 + 变灰 + 无 ✓）
             addPreviewRow(true);
         }
@@ -555,8 +788,8 @@ public class WidgetSettingsActivity extends Activity {
             LinearLayout r = (LinearLayout) row;
             TextView c = (TextView) r.getChildAt(0);
             TextView p = (TextView) r.getChildAt(1);
-            c.setTextSize(17f * scale);
-            p.setTextSize(11f * scale);
+            c.setTextSize(17f * scale * previewScale);
+            p.setTextSize(11f * scale * previewScale);
         }
     }
 

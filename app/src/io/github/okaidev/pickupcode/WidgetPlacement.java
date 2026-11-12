@@ -1,0 +1,320 @@
+package io.github.okaidev.pickupcode;
+
+import android.appwidget.AppWidgetManager;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.SharedPreferences;
+
+/**
+ * 桌面小组件在屏幕上的实际矩形（v4.1.0）。
+ *
+ * <p><b>为什么需要它</b>：外观页的预览要 1:1，就必须让预览框「站」在组件
+ * 在桌面上的那个位置。壁纸是系统按屏幕坐标铺的 —— 位置差一截，底下露出来的
+ * 就是另一块壁纸（上下明暗交错时，效果完全不同）。
+ *
+ * <p><b>位置从哪来</b>：桌面的布局数据库。{@code favorites} 表里躺着
+ * {@code cellX / cellY / spanX / spanY}，配 {@code appWidgetId} 就能定位到我们那个组件。
+ *
+ * <p>Android 没有公开 API 能给这个：{@link AppWidgetManager} 只给宽高、不给位置，
+ * 位置被当作 Launcher 的私有信息。所以这里要走 root 读库。
+ *
+ * <p><b>格子 → 像素是纯算术</b>：workspace 占屏幕纵向的 [{@link #WS_TOP},
+ * {@link #WS_BOTTOM}]，{@code rows} 行等分。这组数在 K90 Pro Max 上校准过 ——
+ * 由格子算出 831~1687，截图实测 831~1686，差 1 像素。
+ */
+public final class WidgetPlacement {
+
+    private static final String PREFS = "widget_placement";
+    private static final String K_TOP = "top";
+    private static final String K_BOTTOM = "bottom";
+    private static final String K_LEFT = "left";
+    private static final String K_RIGHT = "right";
+    private static final String K_ROWS = "rows";
+    private static final String K_COLS = "cols";
+    private static final String K_CELL_Y = "cellY";
+    private static final String K_SPAN_Y = "spanY";
+    private static final String K_CELL_X = "cellX";
+    private static final String K_SPAN_X = "spanX";
+    private static final String K_WIDGET_ID = "widgetId";
+
+    /** workspace 纵向占屏幕的比例：顶部是状态栏下方的留白，底部是 dock 上沿 */
+    private static final float WS_TOP = 0.072f;
+    private static final float WS_BOTTOM = 0.811f;
+
+    /** 常见的桌面包名。命中一个就够了，全部找不到才放弃。 */
+    private static final String[] LAUNCHER_PKGS = {
+            "com.miui.home",                        // 小米 / HyperOS
+            "com.hihonor.home",                     // 荣耀
+            "com.android.launcher3",                // AOSP
+            "com.google.android.apps.nexuslauncher",// Pixel
+            "com.coloros.launcher",                 // ColorOS
+            "com.oppo.launcher",
+            "com.bbk.launcher2",                    // vivo
+            "com.sec.android.app.launcher"          // 三星
+    };
+
+    /** 相对屏幕的比例，0~1 */
+    public float top, bottom, left, right;
+    public int cellX, cellY, spanX, spanY, rows = 9, cols = 5;
+    /** 这条记录属于哪个组件实例。换了组件（id 变了）缓存就该作废。 */
+    public int widgetId = -1;
+    /** true = 从桌面数据库读到的；false = 估的默认位置 */
+    public boolean fromDb;
+
+    // ==================== 对外 ====================
+
+    /**
+     * 拿组件的位置。优先用缓存，没有就去读桌面数据库。
+     *
+     * <p>会走 su，所以调用方必须是「用户主动点了某个按钮」的时机，
+     * 不能在打开页面时自动跑（那会弹 Magisk 授权）。
+     */
+    public static WidgetPlacement detect(Context ctx) {
+        WidgetPlacement cached = load(ctx);
+        if (cached != null) return cached;
+        WidgetPlacement p = readFromDb(ctx);
+        if (p != null) {
+            save(ctx, p);
+            return p;
+        }
+        return null;
+    }
+
+    /**
+     * 强制重测（v4.1.0）：跳过缓存，直接读一次桌面数据库。
+     *
+     * <p>用户把组件拉大拉小、或者换了位置之后，点「重新定位」走这里。
+     * 读到了会顺带刷新缓存。
+     */
+    public static WidgetPlacement remeasure(Context ctx) {
+        WidgetPlacement p = readFromDb(ctx);
+        if (p != null) save(ctx, p);
+        return p;
+    }
+
+    /** 只读缓存，不碰 su。页面初始化时用这个。 */
+    public static WidgetPlacement cached(Context ctx) {
+        WidgetPlacement p = load(ctx);
+        if (p == null) return null;
+        // 缓存属于另一个组件实例（用户删了重加、或换了尺寸）→ 作废。
+        // 否则会把上一个组件的形状套到新组件上（真机上出现过竖长条预览）。
+        int cur = firstWidgetId(ctx);
+        if (p.widgetId > 0 && cur > 0 && p.widgetId != cur) return null;
+        return p;
+    }
+
+    /**
+     * 读不到真实位置时的兜底：假设组件横跨整宽、垂直居中偏上。
+     *
+     * <p>大多数人的小组件都在这个范围，误差可接受；比「完全不预览」好得多。
+     */
+    public static WidgetPlacement fallback() {
+        WidgetPlacement p = new WidgetPlacement();
+        // 按「4 列 × 2 行、居中偏上」估：这是最常见的添加尺寸，
+        // 也是示例预览该有的样子 —— 横条，不是竖长条。
+        p.cols = 5;
+        p.rows = 9;
+        p.cellX = 0;
+        p.cellY = 2;
+        p.spanX = 4;
+        p.spanY = 2;
+        p.fromDb = false;
+        p.toRatios();
+        return p;
+    }
+
+    /**
+     * 桌面上有没有放我们的组件（v4.1.0）。
+     *
+     * <p>没有组件时，位置、背景、实时预览全都没有意义 —— 页面要换个样子，
+     * 否则用户看到一块空白的「预览」会很困惑。
+     */
+    public static boolean hasWidget(Context ctx) {
+        return firstWidgetId(ctx) >= 0;
+    }
+
+    public static void forget(Context ctx) {
+        try {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply();
+        } catch (Throwable ignored) { }
+    }
+
+    // ==================== 读桌面数据库 ====================
+
+    private static WidgetPlacement readFromDb(Context ctx) {
+        final int widgetId = firstWidgetId(ctx);
+        if (widgetId < 0) return null;
+
+        // 一次 su 里把所有候选包走完。
+        //
+        // 注意：**不能用 exit** —— RootShell 是常驻 shell，
+        // exit 会把整个通道杀掉，后面的结束标记读不到，调用方只能等超时
+        // （实测踩过：20 秒后 read timeout，输出永远是 null）。
+        // 所以用 RES 标志位层层 break。
+        StringBuilder sb = new StringBuilder();
+        sb.append("RES=''; for P in");
+        for (String pkg : LAUNCHER_PKGS) sb.append(' ').append(pkg);
+        sb.append("; do ");
+        sb.append("[ -n \"$RES\" ] && break; ");
+        sb.append("for B in /data/user_de/0 /data/data; do ");
+        sb.append("[ -n \"$RES\" ] && break; ");
+        sb.append("for F in $B/$P/databases/launcher*.db; do ");
+        sb.append("[ -f \"$F\" ] || continue; ");
+        // 一条 SQL 同时取：组件占哪几格 + 整个桌面用到的最右/最下边界。
+        // 后者就是网格的行列数 —— 只要桌面上有图标贴到边（几乎必然），推断就准。
+        // 不依赖「文件名里写了 5x9」这种小米特有的命名，别的 ROM 也能用。
+        sb.append("R=$(").append(RuntimePaths.SQLITE).append(" \"$F\" ")
+          // 用逗号拼成一个字段：sqlite3 默认的列分隔符是竖线，
+          // 和外面 HIT|路径| 的竖线会撞车（踩过）
+          .append("\"select cellX||','||cellY||','||spanX||','||spanY||','||")
+          .append("ifnull((select max(cellX+spanX) from favorites where container=-100),0)||','||")
+          .append("ifnull((select max(cellY+spanY) from favorites where container=-100),0) ")
+          .append("from favorites where appWidgetId=").append(widgetId)
+          .append(" and itemType=4 limit 1\" 2>/dev/null); ");
+        sb.append("[ -n \"$R\" ] && { RES=\"HIT|$F|$R\"; break; }; ");
+        sb.append("done; done; done; ");
+        sb.append("[ -n \"$RES\" ] && echo \"$RES\" || echo NONE");
+
+        String out;
+        try {
+            out = RootShell.exec(sb.toString(), 20000);
+        } catch (Throwable t) {
+            android.util.Log.w("PICKUPDEBUG", "placement exec 抛错: " + t);
+            return null;
+        }
+        android.util.Log.d("PICKUPDEBUG", "placement id=" + widgetId + " 输出=" + out);
+        if (out == null) return null;
+        out = out.trim();
+        int hit = out.indexOf("HIT|");
+        if (hit < 0) return null;
+
+        try {
+            String line = out.substring(hit);
+            String[] seg = line.split("\\|");
+            if (seg.length < 3) return null;
+            String dbPath = seg[1];
+            String[] v = seg[2].trim().split(",");
+            if (v.length < 4) return null;
+
+            WidgetPlacement p = new WidgetPlacement();
+            p.cellX = Integer.parseInt(v[0].trim());
+            p.cellY = Integer.parseInt(v[1].trim());
+            p.spanX = Integer.parseInt(v[2].trim());
+            p.spanY = Integer.parseInt(v[3].trim());
+            p.widgetId = widgetId;
+            p.fromDb = true;
+
+            // 网格行列：优先用「桌面用到的最右/最下边界」推断。
+            // 只有当推断值不比组件自身大（说明桌面上没有别的图标贴到边，
+            // 这种情况极罕见）时，才退回文件名里的规格。
+            int inferredCols = v.length > 4 ? parseIntOr(v[4], 0) : 0;
+            int inferredRows = v.length > 5 ? parseIntOr(v[5], 0) : 0;
+            int[] fromName = gridFromName(dbPath);
+            p.cols = (inferredCols > p.spanX && inferredCols <= 12) ? inferredCols : fromName[0];
+            p.rows = (inferredRows > p.spanY && inferredRows <= 14) ? inferredRows : fromName[1];
+
+            p.toRatios();
+            return p;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static int parseIntOr(String s, int def) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (Throwable t) {
+            return def;
+        }
+    }
+
+    /**
+     * 从 {@code launcher5x9.db} 这种文件名里读出列×行。
+     *
+     * <p>这只是<b>第二选择</b>：绝大多数情况下网格已经从数据库边界推断出来了，
+     * 这里只在推断不可用时兜底。最后的 {@code 5×9} 是「连文件名都读不出」时的
+     * 保底值，仅仅为了让预览框有个初始尺寸，不是假设用户都长这样。
+     */
+    private static int[] gridFromName(String path) {
+        try {
+            String name = path.substring(path.lastIndexOf('/') + 1);
+            java.util.regex.Matcher m =
+                    java.util.regex.Pattern.compile("(\\d+)[xX](\\d+)").matcher(name);
+            if (m.find()) {
+                int c = Integer.parseInt(m.group(1));
+                int r = Integer.parseInt(m.group(2));
+                if (c >= 3 && c <= 8 && r >= 4 && r <= 12) return new int[]{c, r};
+            }
+        } catch (Throwable ignored) { }
+        return new int[]{5, 9};
+    }
+
+    /** 把格子坐标换算成屏幕比例 */
+    private void toRatios() {
+        float wsH = WS_BOTTOM - WS_TOP;
+        float cellH = wsH / Math.max(1, rows);
+        float cellW = 1f / Math.max(1, cols);
+        top = WS_TOP + cellY * cellH;
+        bottom = WS_TOP + (cellY + spanY) * cellH;
+        left = cellX * cellW;
+        right = (cellX + spanX) * cellW;
+        // 夹一下，防止脏数据把预览推到屏幕外
+        top = Math.max(0f, Math.min(0.95f, top));
+        bottom = Math.max(top + 0.05f, Math.min(1f, bottom));
+    }
+
+    private static int firstWidgetId(Context ctx) {
+        try {
+            AppWidgetManager awm = AppWidgetManager.getInstance(ctx);
+            // 用字符串形式的 ComponentName：不触发 PickupWidgetProvider 的类加载，
+            // 与 WidgetPresence 保持同一套写法。
+            int[] ids = awm.getAppWidgetIds(
+                    new ComponentName(ctx.getPackageName(), WidgetPresence.PROVIDER_CLASS));
+            if (ids != null && ids.length > 0) return ids[0];
+        } catch (Throwable ignored) { }
+        return -1;
+    }
+
+    // ==================== 缓存 ====================
+
+    private static WidgetPlacement load(Context ctx) {
+        try {
+            SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            if (!sp.contains(K_TOP)) return null;
+            WidgetPlacement p = new WidgetPlacement();
+            p.top = sp.getFloat(K_TOP, 0.33f);
+            p.bottom = sp.getFloat(K_BOTTOM, 0.62f);
+            p.left = sp.getFloat(K_LEFT, 0f);
+            p.right = sp.getFloat(K_RIGHT, 1f);
+            p.rows = sp.getInt(K_ROWS, 9);
+            p.cols = sp.getInt(K_COLS, 5);
+            p.cellX = sp.getInt(K_CELL_X, 0);
+            p.cellY = sp.getInt(K_CELL_Y, 0);
+            p.spanX = sp.getInt(K_SPAN_X, 1);
+            p.spanY = sp.getInt(K_SPAN_Y, 1);
+            p.widgetId = sp.getInt(K_WIDGET_ID, -1);
+            p.fromDb = true;
+            return p;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static void save(Context ctx, WidgetPlacement p) {
+        try {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                    .putFloat(K_TOP, p.top)
+                    .putFloat(K_BOTTOM, p.bottom)
+                    .putFloat(K_LEFT, p.left)
+                    .putFloat(K_RIGHT, p.right)
+                    .putInt(K_ROWS, p.rows)
+                    .putInt(K_COLS, p.cols)
+                    .putInt(K_CELL_X, p.cellX)
+                    .putInt(K_CELL_Y, p.cellY)
+                    .putInt(K_SPAN_X, p.spanX)
+                    .putInt(K_SPAN_Y, p.spanY)
+                    .putInt(K_WIDGET_ID, p.widgetId)
+                    .apply();
+        } catch (Throwable ignored) { }
+    }
+}

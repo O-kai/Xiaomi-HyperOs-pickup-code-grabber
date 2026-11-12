@@ -95,6 +95,14 @@
             android:exported="false"
             android:theme="@style/AppTheme.NoActionBar" />
 
+        <!-- v4.1.0：一次性的背景抓取页。全屏透明，截完立即关闭，用户只看到闪一下。 -->
+        <activity
+            android:name=".BackdropCaptureActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/AppTheme.Wallpaper" />
+
         <!-- v4.0.3 临时诊断页：小组件 RemoteViews 自检（定位「载入窗口小部件时出现问题」） -->
         <activity
             android:name=".WidgetDiagActivity"

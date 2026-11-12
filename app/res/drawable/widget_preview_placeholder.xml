@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  预览占位底（v4.1.0）。
+
+  用在哪：桌面上还没有组件、或者还没抓到真实背景时。
+  作用：让「实时预览」在这种状态下依然是一块像桌面的画面 ——
+  用户可以照常调字号、配色、显示项并立刻看到效果，
+  而不是对着一块空白或者一句「请先添加组件」发愣。
+
+  配色取中性深灰蓝：和大多数深色壁纸接近，白色取件码在上面清楚，
+  也不会像纯黑那样显得像「加载失败」。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:startColor="#FF3A4250"
+        android:centerColor="#FF2B313C"
+        android:endColor="#FF1D222A"
+        android:type="linear" />
+</shape>

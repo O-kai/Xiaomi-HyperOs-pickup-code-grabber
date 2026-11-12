@@ -239,8 +239,26 @@ public final class UiKit {
      * 语义色决定所有文字颜色，晚一步就会先闪一下浅色底。
      */
     public static void applyTheme(Activity a) {
+        applyTheme(a, false);
+    }
+
+    /**
+     * 应用主题（v4.1.0 增加 wallpaper 变体）。
+     *
+     * <p>{@code wallpaper=true} 时用「透壁纸」主题：窗口背景透明 +
+     * {@code windowShowWallpaper}，系统会把真实壁纸画在窗口后面。
+     * 外观页靠它做 1:1 预览 —— 不是截图、不是读图，是系统自己那一份渲染。
+     *
+     * <p>深浅两版都要有，否则 setTheme 会把 windowIsTranslucent 冲掉，
+     * 预览区退化成一块白底（实测过）。
+     */
+    public static void applyTheme(Activity a, boolean wallpaper) {
         boolean dark = isDark(a);
-        a.setTheme(dark ? R.style.AppTheme_NoActionBar_Dark : R.style.AppTheme_NoActionBar);
+        if (wallpaper) {
+            a.setTheme(dark ? R.style.AppTheme_Wallpaper_Dark : R.style.AppTheme_Wallpaper);
+        } else {
+            a.setTheme(dark ? R.style.AppTheme_NoActionBar_Dark : R.style.AppTheme_NoActionBar);
+        }
         if (dark) {
             INK = 0xFFEDEDED; INK2 = 0xFFC6C6CE; INK3 = 0xFF8B8B95;
             OK = 0xFF5FBF87; OK_SOFT = 0xFF1C2D24;
