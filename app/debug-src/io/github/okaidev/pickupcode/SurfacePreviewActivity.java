@@ -12,6 +12,18 @@ import android.widget.TextView;
 public final class SurfacePreviewActivity extends Activity {
     private static final int ISLAND_SAMPLE_ID = 1009;
 
+    public static final class DismissReceiver extends android.content.BroadcastReceiver {
+        @Override public void onReceive(android.content.Context context, android.content.Intent intent) {
+            context.getSystemService(android.app.NotificationManager.class).cancel(ISLAND_SAMPLE_ID);
+        }
+    }
+
+    @Override protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        recreate();
+    }
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         if (getIntent().getBooleanExtra("dismiss_island_sample", false)) {
@@ -72,11 +84,10 @@ public final class SurfacePreviewActivity extends Activity {
     private void postIslandSample() {
         android.content.Intent preview = new android.content.Intent(this, SurfacePreviewActivity.class)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        android.content.Intent dismiss = new android.content.Intent(preview)
-                .putExtra("dismiss_island_sample", true);
+        android.content.Intent dismiss = new android.content.Intent(this, DismissReceiver.class);
         int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE;
         android.app.PendingIntent open = android.app.PendingIntent.getActivity(this, 9109, preview, flags);
-        android.app.PendingIntent close = android.app.PendingIntent.getActivity(this, 9110, dismiss, flags);
+        android.app.PendingIntent close = android.app.PendingIntent.getBroadcast(this, 9110, dismiss, flags);
         android.graphics.drawable.Icon icon = android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_pickup_parcel);
         android.app.Notification.Action openAction = new android.app.Notification.Action.Builder(icon, "查看示例", open).build();
         android.app.Notification.Action closeAction = new android.app.Notification.Action.Builder(icon, "结束验证", close).build();

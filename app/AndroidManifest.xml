@@ -22,6 +22,7 @@
         <package android:name="com.miui.notes" />
         <package android:name="com.cainiao.wireless" />
         <package android:name="com.xunmeng.pinduoduo" />
+        <package android:name="com.xiaomi.subscreencenter" />
         <!-- v4.1.0：荣耀侧的目标 App（日历待办写入、信息抓取、备忘录诊断） -->
         <package android:name="com.hihonor.calendar" />
         <package android:name="com.hihonor.mms" />
@@ -67,8 +68,10 @@
              调用方由 CallerPolicy 按 UID/包名校验，见 TodoProvider.java -->
         <provider
             android:name=".TodoProvider"
-            android:authorities="io.github.okaidev.pickupcode.provider"
+            android:authorities="${applicationId}.provider"
             android:exported="true" />
+
+        <receiver android:name=".NotificationDoneReceiver" android:exported="false" />
 
         <!-- v3.0.0：全部页面使用无系统标题栏主题，避免与页面自绘头部重复 -->
         <activity

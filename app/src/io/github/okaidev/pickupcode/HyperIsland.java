@@ -55,6 +55,9 @@ final class HyperIsland {
         actions.putParcelable(OPEN, open);
         actions.putParcelable(DONE, done);
         extras.putBundle("miui.focus.actions", actions);
+        if (RearScreen.available(context)) {
+            extras.putAll(RearScreen.extras(context, code, place, count, open, done, alert));
+        }
         return extras;
     }
 

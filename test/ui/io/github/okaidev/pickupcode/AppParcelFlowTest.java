@@ -35,7 +35,7 @@ import static org.robolectric.Shadows.shadowOf;
 
 /** Real parser -> authorized Provider -> Room -> notification/RemoteViews, synthetic data only. */
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = 28, manifest = Config.NONE, qualifiers = "mdpi")
+@Config(sdk = 28, qualifiers = "mdpi")
 @LooperMode(LooperMode.Mode.PAUSED)
 public class AppParcelFlowTest {
     private static final int PDD_UID = 10456;
@@ -102,18 +102,21 @@ public class AppParcelFlowTest {
             assertEquals(snapshot.items.get(0).code,
                     ((TextView) card.findViewById(R.id.widget_code_1)).getText().toString());
 
-            assertEquals(1, (int) binder.submit(() -> repository.markDoneByCodeSync("12-3-4567"))
-                    .get(5, TimeUnit.SECONDS));
-            assertEquals(1, settle(repository).pendingTotal);
+            String completedCode = notification.extras.getString(Notification.EXTRA_TITLE);
+            String remainingCode = "12-3-4567".equals(completedCode) ? "58-2-9041" : "12-3-4567";
+            assertTrue(shadowOf(notification.actions[0].actionIntent).isBroadcast());
+            notification.actions[0].actionIntent.send();
+            awaitPending(repository, 1);
+            assertNull(shadowOf((android.app.Application) context).getNextStartedActivity());
             Notification remaining = manager.getActiveNotifications()[0].getNotification();
-            assertEquals("58-2-9041", remaining.extras.getString(Notification.EXTRA_TITLE));
+            assertEquals(remainingCode, remaining.extras.getString(Notification.EXTRA_TITLE));
             assertTrue((remaining.flags & Notification.FLAG_ONLY_ALERT_ONCE) != 0);
 
             // An App reload with the same code must not reopen a completed local record.
             Bundle reload = binder.submit(() -> {
                 ShadowBinder.setCallingUid(PDD_UID);
                 Bundle data = new Bundle();
-                data.putString("code", "12-3-4567");
+                data.putString("code", completedCode);
                 data.putString("place", "—");
                 return provider.call("onAppParcel", AppParcelData.PINDUODUO, data);
             }).get(5, TimeUnit.SECONDS);
@@ -121,13 +124,21 @@ public class AppParcelFlowTest {
             assertEquals(1, settle(repository).pendingTotal);
             assertEquals(2, (int) binder.submit(repository::countAllSync).get(5, TimeUnit.SECONDS));
 
-            assertEquals(1, (int) binder.submit(() -> repository.markDoneByCodeSync("58-2-9041"))
-                    .get(5, TimeUnit.SECONDS));
-            assertEquals(0, settle(repository).pendingTotal);
+            remaining.actions[0].actionIntent.send();
+            awaitPending(repository, 0);
             assertEquals(0, manager.getActiveNotifications().length);
         } finally {
             binder.shutdownNow();
         }
+    }
+
+    private static void awaitPending(PickupRepository repository, int expected) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            if (settle(repository).pendingTotal == expected) return;
+            Thread.sleep(10);
+        }
+        assertEquals(expected, settle(repository).pendingTotal);
     }
 
     private static JSONObject row(int status, Object code) throws Exception {

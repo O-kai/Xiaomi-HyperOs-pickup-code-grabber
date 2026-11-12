@@ -133,9 +133,12 @@ public class Notifier {
     }
 
     private static PendingIntent action(Context ctx, String key, String code, int request) {
-        Intent intent = new Intent(ctx, NotificationActionActivity.class)
+        boolean done = "done".equals(key);
+        Intent intent = new Intent(ctx, done ? NotificationDoneReceiver.class : NotificationActionActivity.class)
                 .setData(Uri.parse("pickupcode://notification/" + key + "/" + Uri.encode(code)))
                 .putExtra(key, code);
+        if (done) return PendingIntent.getBroadcast(ctx, request, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return PendingIntent.getActivity(ctx, request, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }

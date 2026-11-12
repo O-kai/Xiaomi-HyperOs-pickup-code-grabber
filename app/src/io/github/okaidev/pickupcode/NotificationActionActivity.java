@@ -17,7 +17,8 @@ import android.widget.Toast;
  * 现在：
  *  - 本 Activity exported=false，只能由本 App 的 PendingIntent 启动；
  *  - copy：前台剪贴板 + 打开目标待办 App；
- *  - done：校验码形 → 后台执行标记 → 提示结果 → 打开目标 App；
+ *  - done：保留旧通知 PendingIntent 的兼容入口；新通知通过
+ *    {@link NotificationDoneReceiver} 直接在后台标记，不启动页面；
  *  - LauncherActivity 不再读取这两个 extra。
  */
 public class NotificationActionActivity extends Activity {

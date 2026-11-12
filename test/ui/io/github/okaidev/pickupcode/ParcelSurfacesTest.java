@@ -131,6 +131,72 @@ public class ParcelSurfacesTest {
         assertEquals("2 件待取", params.getString("aodTitle"));
     }
 
+    @Test public void rearScreenGetsDedicatedCardAndCodeFreeAodOnlyWhenHostExists() throws Exception {
+        assertFalse(notification("12-3-4567").extras.containsKey(RearScreen.VIEW));
+        android.content.pm.PackageInfo host = new android.content.pm.PackageInfo();
+        host.packageName = "com.xiaomi.subscreencenter";
+        host.applicationInfo = new android.content.pm.ApplicationInfo();
+        host.applicationInfo.packageName = host.packageName;
+        shadowOf(context.getPackageManager()).installPackage(host);
+        Notification notification = notification("12-3-4567");
+        JSONObject rear = new JSONObject(notification.extras.getString(RearScreen.PARAM))
+                .getJSONObject("rear_param_v1");
+        assertEquals("express", rear.getString("business"));
+        assertTrue(rear.getBoolean("enableFloat"));
+        android.widget.RemoteViews card = notification.extras.getParcelable(RearScreen.VIEW);
+        View visible = card.apply(context, new FrameLayout(context));
+        assertEquals("12-3-4567", ((TextView) visible.findViewById(R.id.rear_code)).getText().toString());
+        assertTrue(visible.findViewById(R.id.rear_done).hasOnClickListeners());
+        android.widget.RemoteViews aod = notification.extras.getParcelable(RearScreen.AOD);
+        View sleeping = aod.apply(context, new FrameLayout(context));
+        assertEquals("2 件待取", ((TextView) sleeping.findViewById(R.id.rear_count)).getText().toString());
+        assertNull(sleeping.findViewById(R.id.rear_code));
+        assertNull(sleeping.findViewById(R.id.rear_place));
+        assertNull(sleeping.findViewById(R.id.rear_done));
+        assertFalse(notification.publicVersion.extras.containsKey(RearScreen.VIEW));
+        assertFalse(notification.publicVersion.extras.containsKey(RearScreen.AOD));
+    }
+
+    @Test public void rearCardFitsLongCodesAndKeepsUpdatesSilent() throws Exception {
+        Notification base = notification("12-3-4567");
+        android.os.Bundle extras = RearScreen.extras(context, "AB12-CD34-EF56-GH7890", "示例驿站", 2,
+                base.actions[1], base.actions[0], false);
+        assertFalse(new JSONObject(extras.getString(RearScreen.PARAM))
+                .getJSONObject("rear_param_v1").getBoolean("enableFloat"));
+        assertTrue(new JSONObject(extras.getString(RearScreen.PARAM))
+                .getJSONObject("rear_param_v1").getBoolean("disable_popup"));
+        android.widget.RemoteViews remote = extras.getParcelable(RearScreen.VIEW);
+        View card = remote.apply(context, new FrameLayout(context));
+        card.measure(View.MeasureSpec.makeMeasureSpec(224, 1073741824),
+                View.MeasureSpec.makeMeasureSpec(196, 1073741824));
+        card.layout(0, 0, 224, 196);
+        TextView code = card.findViewById(R.id.rear_code);
+        assertTrue(code.getPaint().measureText(code.getText().toString()) <= code.getWidth() + 1);
+        assertTrue(card.findViewById(R.id.rear_done).getBottom() <= 196);
+    }
+
+    @Test @Config(sdk = 34) public void rearCardAndAodAvoid17ProMaxCameraCutout() throws Exception {
+        org.robolectric.shadows.ShadowBuild.setDevice("popsicle");
+        Notification base = notification("12-3-4567");
+        android.os.Bundle extras = RearScreen.extras(context, "AB12-CD34-EF56-GH7890", "示例驿站", 2,
+                base.actions[1], base.actions[0], true);
+        for (String key : Arrays.asList(RearScreen.VIEW, RearScreen.AOD)) {
+            android.widget.RemoteViews remote = extras.getParcelable(key);
+            View card = remote.apply(context, new FrameLayout(context));
+            card.measure(View.MeasureSpec.makeMeasureSpec(347, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(212, View.MeasureSpec.EXACTLY));
+            card.layout(0, 0, 347, 212);
+            View content = card.findViewById(R.id.rear_content);
+            assertTrue(content.getLeft() >= 106);
+            assertTrue(content.getRight() <= 347);
+            TextView code = card.findViewById(R.id.rear_code);
+            if (code != null) {
+                assertTrue(code.getPaint().measureText(code.getText().toString()) <= code.getWidth() + 1);
+                assertTrue(card.findViewById(R.id.rear_done).getBottom() <= 212);
+            }
+        }
+    }
+
     @Test public void updatingNotificationDoesNotRetargetAnOldCodePendingIntent() {
         Notification old = notification("12-3-4567");
         notification("99-1-2345");

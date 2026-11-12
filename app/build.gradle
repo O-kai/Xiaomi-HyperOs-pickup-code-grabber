@@ -172,6 +172,13 @@ android {
     }
 
     buildTypes {
+        // Separate package for device surface checks when the installed app uses another key.
+        surfaceProbe {
+            initWith debug
+            applicationIdSuffix '.surfaceprobe'
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['debug']
+        }
         release {
             minifyEnabled false
             if (project.hasProperty('PICKUP_KEYSTORE')) {
@@ -192,6 +199,10 @@ android {
 
     // 非标准源码布局，与 Termux 手工构建脚本保持一致
     sourceSets {
+        surfaceProbe {
+            java.srcDirs = ['debug-src']
+            manifest.srcFile 'surface-probe/AndroidManifest.xml'
+        }
         debug {
             java.srcDirs = ['debug-src']
             manifest.srcFile 'debug/AndroidManifest.xml'
@@ -208,6 +219,13 @@ android {
             // 新版 LSPosed 用它来生成「推荐作用域」。
             resources.srcDirs = ['resources']
         }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType('surfaceProbe')) { variant ->
+        // A renderer probe must not be discovered as a second LSPosed module.
+        variant.packaging.resources.excludes.add('META-INF/xposed/**')
     }
 }
 
