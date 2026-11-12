@@ -72,6 +72,27 @@ git push git@github.com:O-kai/Xiaomi-HyperOs-pickup-code-grabber.git v4.0.3
       - 发完 5~60 分钟内，模块商店页会自动刷新
 - [ ] 操作细节与截图见 `docs/RELEASE-MANUAL-STEPS.md`
 
+### ⛔ Release 正文只能从 tag 取（4.1.0 事故）
+
+4.1.0 的镜像 Release 把**未发布**的小组件改动（预览背景、预览固定底部）写进了正文。
+原因不是抄错，是**取错了版本**：`docs/release-notes-4.1.0.md` 在发版后又跟着
+`release/4.0` 往前走了三个提交，发布时读的是工作区文件，不是 tag 里的那份。
+
+发版动作用这条，别用 `cat` / Read 工作区：
+
+```bash
+# 主仓与镜像仓的 Release 正文，都从 tag 的树里取
+git show v4.1.0:docs/release-notes-4.1.0.md   > /tmp/release-body.md
+git show 410-4.1.0:docs/release-notes-4.1.0.md  # 镜像 tag 指向同一份
+```
+
+配套两条纪律：
+
+1. **发布后该文件即冻结**，下一版的正文写到 `docs/release-notes-next.md`（发版时再改名），
+   CHANGELOG 里也另起 `## [未发布]`，不要往已发版的段落里追加；
+2. 发完做一次**逐字比对**，主仓与镜像仓的正文必须完全相同：
+   `GET /repos/{repo}/releases/tags/{tag}` → 比 `body`。差一个段落就是有问题。
+
 ---
 
 ## 4. 已知的、发布时要写进说明的事
