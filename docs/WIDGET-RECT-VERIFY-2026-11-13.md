@@ -13,9 +13,10 @@
    `dump favorites`，没有 `View Hierarchy:`；但**它顺带打出了整份 favorites**，格子数据不用 root 也能拿。
 5. **数据库路径不是 `/data/data/com.miui.home/databases/launcher.db`**，
    实际是 `/data/user_de/0/com.miui.home/databases/launcher5x9.db`。
-6. **最关键的修正**：本模块的 LSPosed 作用域里**没有 `com.miui.home`**
-   （只有 phone / mms / system / telephony），所以 `LauncherProbe` 从来没被加载过。
-   「USAP 挡住注入」的旧结论不成立——usap64 池进程本身在 LSPosed 日志里就有注入记录。
+6. **作用域现状（不是新方案）**：当前 scope 里没有 `com.miui.home`，所以探针现在没数据。
+   但 11-12 已经验证过「有作用域也不注入」：scope 行在、`enabled=1`、重启桌面两次 + 重启手机一次，
+   日志里仍然没有 `(com.miui.home)[...]`，探针文件始终没生成。
+   **「勾上桌面作用域再试一次」是重复已失败的实验，不作推荐。** 详见 `WIDGET-RECT-SOURCES.md` 第 7 节。
 
 ## 1. 设备与进程
 
@@ -157,27 +158,34 @@ from favorites where itemType=4;
 
 ## 6. 修正后的实现方案
 
-### 6.1 前置：把桌面加进作用域（必须先做）
+### 6.1 前置：这条路已被证伪，不要重试
 
-- 目标包名：`com.miui.home`（用 `PackageManager` 查默认桌面，别写死）。
-- 当前作用域只有 4 项，等于 `scope.list` 的推荐集合——**覆盖安装后大概率被重置**，
-  这解释了「以前勾过、后来没数据」。
-- 加完必须重启桌面进程（`am force-stop com.miui.home` 后回桌面）或重启手机。
+- 11-12 实测：作用域写入 `com.miui.home`（db `user_id=0`）、模块 `enabled=1`，
+  重启桌面两次 + 重启手机一次，LSPosed 日志没有 `(com.miui.home)[...]`，探针文件没生成。
+- 11-13 当前 scope 里那一行已经没了（大概率是 4.1.0 覆盖安装重置成推荐集合），
+  但补回去也改变不了上面的结果。
+- 代码（`LauncherProbe`）保留，等换 LSPosed 版本或 ROM 时再验证；现阶段用第 6.4 节的两条路。
 
-### 6.2 Hook 点
+### 6.2 Hook 点（仅作为将来恢复时的参考）
+
+不要只 hook `onLayout`：MIUI 的子类若重写它又没调 super，基类 hook 收不到。
+更稳的是从组件的创建点挂布局监听：
 
 ```
-进程：com.miui.home
-类：  android.appwidget.AppWidgetHostView（及其 MIUI 子类，findClassIfExists）
-方法：onLayout(boolean changed, int l, int t, int r, int b)
-时机：afterHookedMethod
-读取：getLocationOnScreen(int[2]) + getWidth()/getHeight()
-过滤：AppWidgetManager.getAppWidgetInfo(id).provider.getPackageName().equals(本包)
-节流：矩形变化超过 1px 才写；每次 layout 都写会拖慢桌面
+hook android.appwidget.AppWidgetHost#createView(Context, int, AppWidgetProviderInfo) after
+    AppWidgetHostView v = (AppWidgetHostView) result;
+    AppWidgetProviderInfo info = AppWidgetManager.getInstance(ctx).getAppWidgetInfo(id);
+    if (!"io.github.okaidev.pickupcode".equals(info.provider.getPackageName())) return;
+    v.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+        int[] p = new int[2];
+        v.getLocationOnScreen(p);
+        Rect r = new Rect(p[0], p[1], p[0] + v.getWidth(), p[1] + v.getHeight());
+        if (!r.equals(last)) write(r);      // 变化超过 1px 才写
+    });
 ```
 
-`onLayout` 的 `l/t/r/b` 是相对父容器的，**不能直接当屏幕坐标**；
-必须 `getLocationOnScreen`。这也是 4.1 里 `LauncherProbe` 已经做对的部分。
+`onLayout` 的 `l/t/r/b` 是相对父容器的，**不能直接当屏幕坐标**——4.1 的 `LauncherProbe`
+这点做对了（用的是 `getLocationOnScreen`），但 hook 点选得浅。
 
 ### 6.3 透出方式
 
