@@ -34,6 +34,9 @@ public class WidgetA11yService extends AccessibilityService {
     private static final String TAG = "PICKUPDEBUG";
     static final String FILE_NAME = "a11y_widget_rect.txt";
 
+    private int cellW, cellH, spanX, spanY;
+    private Rect lastRect;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable probeTask = this::probeSafely;
 
@@ -49,7 +52,8 @@ public class WidgetA11yService extends AccessibilityService {
         if (event == null) return;
         int type = event.getEventType();
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
-                && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+                && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED
+                && type != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             return;
         }
         CharSequence pkg = event.getPackageName();
@@ -65,9 +69,11 @@ public class WidgetA11yService extends AccessibilityService {
     }
 
     private void scheduleProbe() {
-        // 等布局稳定
+        // 桌面切换有动画，单次 600ms 容易扑空；退避重试三次
         handler.removeCallbacks(probeTask);
         handler.postDelayed(probeTask, 600L);
+        handler.postDelayed(probeTask, 1600L);
+        handler.postDelayed(probeTask, 3200L);
     }
 
     @Override
@@ -77,8 +83,14 @@ public class WidgetA11yService extends AccessibilityService {
     private void probeSafely() {
         try {
             Rect rect = probe();
-            if (rect != null) write(rect);
-            else Log.i(TAG, "a11y probe: no widget node");
+            if (rect != null) {
+                if (!rect.equals(lastRect)) {
+                    lastRect = new Rect(rect);
+                    write(rect);
+                }
+            } else {
+                Log.i(TAG, "a11y probe: no widget node");
+            }
         } catch (Throwable t) {
             Log.w(TAG, "a11y probe err: " + t);
         }
@@ -86,54 +98,109 @@ public class WidgetA11yService extends AccessibilityService {
 
     private Rect probe() {
         List<AccessibilityWindowInfo> windows = getWindows();
-        Log.i(TAG, "a11y windows=" + (windows == null ? 0 : windows.size()));
         if (windows == null) return null;
         for (AccessibilityWindowInfo w : windows) {
             AccessibilityNodeInfo root = w.getRoot();
             if (root == null) continue;
             CharSequence p = root.getPackageName();
-            Rect wb = new Rect();
-            w.getBoundsInScreen(wb);
-            Log.i(TAG, "  win pkg=" + p + " bounds=" + wb + " children=" + root.getChildCount());
             if (p == null || !isLauncher(p.toString())) continue;
-            Rect r = findCard(root, 0);
+            Rect host = findHost(root, 0);
+            if (host == null) continue;
+
+            Rect card = largestChildOfHost(root, host);
+            if (card == null) card = host;
+
+            // 用桌面上任意 1x1 图标的像素尺寸反推格子数（不读桌面私有库）
+            int[] icon = measureIcon(root, host);
+            if (icon != null) {
+                cellW = icon[0];
+                cellH = icon[1];
+                spanX = Math.max(1, Math.min(12, Math.round(host.width() / (float) cellW)));
+                spanY = Math.max(1, Math.min(14, Math.round(host.height() / (float) cellH)));
+            } else {
+                cellW = cellH = spanX = spanY = 0;
+            }
+            Log.i(TAG, "a11y card=" + card + " host=" + host
+                    + " cell=" + cellW + "x" + cellH + " span=" + spanX + "x" + spanY);
+            return card;
+        }
+        return null;
+    }
+
+    /** 找到 host 节点（组件标签 + 尺寸合理） */
+    private Rect findHost(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 40) return null;
+        Rect b = new Rect();
+        node.getBoundsInScreen(b);
+        CharSequence cd = node.getContentDescription();
+        CharSequence text = node.getText();
+        boolean labeled = cd != null && getString(R.string.app_name).contentEquals(cd);
+        boolean title = text != null && text.toString().contains("待取件");
+        if (labeled && plausible(b)) return new Rect(b);
+        if (title) {
+            Rect up = walkUp(node, 0);
+            if (up != null) return up;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            Rect r = findHost(node.getChild(i), depth + 1);
             if (r != null) return r;
         }
         return null;
     }
 
-    private Rect findCard(AccessibilityNodeInfo node, int depth) {
-        if (node == null || depth > 40) return null;
+    /** host 的子节点里最大的那个 = 可见卡片 */
+    private Rect largestChildOfHost(AccessibilityNodeInfo node, Rect host) {
+        AccessibilityNodeInfo found = findLabeledNode(node, 0);
+        if (found == null) return null;
+        return largestChild(found, host);
+    }
 
+    private AccessibilityNodeInfo findLabeledNode(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 40) return null;
+        CharSequence cd = node.getContentDescription();
         Rect b = new Rect();
         node.getBoundsInScreen(b);
-        CharSequence cd = node.getContentDescription();
-        CharSequence text = node.getText();
-
-        boolean labeled = cd != null && getString(R.string.app_name).contentEquals(cd);
-        boolean title = text != null && text.toString().contains("待取件");
-
-        if (labeled && plausible(b)) {
-            Rect inner = largestChild(node, b);
-            Log.i(TAG, "a11y card by label: host=" + b + " inner=" + inner);
-            return inner != null ? inner : new Rect(b);
-        }
-        if (title) {
-            Rect up = walkUp(node, 0);
-            if (up != null) {
-                Log.i(TAG, "a11y card by title: " + up);
-                return up;
-            }
-        }
-
-        int n = node.getChildCount();
-        for (int i = 0; i < n; i++) {
-            AccessibilityNodeInfo c = node.getChild(i);
-            if (c == null) continue;
-            Rect r = findCard(c, depth + 1);
+        if (cd != null && getString(R.string.app_name).contentEquals(cd) && plausible(b)) return node;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo r = findLabeledNode(node.getChild(i), depth + 1);
             if (r != null) return r;
         }
         return null;
+    }
+
+    /**
+     * 桌面上的 1x1 图标：近似正方形、带标签、子节点不超过 1 个。
+     *
+     * <p>实测 MIUI/HyperOS 的桌面不给图标节点暴露标签（icons=0），这条只在
+     * 其它 ROM 上可能生效；拿不到时写 0，调用方回退到桌面库/AppWidgetOptions。
+     */
+    private int[] measureIcon(AccessibilityNodeInfo node, Rect host) {
+        java.util.List<Rect> squares = new java.util.ArrayList<>();
+        collectIcons(node, squares, 0, host);
+        Log.i(TAG, "a11y icons=" + squares.size());
+        if (squares.size() < 3) return null;
+        java.util.Collections.sort(squares, (a, b) -> a.width() - b.width());
+        Rect m = squares.get(squares.size() / 2);
+        if (m.width() < 80 || m.height() < 80) return null;
+        return new int[]{m.width(), m.height()};
+    }
+
+    private void collectIcons(AccessibilityNodeInfo node, java.util.List<Rect> out, int depth, Rect host) {
+        if (node == null || depth > 40 || out.size() > 40) return;
+        Rect b = new Rect();
+        node.getBoundsInScreen(b);
+        CharSequence cd = node.getContentDescription();
+        CharSequence tx = node.getText();
+        boolean hasLabel = (cd != null && cd.length() > 0) || (tx != null && tx.length() > 0);
+        if (hasLabel && node.getChildCount() <= 1
+                && Math.abs(b.width() - b.height()) <= 8
+                && b.width() >= 120 && b.width() <= 320
+                && !b.contains(host)) {
+            out.add(new Rect(b));
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            collectIcons(node.getChild(i), out, depth + 1, host);
+        }
     }
 
     /** 容器里最大的子节点：MIUI 的 host 比可见卡片大一圈，卡片是它的第一个子 View */
@@ -175,7 +242,8 @@ public class WidgetA11yService extends AccessibilityService {
             FileWriter w = new FileWriter(f, false);
             int[] size = screenSize();
             w.write("RECT|0|" + r.left + "|" + r.top + "|" + r.right + "|" + r.bottom
-                    + "|" + size[0] + "|" + size[1]);
+                    + "|" + size[0] + "|" + size[1]
+                    + "|" + cellW + "|" + cellH + "|" + spanX + "|" + spanY);
             w.close();
             Log.i(TAG, "a11y rect written: " + r);
         } catch (Throwable t) {
