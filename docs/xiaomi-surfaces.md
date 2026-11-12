@@ -74,11 +74,17 @@
 调试版独有、不可被其他应用启动的 `SurfacePreviewActivity` 可导出真实 Android 示例卡片。此 Activity 不进入发布版，示例图不含真实包裹或设备标识：
 
 ```sh
-adb shell su -c 'am start -n io.github.okaidev.pickupcode/.SurfacePreviewActivity --ez export_preview true'
+adb shell "su -c 'am start -n io.github.okaidev.pickupcode/.SurfacePreviewActivity --ez export_preview true'"
 # 等待界面完成绘制后：
 adb exec-out run-as io.github.okaidev.pickupcode cat files/widget-preview.png > widget-preview.png
 # 深色示例跟随系统深色模式；切换后用 --activity-clear-top 重建 Activity。
+# 独立示例通知，不写入数据库，动作只打开预览或结束验证：
+adb shell "su -c 'am start --activity-clear-top -n io.github.okaidev.pickupcode/.SurfacePreviewActivity --ez show_island_sample true'"
+# 验证后清除示例通知（独立 ID 1009）：
+adb shell "su -c 'am start --activity-clear-top -n io.github.okaidev.pickupcode/.SurfacePreviewActivity --ez dismiss_island_sample true'"
 ```
+
+实机补验：调试示例通知模板渲染成功、焦点权限开启，仍因小米鉴权服务连接失败返回 `-210` 而未上岛；清除示例通知后确认不再活跃，真实已完成记录状态未变化。拼多多进程的三个 Hook 点均已加载；这只证明注入成功，不等于新增包裹数据采集成功。
 
 旧的 `tools/gen_widget_preview.java` 仅用于历史 v4 预览；当前选择器图片从上述真实布局导出。
 

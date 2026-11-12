@@ -10,8 +10,13 @@ import android.widget.TextView;
 
 /** Local development surface. Excluded from release APKs; samples never enter the database. */
 public final class SurfacePreviewActivity extends Activity {
+    private static final int ISLAND_SAMPLE_ID = 1009;
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        if (getIntent().getBooleanExtra("dismiss_island_sample", false)) {
+            getSystemService(android.app.NotificationManager.class).cancel(ISLAND_SAMPLE_ID);
+        }
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setPadding(dp(22), dp(48), dp(22), dp(32));
@@ -48,6 +53,7 @@ public final class SurfacePreviewActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(column);
         setContentView(scroll);
+        if (getIntent().getBooleanExtra("show_island_sample", false)) postIslandSample();
         new Thread(() -> {
             int protocol = HyperIsland.protocol(this);
             boolean allowed = HyperIsland.hasPermission(this);
@@ -60,6 +66,31 @@ public final class SurfacePreviewActivity extends Activity {
                         java.util.Collections.singletonList(snap.items.get(0).code), null);
             });
         }
+    }
+
+    /** Exercise the actual notification template without inserting or completing any records. */
+    private void postIslandSample() {
+        android.content.Intent preview = new android.content.Intent(this, SurfacePreviewActivity.class)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        android.content.Intent dismiss = new android.content.Intent(preview)
+                .putExtra("dismiss_island_sample", true);
+        int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE;
+        android.app.PendingIntent open = android.app.PendingIntent.getActivity(this, 9109, preview, flags);
+        android.app.PendingIntent close = android.app.PendingIntent.getActivity(this, 9110, dismiss, flags);
+        android.graphics.drawable.Icon icon = android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_pickup_parcel);
+        android.app.Notification.Action openAction = new android.app.Notification.Action.Builder(icon, "查看示例", open).build();
+        android.app.Notification.Action closeAction = new android.app.Notification.Action.Builder(icon, "结束验证", close).build();
+        android.app.Notification sample = Notifier.build(this,
+                java.util.Arrays.asList("12-3-4567", "58-2-9041"), "示例驿站 · 不写入记录", 2, true);
+        android.app.Notification.Builder builder = android.app.Notification.Builder.recoverBuilder(this, sample)
+                .setContentIntent(open).setActions(closeAction, openAction);
+        if (HyperIsland.protocol(this) >= 2) {
+            try {
+                builder.addExtras(HyperIsland.extras(this, "12-3-4567", "示例驿站 · 不写入记录",
+                        2, openAction, closeAction, true));
+            } catch (org.json.JSONException e) { throw new IllegalStateException(e); }
+        }
+        getSystemService(android.app.NotificationManager.class).notify(ISLAND_SAMPLE_ID, builder.build());
     }
 
     private static void disableActions(View v) {
