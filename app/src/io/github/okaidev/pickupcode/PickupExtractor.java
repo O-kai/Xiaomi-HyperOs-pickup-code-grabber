@@ -359,17 +359,26 @@ public class PickupExtractor {
         }
 
         // 策略1：夹取
+        // v12：命中后先过「地点成色校验」，不合格就继续找下一处匹配。
+        // 以前只取第一个匹配，而「请到店领取」的第一个匹配是「店领」——
+        // 一旦命中就直接 return，后面真正的门店名再也不会被看到。
         if (r.patternPlace != null) {
             Matcher m = r.patternPlace.matcher(body);
-            if (m.find() && m.group(1) != null && m.group(1).length() >= 2) {
-                return m.group(1);
+            while (m.find()) {
+                String cand = m.group(1);
+                if (cand != null && cand.length() >= 2 && plausiblePlaceName(cand)) {
+                    return cand;
+                }
             }
         }
         // 策略2：后缀词表
         if (r.patternPlaceFallback != null) {
             Matcher m2 = r.patternPlaceFallback.matcher(body);
-            if (m2.find() && m2.group(1) != null) {
-                return m2.group(1);
+            while (m2.find()) {
+                String cand = m2.group(1);
+                if (cand != null && plausiblePlaceName(cand)) {
+                    return cand;
+                }
             }
         }
         // 策略3：码簇尾段（找最后一个合法码，其后文本含地点特征词则取之）
@@ -386,12 +395,40 @@ public class PickupExtractor {
                 // 尾段被判成地点（「享号码保护服务」含后缀词「服务」）。
                 String tail = body.substring(lastEnd)
                         .replaceFirst("^[，,。；;、\\s】》」）)\\]】]+", "").trim();
-                if (tail.length() >= 2 && tail.length() <= 40 && looksLikePlace(r, tail)) {
+                if (tail.length() >= 2 && tail.length() <= 40
+                        && plausiblePlaceName(tail) && looksLikePlace(r, tail)) {
                     return tail;
                 }
             }
         }
         return "—";
+    }
+
+    /**
+     * 地点成色校验（v12）：夹取策略可能产出「看着像地点、其实是半句话」的片段。
+     *
+     * <p>两条实测反例：
+     * <ul>
+     *   <li>「取件码为B-12，请到店领取」→ 夹出「店领」（动词「领取」被截断成地名尾巴）</li>
+     *   <li>「取货码Z-99001，您的包裹已到店」→ 夹出「您的包裹已到店」（非贪婪一路吃到句尾）</li>
+     * </ul>
+     *
+     * <p>共同点是含主语词（包裹/快件/您的），或以动词收尾后只剩一个泛称字。
+     * 校验不过就让调用方继续找下一处匹配；全都不过返回「—」。
+     * 取件码才是这条链路的主体，地点只是附加信息——宁可空着，
+     * 也不能把一句描述当成门店名写进待办。
+     */
+    private static boolean plausiblePlaceName(String s) {
+        if (s == null) return false;
+        String t = s.trim();
+        if (t.length() < 2 || t.length() > 40) return false;
+        if (containsAny(t, "包裹", "快件", "您的", "取件码", "取货码")) return false;
+        if (t.startsWith("请")) return false;
+        // 剥掉尾部动词：「店领取」→「店」、「货架取」→「货架」
+        String core = t.replaceAll("[领取出拿收寄]+$", "");
+        if (core.length() < 2) return false;
+        // 剥完只剩泛称（店/站/柜/点/驿站…）不算地点
+        return !core.matches("店|站|柜|点|门店|驿站|站点|快递|快递点|快递站|服务点");
     }
 
     /** 尾段是否像地点：含地点特征后缀词，且不含明显非地点噪声 */
