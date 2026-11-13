@@ -323,15 +323,8 @@ public class WidgetSettingsActivity extends Activity {
         // Same RemoteViews as the host; sample data never enters the parcel database.
         previewRows.addView(preview, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        disablePreviewActions(preview);
-    }
-
-    private static void disablePreviewActions(View view) {
-        view.setOnClickListener(null);
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) disablePreviewActions(group.getChildAt(i));
-        }
+        // buildForDiag omits PendingIntents and collection actions. Do not clear
+        // listeners recursively: AdapterView rejects setOnClickListener, even null.
     }
 
     private void applyToWidget() {

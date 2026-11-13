@@ -54,7 +54,6 @@ public final class SurfacePreviewActivity extends Activity {
         label.setPadding(0, dp(8), 0, dp(24));
         column.addView(label);
         View preview = PickupWidgetProvider.applyPreview(this, PickupWidgetProvider.buildForDiag(this, null));
-        disableActions(preview);
         column.addView(preview, new LinearLayout.LayoutParams(-1, dp(WidgetPrefs.showAll(this) ? 244 : 180)));
         if (getIntent().getBooleanExtra("export_preview", false)) {
             preview.post(() -> {
@@ -157,14 +156,6 @@ public final class SurfacePreviewActivity extends Activity {
             } catch (org.json.JSONException e) { throw new IllegalStateException(e); }
         }
         getSystemService(android.app.NotificationManager.class).notify(ISLAND_SAMPLE_ID, builder.build());
-    }
-
-    private static void disableActions(View v) {
-        v.setOnClickListener(null);
-        if (v instanceof ViewGroup) {
-            ViewGroup g = (ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) disableActions(g.getChildAt(i));
-        }
     }
 
     private int dp(int n) { return (int) (getResources().getDisplayMetrics().density * n + .5f); }

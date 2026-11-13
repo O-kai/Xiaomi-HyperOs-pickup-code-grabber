@@ -56,6 +56,60 @@ public class WidgetCollectionTest {
         view.layout(0, 0, 300, height);
     }
 
+    @Test @Config(sdk = {28, 34})
+    public void settingsOpensAndRebuildsSamplePreviewWithoutRunningParcelActions() {
+        try (org.robolectric.android.controller.ActivityController<WidgetSettingsActivity> controller =
+                     org.robolectric.Robolectric.buildActivity(WidgetSettingsActivity.class).setup().visible()) {
+            WidgetSettingsActivity activity = controller.get();
+            View root = activity.getWindow().getDecorView();
+            assertTrue(findText(root, "全部信息").performClick());
+            assertTrue(WidgetPrefs.showAll(activity));
+            assertTrue(findText(root, "只看待取件").performClick());
+            assertFalse(WidgetPrefs.showAll(activity));
+            shadowOf(android.os.Looper.getMainLooper()).idle();
+            layout(root, 1000);
+            // AppWidgetHostView is a root namespace; search the sample content directly.
+            View preview = findPreview(root);
+            assertNotNull(preview);
+            layout(preview, 244);
+            shadowOf(android.os.Looper.getMainLooper()).idle();
+            View code = findText(root, "12-3-4567");
+            assertNotNull(code);
+            assertFalse(code.performClick());
+            View done = ((View) code.getParent().getParent()).findViewById(R.id.widget_done_1);
+            assertNotNull(done);
+            assertFalse(done.performClick());
+            assertFalse(shadowOf((android.app.Application) context).getBroadcastIntents().stream()
+                    .anyMatch(intent -> PickupWidgetProvider.ACTION_DONE.equals(intent.getAction())
+                            || PickupWidgetProvider.ACTION_COPY.equals(intent.getAction())));
+            assertNull(shadowOf((android.app.Application) context).getNextStartedActivity());
+        }
+    }
+
+    private View findText(View view, String text) {
+        if (view instanceof TextView && text.contentEquals(((TextView) view).getText())) return view;
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findText(group.getChildAt(i), text);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private View findPreview(View view) {
+        if (view instanceof android.appwidget.AppWidgetHostView) return view;
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findPreview(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     @Test public void smallWidgetKeepsAllTwentyRowsAndCanScrollToLastParcel() {
         View card = card(20, 110);
         ListView list = card.findViewById(R.id.widget_list);
