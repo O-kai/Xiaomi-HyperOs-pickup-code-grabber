@@ -66,6 +66,8 @@ public class WidgetSettingsActivity extends Activity {
     private boolean previewOnDesktop = false;
     /** 本次进页面是否已经做过「位置有没有被拖动」的静默检查 */
     private boolean resumeChecked = false;
+    /** 从「无障碍设置」回来、服务已开启 → 自动补一次重新校准 */
+    private boolean recalibrateOnResume = false;
     private static final int REQ_BACKDROP = 1001;
 
     @Override
@@ -225,6 +227,16 @@ public class WidgetSettingsActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // 刚从「无障碍设置」回来、服务已经开了：自动补一次重新校准，
+        // 用户不用再自己找「重新校准」按钮。
+        if (recalibrateOnResume && a11yEnabled()) {
+            recalibrateOnResume = false;
+            // 服务刚开，但这一刻桌面被本页盖着，它还读不到；
+            // 这里不自动抓背景（那会按估算位置裁一张错的图），只把下一步说清楚。
+            Toast.makeText(this,
+                    "已开启。回桌面看一眼再回来，预览就会按实际位置对齐",
+                    Toast.LENGTH_LONG).show();
+        }
         // v4.1.0：用户在桌面上把组件拖走 / 拉大拉小之后，缓存里的格子就过期了。
         // 这里静默比一次：只有 root 通道已经建好（之前授权过）才做，
         // 不会因为进这个页面就弹 Magisk 授权；位置真变了才重抓背景。
@@ -559,7 +571,9 @@ public class WidgetSettingsActivity extends Activity {
     private void realign() {
         if (realigning) return;
         realigning = true;
-        Toast.makeText(this, "正在重新校准…", Toast.LENGTH_SHORT).show();
+        // 这里以前会弹「正在重新校准…」的 Toast：它正好停在屏幕下方，
+        // 450ms 后的截图会把它一起拍进背景图，预览底部就多出一条灰条。
+        // 抓取页本身会闪一下，够当反馈了，不再用 Toast。
 
         new Thread(() -> {
             WidgetPlacement p = null;
@@ -578,16 +592,31 @@ public class WidgetSettingsActivity extends Activity {
                     Toast.makeText(this,
                             "没读到桌面位置（需要 root 或无障碍权限），先按原有位置更新背景",
                             Toast.LENGTH_LONG).show();
-                } else if (!got.fromLauncher && !got.fromCalib) {
-                    // 格子读到了，但还没标定过网格参数 → 只能估算。
-                    Toast.makeText(this,
-                            a11yEnabled()
-                                    ? "位置还是估算的：回桌面停一秒再进来，就能对上"
-                                    : "位置是估算的：开启「桌面位置读取」后点这里即可精确对齐",
-                            Toast.LENGTH_LONG).show();
+                    captureBackdrop();
+                    return;
                 }
                 // 把这次算出的矩形直接带给抓取页，避免它再读一次缓存读到别的值
-                if (got != null) WidgetBackdrop.setPending(got);
+                WidgetBackdrop.setPending(got);
+
+                boolean exact = got.fromLauncher || got.fromCalib;
+                if (!exact && a11yEnabled()) {
+                    // 服务开着，但这一刻桌面不在前台、还没读到 → 回桌面停一下就好
+                    Toast.makeText(this,
+                            "位置还是估算的：回桌面停一秒再进来，就能对上",
+                            Toast.LENGTH_LONG).show();
+                    captureBackdrop();
+                    return;
+                }
+                if (!exact) {
+                    // 没有标定、服务也关着：这才是真的需要用户开权限的场景。
+                    // 不直接抓背景 —— 先让他决定，免得抓完再弹窗、页面又被重建。
+                    realigning = false;
+                    showA11yDialog(() -> {
+                        realigning = true;
+                        captureBackdrop();
+                    });
+                    return;
+                }
                 // 走到这里交给抓取页；回来后整页 recreate，realigning 自然复位
                 captureBackdrop();
             });
@@ -939,6 +968,11 @@ public class WidgetSettingsActivity extends Activity {
         boolean exact = pl != null && (pl.fromLauncher || pl.fromCalib);
         String src = exact ? "精确对齐" : "按格子估算";
         TextView title = UiKit.text(this, "小组件实时预览 · " + src, 13f, P.muteInk);
+        if (!exact && onDesktop) {
+            // 估算态给一个明确的出口：点这行能看到「为什么不准、怎么变准」
+            title.setText("小组件实时预览 · 按格子估算（点此修正）");
+            title.setOnClickListener(v -> showA11yDialog());
+        }
         head.addView(title, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -1076,7 +1110,105 @@ public class WidgetSettingsActivity extends Activity {
             hlp2.setMargins(0, dp(8), 0, 0);
             dock.addView(hint, hlp2);
         }
+        applyDockInsets(dock);
         return dock;
+    }
+
+    /**
+     * 底部让出系统手势条 / 导航栏。
+     *
+     * <p>本页是 edge-to-edge 的（内容画到系统栏下面），不处理 insets 的话
+     * 预览框会一路画到导航条底下，真机上就是「预览最下面还有一条灰带」——
+     * 那其实是系统手势条压在上面。这里按 insets 加内边距，取不到时退一个固定值。
+     */
+    private void applyDockInsets(View dock) {
+        dock.post(() -> {
+            int nav = 0;
+            try {
+                android.view.WindowInsets in = dock.getRootWindowInsets();
+                if (in != null) {
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        int b2 = in.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom;
+                        if (b2 > 0) nav = b2;
+                    }
+                    if (nav == 0) {
+                        int b2 = in.getSystemWindowInsetBottom();
+                        if (b2 > 0) nav = b2;
+                    }
+                }
+            } catch (Throwable ignored) { }
+            if (nav == 0) {
+                try {
+                    int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+                    if (id > 0) nav = getResources().getDimensionPixelSize(id);
+                } catch (Throwable ignored) { }
+            }
+            int bottom = Math.max(dp(20), nav > 0 ? nav + dp(10) : dp(30));
+            if (dock.getPaddingBottom() != bottom) {
+                dock.setPadding(dock.getPaddingLeft(), dock.getPaddingTop(),
+                        dock.getPaddingRight(), bottom);
+            }
+        });
+    }
+
+    /**
+     * 什么时候真的需要「桌面位置读取」。
+     *
+     * <p>标定（格子尺寸、网格原点、卡片留白）是一次性算出来存本地的，
+     * 之后只要有格子就能换算像素 —— 所以关掉服务，挪动/缩放依然算得准。
+     * 真正需要它的只有三种时候：
+     * ① 还没建立过标定（新装、清过数据）；
+     * ② 换了主题/字体/桌面网格，旧标定失效；
+     * ③ 没有 root、读不到桌面库。
+     * 所以提示只在「现在是估算」时出现，精确态不打扰。
+     */
+    private void showA11yDialog() {
+        showA11yDialog(null);
+    }
+
+    /**
+     * @param onUseEstimate 点「先用估算」后要做的事（重新校准流程里是继续抓背景）；
+     *                      为 null 表示只是解释一下
+     */
+    private void showA11yDialog(Runnable onUseEstimate) {
+        if (isFinishing() || isDestroyed()) return;
+
+        if (a11yEnabled()) {
+            // 已经开了、只是服务还没读到桌面：这时候再引导去开权限只会让人困惑
+            UiKit.dialog(this, P, R.drawable.ic_pin, "已经开启，还差一步",
+                    "「取件码助手 - 桌面位置读取」是开着的，但刚才桌面被这个页面盖住，"
+                            + "服务读不到它。\n\n"
+                            + "回桌面看一眼再回来（或点右上角「重新校准」前先回一次桌面），"
+                            + "预览就会按实际位置对齐。",
+                    (View) null,
+                    UiKit.primary("知道了", () -> { }));
+            return;
+        }
+
+        UiKit.dialog(this, P, R.drawable.ic_pin, "让预览和桌面完全对齐",
+                "现在的位置是按桌面网格估算的，可能偏几十像素。\n\n"
+                        + "「取件码助手 - 桌面位置读取」是系统的无障碍服务，只读桌面窗口里"
+                        + "我们自己这个组件的位置和尺寸，不读其它应用的内容，也不替你执行任何操作。\n\n"
+                        + "开启后按桌面实际位置对齐；不开启也能用 —— 已经存下的网格参数仍然有效，"
+                        + "但换主题、改桌面网格之后会失准。",
+                (View) null,
+                UiKit.ghost("先用估算", () -> {
+                    if (onUseEstimate != null) onUseEstimate.run();
+                }),
+                UiKit.primary("去开启", () -> {
+                    recalibrateOnResume = true;
+                    openA11ySettings();
+                }));
+    }
+
+    private void openA11ySettings() {
+        try {
+            startActivity(new android.content.Intent(
+                    android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        } catch (Throwable t) {
+            Toast.makeText(this, "打不开系统设置，请到「设置 → 无障碍」里手动开启",
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     /** 开一次透明页抓背景，回来刷新界面 */
@@ -1106,7 +1238,6 @@ public class WidgetSettingsActivity extends Activity {
     private void captureBackdrop() {
         try {
             android.util.Log.d("PICKUPDEBUG", "captureBackdrop: 启动抓取页");
-            Toast.makeText(this, "正在抓取桌面背景…", Toast.LENGTH_SHORT).show();
             startActivityForResult(
                     new android.content.Intent(this, BackdropCaptureActivity.class), REQ_BACKDROP);
         } catch (Throwable t) {
