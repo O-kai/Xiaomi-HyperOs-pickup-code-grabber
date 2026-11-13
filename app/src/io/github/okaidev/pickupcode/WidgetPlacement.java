@@ -117,6 +117,9 @@ public final class WidgetPlacement {
     /** 无障碍直接读到的像素矩形（0 = 没有）。标定时用它算卡片 margin */
     public int pxL, pxT, pxR, pxB;
 
+    /** 这条数据是在多大的屏幕上量的（host 是像素，换算成比例要用） */
+    public int screenW, screenH;
+
     public boolean hasPx() {
         return pxR > pxL && pxB > pxT;
     }
@@ -289,6 +292,8 @@ public final class WidgetPlacement {
             p.pxT = t;
             p.pxR = rr;
             p.pxB = b;
+            p.screenW = sw;
+            p.screenH = sh;
             if (v.length >= 12) {
                 p.cellWpx = parseIntOr(v[8], 0);
                 p.cellHpx = parseIntOr(v[9], 0);
@@ -427,6 +432,8 @@ public final class WidgetPlacement {
             p.rows = (inferredRows > p.spanY && inferredRows <= 14) ? inferredRows : fromName[1];
 
             int[] size = screenSize(ctx);
+            p.screenW = size[0];
+            p.screenH = size[1];
             p.toRatios(size[0], size[1]);
 
             // 桌面进程给的矩形优先：它是 View 的真实边界（等同「显示布局边界」那个框），
@@ -567,6 +574,62 @@ public final class WidgetPlacement {
             if (ids != null && ids.length > 0) return ids[0];
         } catch (Throwable ignored) { }
         return -1;
+    }
+
+    /**
+     * 「格子框」（桌面上尺寸调节时那个蓝框）在屏幕上的比例，{left, top, right, bottom}。
+     *
+     * <p>预览要展示的是**整块格子**，不是卡片本身：卡片在格子里还有留白，
+     * 只裁卡片会把圆角和四周的壁纸切掉，看起来像贴纸而不是桌面上的样子。
+     *
+     * <p>三级来源：无障碍直读的 host 矩形 → 格子 + 标定 → 拿不到（返回 null）。
+     */
+    public float[] frameRatios(Context ctx) {
+        int sw = screenW, sh = screenH;
+        if (sw <= 0 || sh <= 0) {
+            int[] s = screenSize(ctx);
+            sw = s[0];
+            sh = s[1];
+        }
+        if (sw <= 0 || sh <= 0) return null;
+
+        if (hasHost()) {
+            return new float[]{hostL / (float) sw, hostT / (float) sh,
+                    hostR / (float) sw, hostB / (float) sh};
+        }
+        Calib c = calib(ctx);
+        if (c != null && c.valid() && spanX > 0 && spanY > 0) {
+            float hl = c.originX + cellX * c.cellW;
+            float ht = c.originY + cellY * c.cellH;
+            return new float[]{hl / sw, ht / sh,
+                    (hl + spanX * c.cellW) / sw, (ht + spanY * c.cellH) / sh};
+        }
+        return null;
+    }
+
+    /**
+     * 卡片相对格子框的内缩比例，{left, top, right, bottom}，0~1。
+     *
+     * <p>拿不到的返回全 0（卡片铺满框）——宁可铺满，也别凭空猜一个留白。
+     */
+    public float[] cardInset(Context ctx) {
+        float[] zero = {0f, 0f, 0f, 0f};
+        if (hasPx() && hasHost()) {
+            float hw = Math.max(1, hostR - hostL);
+            float hh = Math.max(1, hostB - hostT);
+            return new float[]{
+                    (pxL - hostL) / hw, (pxT - hostT) / hh,
+                    (hostR - pxR) / hw, (hostB - pxB) / hh};
+        }
+        Calib c = calib(ctx);
+        if (c != null && c.valid() && spanX > 0 && spanY > 0) {
+            float hw = spanX * c.cellW;
+            float hh = spanY * c.cellH;
+            if (hw <= 0 || hh <= 0) return zero;
+            return new float[]{c.marginL / hw, c.marginT / hh,
+                    c.marginR / hw, c.marginB / hh};
+        }
+        return zero;
     }
 
     // ==================== 网格标定 ====================
@@ -740,6 +803,8 @@ public final class WidgetPlacement {
             p.fromCalib = sp.getBoolean("from_calib", false);
             p.savedAt = sp.getLong("saved_at", 0);
             p.sourceAt = sp.getLong("source_at", 0);
+            p.screenW = sp.getInt("screen_w", 0);
+            p.screenH = sp.getInt("screen_h", 0);
             p.fromDb = true;
             return p;
         } catch (Throwable t) {
@@ -766,6 +831,8 @@ public final class WidgetPlacement {
                     .putBoolean("from_calib", p.fromCalib)
                     .putLong("saved_at", System.currentTimeMillis())
                     .putLong("source_at", p.sourceAt)
+                    .putInt("screen_w", p.screenW)
+                    .putInt("screen_h", p.screenH)
                     .apply();
             p.savedAt = System.currentTimeMillis();
         } catch (Throwable ignored) { }

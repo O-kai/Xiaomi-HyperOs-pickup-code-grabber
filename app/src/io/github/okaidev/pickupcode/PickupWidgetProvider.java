@@ -323,18 +323,60 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         return isLightTheme(ctx) ? R.layout.widget_pickup_v6_light : R.layout.widget_pickup_v6;
     }
 
-    /** 背景：深/浅 × 实底/半透明/全透明 */
+    /** 背景：深/浅 × 七档透明度 */
     static int backgroundRes(Context ctx) {
         boolean light = isLightTheme(ctx);
-        String a = alphaKey(ctx);
-        if ("clear".equals(a)) return light ? R.drawable.widget_bg_light_clear : R.drawable.widget_bg_dark_clear;
-        if ("half".equals(a)) return light ? R.drawable.widget_bg_light_half : R.drawable.widget_bg_dark_half;
-        return light ? R.drawable.widget_bg_light_solid : R.drawable.widget_bg_dark_solid;
+        switch (WidgetPrefs.alphaPct(ctx)) {
+            case 92: return light ? R.drawable.widget_bg_light_a92 : R.drawable.widget_bg_dark_a92;
+            case 84: return light ? R.drawable.widget_bg_light_a84 : R.drawable.widget_bg_dark_a84;
+            case 76: return light ? R.drawable.widget_bg_light_a76 : R.drawable.widget_bg_dark_a76;
+            case 62: return light ? R.drawable.widget_bg_light_a62 : R.drawable.widget_bg_dark_a62;
+            case 48: return light ? R.drawable.widget_bg_light_a48 : R.drawable.widget_bg_dark_a48;
+            case 30: return light ? R.drawable.widget_bg_light_a30 : R.drawable.widget_bg_dark_a30;
+            default: return light ? R.drawable.widget_bg_light_a0 : R.drawable.widget_bg_dark_a0;
+        }
     }
 
     /** 文字色：深色主题给白字，浅色主题给深字；alpha 沿用原来的层级 */
     static int fg(Context ctx, int alpha) {
         return isLightTheme(ctx) ? (alpha << 24) | 0x1C1C1E : (alpha << 24) | 0xFFFFFF;
+    }
+
+    // ==================== 彩色主题（v4.2） ====================
+    //
+    // 四套色板，每行取件码按其中一色循环。深色底上用偏亮的一档，
+    // 保证在壁纸上还看得清；顺序就是方案里定下的顺序。
+
+    private static final int[] PAL_RAINBOW = {0xFF9EC4, 0xFFD98E, 0x9BE7C4, 0x8FC7FF, 0xC6A8FF};
+    private static final int[] PAL_SUNSET  = {0xFFB067, 0xFF8A80, 0xFF9EC4, 0xC9A2FF, 0xFFD54A};
+    private static final int[] PAL_AURORA  = {0x7BE0A6, 0x6FE3D2, 0x8FC7FF, 0xA9A2FF, 0xC9A2FF};
+    private static final int[] PAL_SAKURA  = {0xFFC2D8, 0xFFD9E6, 0xF0E2F5, 0xDCC6EC, 0xFFC2D8};
+
+    /** 当前配色对应的色板；单色返回 null */
+    static int[] paletteOf(Context ctx) {
+        String p = WidgetPrefs.palette(ctx);
+        if ("rainbow".equals(p)) return PAL_RAINBOW;
+        if ("sunset".equals(p)) return PAL_SUNSET;
+        if ("aurora".equals(p)) return PAL_AURORA;
+        if ("sakura".equals(p)) return PAL_SAKURA;
+        return null;
+    }
+
+    /**
+     * 第 {@code index} 行的文字色。
+     *
+     * <p>单色配色走原来的白/黑；彩色主题按色板循环取色，
+     * 这样两行之间不会串在一起，一眼能分清。
+     */
+    static int rowColor(Context ctx, int index, int alpha) {
+        int[] pal = paletteOf(ctx);
+        int rgb;
+        if (pal == null) {
+            rgb = isLightTheme(ctx) ? 0x1C1C1E : 0xFFFFFF;
+        } else {
+            rgb = pal[((index % pal.length) + pal.length) % pal.length];
+        }
+        return (alpha << 24) | (rgb & 0xFFFFFF);
     }
 
     /**
@@ -354,6 +396,8 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         RemoteViews rv = new RemoteViews(context.getPackageName(), layoutId(context));
         // 背景按「主题 × 透明度」切换；layout 里的默认背景只是兜底
         rv.setInt(R.id.widget_root_v2, "setBackgroundResource", backgroundRes(context));
+        rv.setTextColor(R.id.widget_title, rowColor(context, 0, 0xFF));
+        rv.setTextColor(R.id.widget_count, rowColor(context, 0, 0xB3));
         rv.setTextViewText(R.id.widget_title, "取件记录已关闭");
         rv.setTextViewTextSize(R.id.widget_title, TypedValue.COMPLEX_UNIT_SP, 18f);
         rv.setTextViewText(R.id.widget_count, "");
@@ -419,8 +463,11 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         // 桌面不会重建已存在组件的视图树，换资源 id 是唯一能让
         // AppWidgetHostView 重新 inflate 的手段。
         RemoteViews rv = new RemoteViews(context.getPackageName(), layoutId(context));
-        // 背景按「主题 × 透明度」切换；layout 里的默认背景只是兜底
+        // 背景按「主题 × 七档透明度」切换；layout 里的默认背景只是兜底
         rv.setInt(R.id.widget_root_v2, "setBackgroundResource", backgroundRes(context));
+        // 标题和件数跟着配色走：彩色主题下用色板第一色，和下面几行是一套
+        rv.setTextColor(R.id.widget_title, rowColor(context, 0, 0xFF));
+        rv.setTextColor(R.id.widget_count, rowColor(context, 0, 0xB3));
 
         // v4.0.2 第三轮：一次算好行数与实际行高（补位动画的位移量要用真实行高）
         int[] metrics = widgetMetrics(context, widgetId);
@@ -531,9 +578,9 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             }
             rv.setTextViewTextSize(CODE_IDS[i], TypedValue.COMPLEX_UNIT_SP, 17f * scale);
             if (showAll && !pending) {
-                rv.setTextColor(CODE_IDS[i], fg(context, 0x99));
+                rv.setTextColor(CODE_IDS[i], rowColor(context, i, 0x99));
             } else {
-                rv.setTextColor(CODE_IDS[i], fg(context, 0xFF));
+                rv.setTextColor(CODE_IDS[i], rowColor(context, i, 0xFF));
             }
 
             // 关闭地点时不能 GONE：这一列是带 weight 的占位视图，
@@ -546,9 +593,9 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             rv.setTextViewText(PLACE_IDS[i], strike ? strikeText(placeText) : placeText);
             rv.setTextViewTextSize(PLACE_IDS[i], TypedValue.COMPLEX_UNIT_SP, 11f * scale);
             if (showAll && !pending) {
-                rv.setTextColor(PLACE_IDS[i], fg(context, 0x80));
+                rv.setTextColor(PLACE_IDS[i], rowColor(context, i, 0x80));
             } else {
-                rv.setTextColor(PLACE_IDS[i], fg(context, 0xB3));
+                rv.setTextColor(PLACE_IDS[i], rowColor(context, i, 0xB3));
             }
 
             // 补位动画：刚顶上来的行先落在「下移一格 + 半透明」，再归位。

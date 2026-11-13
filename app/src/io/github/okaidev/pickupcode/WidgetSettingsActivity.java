@@ -239,10 +239,14 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     /**
-     * 「外观」卡片（v4.1.0）：主题三选 + 透明度三档。
+     * 「外观」卡片（v4.2）：配色 + 七档透明度 + 主题。
      *
-     * <p>主题决定文字色与底色（深/浅/跟随系统），透明度决定底色的不透明度。
-     * 两件事分开选，比“给一堆配色方案”更好理解，也不会出现选不回来的情况。
+     * <p>配色分两类：单色（深色主题白字、浅色主题墨字）和四套彩色主题
+     * （雨后彩虹 / 夏日夕阳 / 极光夜空 / 樱花初雪）——彩色主题下每行取件码
+     * 按色板循环换色，多行之间一眼能分开。
+     *
+     * <p>透明度做成七段色阶条：每块直接用该档的底色画出来，
+     * 铺在壁纸上一眼能看出「实底 → 全透」的差别，不用挨个点开试。
      */
     private View buildLookCard() {
         LinearLayout card = UiKit.card(this, P);
@@ -252,38 +256,226 @@ public class WidgetSettingsActivity extends Activity {
         card.addView(head);
         card.addView(UiKit.divider(this, P));
 
-        card.addView(UiKit.row(this, P, R.drawable.ic_palette, "主题",
+        // ---- 配色 ----
+        card.addView(UiKit.row(this, P, R.drawable.ic_palette, "配色",
+                paletteLabel(), UiKit.chevron(this, P)));
+        card.getChildAt(card.getChildCount() - 1).setOnClickListener(v -> showPaletteDialog());
+
+        card.addView(UiKit.divider(this, P));
+
+        // ---- 七档透明度 ----
+        LinearLayout alphaHead = new LinearLayout(this);
+        alphaHead.setOrientation(LinearLayout.HORIZONTAL);
+        alphaHead.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams ahlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ahlp.setMargins(0, dp(12), 0, dp(8));
+        alphaHead.addView(UiKit.text(this, "透明度", 14f, P.navInk),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        alphaHead.addView(UiKit.text(this, WidgetPrefs.ALPHA_NAMES[WidgetPrefs.alphaIndex(this)],
+                12f, P.muteInk));
+        card.addView(alphaHead);
+
+        card.addView(buildAlphaStrip());
+
+        TextView alphaHint = UiKit.text(this,
+                "越往右越透，全透时只剩文字压在你的壁纸上", 11.5f, P.muteInk);
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hlp.setMargins(dp(2), dp(8), dp(2), 0);
+        card.addView(alphaHint, hlp);
+
+        card.addView(UiKit.divider(this, P));
+
+        // ---- 主题（决定单色文字与浅底/深底）----
+        card.addView(UiKit.row(this, P, R.drawable.ic_grid, "主题",
                 themeLabel(), UiKit.chevron(this, P)));
         card.getChildAt(card.getChildCount() - 1).setOnClickListener(v ->
-                UiKit.chooser(this, P, R.drawable.ic_palette, "主题",
+                UiKit.chooser(this, P, R.drawable.ic_grid, "主题",
                         new CharSequence[]{"深色", "浅色", "跟随系统"},
                         themeIndex(), idx -> {
                             WidgetPrefs.setTheme(this,
                                     idx == 0 ? "dark" : idx == 1 ? "light" : "system");
                             applyToWidget();
-                            recreate();   // 标签与预览都要跟着换，整页重建最稳
-                        }));
-
-        card.addView(UiKit.divider(this, P));
-        card.addView(UiKit.row(this, P, R.drawable.ic_grid, "透明度",
-                alphaLabel(), UiKit.chevron(this, P)));
-        card.getChildAt(card.getChildCount() - 1).setOnClickListener(v ->
-                UiKit.chooser(this, P, R.drawable.ic_grid, "透明度",
-                        new CharSequence[]{"实底（最清楚）", "半透明（看得见壁纸）", "全透明（只剩文字）"},
-                        alphaIndex(), idx -> {
-                            WidgetPrefs.setAlpha(this,
-                                    idx == 0 ? "solid" : idx == 1 ? "half" : "clear");
-                            if (idx == 2) {
-                                Toast.makeText(this,
-                                        "全透明时文字直接叠在壁纸上：浅色壁纸可能看不清，"
-                                                + "建议配深色壁纸或把主题切成浅色",
-                                        Toast.LENGTH_LONG).show();
-                            }
-                            applyToWidget();
                             recreate();
                         }));
 
         return card;
+    }
+
+    /**
+     * 配色选择（v4.2）：彩色主题的按钮**本身就是那套渐变色**。
+     *
+     * <p>彩色主题不用色点：按钮整体铺开，一眼就是「雨后彩虹」「夏日夕阳」的样子。
+     * 单色相反 —— 它只有白/黑，必须放一个色点才看得出是什么颜色。
+     */
+    private void showPaletteDialog() {
+        final String[] keys = {"single", "rainbow", "sunset", "aurora", "sakura"};
+        final String[] names = {"单色", "雨后彩虹", "夏日夕阳", "极光夜空", "樱花初雪"};
+        final int[][] grad = {
+                null,
+                {0xFFFF9EC4, 0xFFC6A8FF},
+                {0xFFFFB067, 0xFFFFD54A},
+                {0xFF7BE0A6, 0xFFC9A2FF},
+                {0xFFFFC2D8, 0xFFDCC6EC},
+        };
+        final int cur = paletteIndex();
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+
+        final android.app.Dialog[] holder = new android.app.Dialog[1];
+        for (int i = 0; i < keys.length; i++) {
+            final int idx = i;
+
+            LinearLayout btn = new LinearLayout(this);
+            btn.setOrientation(LinearLayout.HORIZONTAL);
+            btn.setGravity(Gravity.CENTER_VERTICAL);
+            btn.setPadding(dp(16), 0, dp(16), 0);
+
+            android.graphics.drawable.GradientDrawable bg =
+                    new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(dp(14));
+            // 单色按钮直接画成「组件实底的样子」：深色主题就是深灰底白字，
+            // 浅色主题就是白底黑字。放在白色弹窗上时，白底那块要补一圈细边，
+            // 否则按钮会「消失」在白底里。
+            int labelColor;
+            if (grad[i] == null) {
+                // 「单色」不是一个颜色（深色主题是白、浅色主题是墨），
+                // 所以不画成实心色块 —— 那样总有一种主题下文字会糊掉。
+                // 用浅灰底 + 正文色 + 一个墨色圆点，弹窗在什么主题下都清楚。
+                bg.setColor(0x11000000);
+                bg.setStroke(Math.max(1, dp(1)), 0x22888888);
+                labelColor = P.navInk;
+            } else {
+                bg.setOrientation(
+                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT);
+                bg.setColors(grad[i]);
+                labelColor = 0xFFFFFFFF;
+            }
+            if (i == cur) bg.setStroke(dp(2), P.accentInk);
+            btn.setBackground(bg);
+
+            if (grad[i] == null) {
+                View dot = new View(this);
+                android.graphics.drawable.GradientDrawable dotBg =
+                        new android.graphics.drawable.GradientDrawable();
+                dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                dotBg.setColor(P.navInk);
+                dotBg.setStroke(Math.max(1, dp(1)), 0x55FFFFFF);
+                dot.setBackground(dotBg);
+                LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(16), dp(16));
+                dlp.setMargins(0, 0, dp(12), 0);
+                btn.addView(dot, dlp);
+            }
+
+            TextView label = UiKit.text(this, names[i], 14.5f, labelColor);
+            // 樱花那几套本身很浅（#F0E2F5 之类），纯白字放上去几乎看不见；
+            // 一圈淡阴影能把字从渐变里「拎」出来，又不改变配色本身。
+            if (grad[i] != null) {
+                label.setShadowLayer(Math.max(2f, dp(3)), 0, dp(1), 0x99000000);
+            }
+            btn.addView(label, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            if (i == cur) {
+                TextView tick = UiKit.text(this, "✓", 15f,
+                        grad[i] == null ? P.accentInk : 0xFFFFFFFF);
+                if (grad[i] != null) {
+                    tick.setShadowLayer(Math.max(2f, dp(3)), 0, dp(1), 0x99000000);
+                }
+                btn.addView(tick);
+            }
+
+            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+            blp.setMargins(0, dp(5), 0, dp(5));
+
+            btn.setOnClickListener(v -> {
+                WidgetPrefs.setPalette(this, keys[idx]);
+                applyToWidget();
+                if (holder[0] != null) holder[0].dismiss();
+                recreate();
+            });
+            box.addView(btn, blp);
+        }
+
+        holder[0] = UiKit.dialog(this, P, R.drawable.ic_palette, "配色", null, box,
+                UiKit.ghost("取消", () -> { }));
+    }
+
+    /** 七段色阶条：每块直接用该档的底色画出来，点到哪块就是哪档 */
+    private View buildAlphaStrip() {
+        LinearLayout strip = new LinearLayout(this);
+        strip.setOrientation(LinearLayout.HORIZONTAL);
+        int cur = WidgetPrefs.alphaIndex(this);
+        int[] steps = WidgetPrefs.ALPHA_STEPS;
+
+        for (int i = 0; i < steps.length; i++) {
+            boolean on = i == cur;
+            TextView t = UiKit.text(this, WidgetPrefs.ALPHA_NAMES[i], 10.5f,
+                    on ? P.accentInk : P.navInk);
+            t.setGravity(Gravity.CENTER);
+            t.setIncludeFontPadding(false);
+
+            android.graphics.drawable.GradientDrawable bg =
+                    new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(dp(9));
+            bg.setColor(alphaChipColor(steps[i]));
+            // 全透明那块在页面底色上看不见，给个细边把形状勾出来
+            bg.setStroke(steps[i] == 0 ? Math.max(1, dp(1)) : 0, 0x33888888);
+            if (on) bg.setStroke(dp(2), P.accentInk);
+            t.setBackground(bg);
+
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.setMargins(dp(2), 0, dp(2), 0);
+            t.setPadding(0, dp(10), 0, dp(10));
+
+            final int idx = i;
+            t.setOnClickListener(v -> {
+                WidgetPrefs.setAlphaPct(this, steps[idx]);
+                applyToWidget();
+                recreate();
+            });
+            strip.addView(t, lp);
+        }
+        return strip;
+    }
+
+    /** 色阶块本身的底色：就是该档不透明度叠在主题底色上的样子 */
+    private int alphaChipColor(int pct) {
+        int a = Math.round(Math.max(0, Math.min(100, pct)) / 100f * 255f);
+        return (a << 24) | (PickupWidgetProvider.isLightTheme(this) ? 0xFFFFFF : 0x1B1B1B);
+    }
+
+    private int paletteIndex() {
+        String p = WidgetPrefs.palette(this);
+        if ("rainbow".equals(p)) return 1;
+        if ("sunset".equals(p)) return 2;
+        if ("aurora".equals(p)) return 3;
+        if ("sakura".equals(p)) return 4;
+        return 0;
+    }
+
+    private String paletteKey(int idx) {
+        switch (idx) {
+            case 1: return "rainbow";
+            case 2: return "sunset";
+            case 3: return "aurora";
+            case 4: return "sakura";
+            default: return "single";
+        }
+    }
+
+    private String paletteLabel() {
+        switch (paletteIndex()) {
+            case 1: return "雨后彩虹";
+            case 2: return "夏日夕阳";
+            case 3: return "极光夜空";
+            case 4: return "樱花初雪";
+            default: return "单色";
+        }
     }
 
     private int themeIndex() {
@@ -293,17 +485,12 @@ public class WidgetSettingsActivity extends Activity {
 
     private String themeLabel() {
         int i = themeIndex();
-        return i == 1 ? "浅色" : i == 2 ? "跟随系统（当前" + (PickupWidgetProvider.isLightTheme(this) ? "浅色" : "深色") + "）" : "深色";
-    }
-
-    private int alphaIndex() {
-        String a = WidgetPrefs.alpha(this);
-        return "half".equals(a) ? 1 : "clear".equals(a) ? 2 : 0;
-    }
-
-    private String alphaLabel() {
-        int i = alphaIndex();
-        return i == 1 ? "半透明" : i == 2 ? "全透明" : "实底";
+        if (i == 1) return "浅色";
+        if (i == 2) {
+            return "跟随系统（当前"
+                    + (PickupWidgetProvider.isLightTheme(this) ? "浅色" : "深色") + "）";
+        }
+        return "深色";
     }
 
     private View buildHeader() {
@@ -558,13 +745,26 @@ public class WidgetSettingsActivity extends Activity {
         // 没组件时不读旧图：那可能是上一个组件留下的，容易误导。
         android.graphics.Bitmap bg = onDesktop ? WidgetBackdrop.load(this) : null;
 
-        float ratio;
+        // 预览要展示的是「整块格子」——桌面上拖尺寸时那个蓝框，
+        // 不是卡片本身。只展示卡片会把四角圆边和周围留白切掉，
+        // 看着像一张贴纸，而不是它在桌面上的样子。
+        float[] frame = pl != null ? pl.frameRatios(this) : null;
+        float frameW;
+        float frameH;
+        if (frame != null) {
+            frameW = Math.max(1f, (frame[2] - frame[0]) * screenW);
+            frameH = Math.max(1f, (frame[3] - frame[1]) * screenH);
+        } else if (pl != null) {
+            frameW = Math.max(1f, (pl.right - pl.left) * screenW);
+            frameH = Math.max(1f, (pl.bottom - pl.top) * screenH);
+        } else {
+            frameW = screenW;
+            frameH = screenH * 0.30f;
+        }
+        float ratio = frameH / frameW;
+        // 背景图就是按格子框裁的，以它为准（比例和画面天然对齐）
         if (bg != null && bg.getWidth() > 0) {
             ratio = bg.getHeight() / (float) bg.getWidth();
-        } else {
-            float realW = Math.max(1f, (pl.right - pl.left) * screenW);
-            float realH = Math.max(1f, (pl.bottom - pl.top) * screenH);
-            ratio = realH / realW;
         }
 
         int availW = screenW - dp(18) * 2;
@@ -582,28 +782,47 @@ public class WidgetSettingsActivity extends Activity {
         } else {
             stage.setBackgroundResource(R.drawable.widget_preview_placeholder);
         }
-        // 圆角裁切：桌面上的组件本身是圆角，这里跟着做才像
-        stage.setClipToOutline(true);
-        stage.setOutlineProvider(new android.view.ViewOutlineProvider() {
-            @Override
-            public void getOutline(android.view.View v, android.graphics.Outline o) {
-                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(18));
-            }
-        });
+        // 框本身不裁圆角：它是桌面上的格子边界，直角才对。
+        // 曲边由里面的卡片负责——那才是组件真正的样子。
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(boxW, boxH);
         slp.gravity = Gravity.CENTER_HORIZONTAL;
         dock.addView(stage, slp);
 
-        // 内容按「真实组件宽度 → 卡片宽度」等比缩
-        float realW = Math.max(1f, (pl.right - pl.left) * screenW);
-        float k = boxW / realW;
-        k = Math.max(0.4f, Math.min(1.4f, k));
+        // 卡片在框内按真实留白内缩（K90 上横向各 40/41、纵向 0/44）
+        float[] inset = pl != null ? pl.cardInset(this) : new float[]{0, 0, 0, 0};
+        int cardL = Math.round(inset[0] * boxW);
+        int cardT = Math.round(inset[1] * boxH);
+        int cardR = Math.round(inset[2] * boxW);
+        int cardB = Math.round(inset[3] * boxH);
+        int cardW = Math.max(dp(60), boxW - cardL - cardR);
+        int cardH = Math.max(dp(40), boxH - cardT - cardB);
 
-        int padPx = (int) (WidgetBackdrop.PAD_DP_PX(this) * k);
+        // 内容按「真实卡片宽度 → 预览卡片宽度」等比缩
+        float realCardW = Math.max(1f, frameW * (1f - inset[0] - inset[2]));
+        float k = cardW / realCardW;
+        k = Math.max(0.35f, Math.min(1.4f, k));
+
+        final float corner = Math.max(6f, dp(16) * k);
+        android.widget.FrameLayout card = new android.widget.FrameLayout(this);
+        card.setBackgroundResource(PickupWidgetProvider.backgroundRes(this));
+        card.setClipToOutline(true);
+        card.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(android.view.View v, android.graphics.Outline o) {
+                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), corner);
+            }
+        });
+        android.widget.FrameLayout.LayoutParams clp =
+                new android.widget.FrameLayout.LayoutParams(cardW, cardH);
+        clp.leftMargin = cardL;
+        clp.topMargin = cardT;
+        stage.addView(card, clp);
+
+        int padPx = (int) (dp(10) * k);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(padPx, padPx, padPx, padPx);
-        stage.addView(content, new android.widget.FrameLayout.LayoutParams(
+        card.addView(content, new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         previewBox = content;
         previewScale = k;
@@ -698,13 +917,13 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     /** 预览里加一行（picked = true 表示已取件那一行：划掉 + 变灰 + 无 ✓） */
-    private void addPreviewRow(boolean picked) {
-        addPreviewRow(picked, picked ? "09-8-7654" : "12-3-4567",
+    private void addPreviewRow(int index, boolean picked) {
+        addPreviewRow(index, picked, picked ? "09-8-7654" : "12-3-4567",
                 picked ? "中通快递 · 已取" : "菜鸟驿站 · 1 号柜");
     }
 
     /** 预览里加一行（可指定码与地点） */
-    private void addPreviewRow(boolean picked, String codeText, String placeText) {
+    private void addPreviewRow(int index, boolean picked, String codeText, String placeText) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -723,14 +942,16 @@ public class WidgetSettingsActivity extends Activity {
         // 已取的用与组件同一套「双横线」实现，避免预览和实际长得不一样
         CharSequence codeLabel = picked
                 ? PickupWidgetProvider.strikeText(codeText) : codeText;
-        TextView code = UiKit.text(this, "", 17f * k, picked ? fg(0x99) : fg(0xFF));
+        TextView code = UiKit.text(this, "", 17f * k,
+                PickupWidgetProvider.rowColor(this, index, picked ? 0x99 : 0xFF));
         code.setText(codeLabel);   // 保留 Html 的删除线 span
         code.setTypeface(Typeface.create("monospace", Typeface.BOLD));
         if (!showCode) code.setText("");
         row.addView(code);
 
+        // 以前这里写死白色：浅色主题下地点直接看不见（真机上发现）
         TextView place = UiKit.text(this, placeText, 11f * k,
-                picked ? 0x80FFFFFF : 0xB3FFFFFF);
+                PickupWidgetProvider.rowColor(this, index, picked ? 0x80 : 0xB3));
         place.setMaxLines(1);
         LinearLayout.LayoutParams plp2 = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -821,8 +1042,8 @@ public class WidgetSettingsActivity extends Activity {
 
         // v4.1.0：背景是「抓下来的实景图」，不再由这里画底色，
         // 否则会把图片盖掉。文字色仍然按深浅主题走。
-        previewTitle.setTextColor(fg(0xFF));
-        previewCount.setTextColor(fg(0xB3));
+        previewTitle.setTextColor(PickupWidgetProvider.rowColor(this, 0, 0xFF));
+        previewCount.setTextColor(PickupWidgetProvider.rowColor(this, 0, 0xB3));
         previewTitle.setText(showAll ? "取件记录" : "待取件");
         previewCount.setText(showAll ? "2 待取 · 1 已取" : "2 个待取");
 
@@ -833,7 +1054,7 @@ public class WidgetSettingsActivity extends Activity {
             previewCount.setText("");
             TextView sum = UiKit.text(this,
                     showAll ? "2 个待取 · 1 个已取" : "2 个待取",
-                    16f * previewScale, fg(0xFF));
+                    16f * previewScale, PickupWidgetProvider.rowColor(this, 0, 0xFF));
             sum.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -847,11 +1068,11 @@ public class WidgetSettingsActivity extends Activity {
         int maxRows = previewOnDesktop && placement != null && placement.spanY > 0
                 ? placement.spanY : 3;
         int shown = 0;
-        if (shown < maxRows) { addPreviewRow(false, "12-3-4567", "菜鸟驿站 · 1 号柜"); shown++; }
-        if (shown < maxRows) { addPreviewRow(false, "58-2-9041", "顺丰速运 · 望江路驿站"); shown++; }
+        if (shown < maxRows) { addPreviewRow(shown, false, "12-3-4567", "菜鸟驿站 · 1 号柜"); shown++; }
+        if (shown < maxRows) { addPreviewRow(shown, false, "58-2-9041", "顺丰速运 · 望江路驿站"); shown++; }
         if (showAll && shown < maxRows) {
             // 全部信息模式：已取的也画出来（划掉 + 变灰 + 无 ✓）
-            addPreviewRow(true);
+            addPreviewRow(shown, true, "09-8-7654", "中通快递 · 已取");
         }
         // 字号缩放（预览里的行是新建的，所以要在这里统一设）
         for (int i = 0; i < previewRows.getChildCount(); i++) {

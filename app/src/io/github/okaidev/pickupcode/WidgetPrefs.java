@@ -58,13 +58,78 @@ public final class WidgetPrefs {
         prefs(ctx).edit().putString(PickupWidgetProvider.KEY_THEME, v).apply();
     }
 
-    /** solid / half / clear */
-    public static String alpha(Context ctx) {
-        return prefs(ctx).getString(PickupWidgetProvider.KEY_ALPHA, "solid");
+    /**
+     * 七档透明度（定稿方案）：实底 92 / 微透 84 / 轻透 76 / 半透 62 /
+     * 偏透 48 / 很透 30 / 全透 0，数值是底色的不透明度百分比。
+     *
+     * <p>档位是固定的七个，不做连续滑杆：连续值要处理「拖到 37 是什么样」，
+     * 而用户在壁纸上根本判断不出 37 和 42 的差别，只会困惑。七档每档都有名字。
+     */
+    public static final int[] ALPHA_STEPS = {92, 84, 76, 62, 48, 30, 0};
+
+    public static final String[] ALPHA_NAMES = {"实底", "微透", "轻透", "半透", "偏透", "很透", "全透"};
+
+    /**
+     * 当前透明度百分比。
+     *
+     * <p>兼容 v4.1.0 存下的 {@code solid/half/clear}：分别对应 92/62/0，
+     * 老用户升级后不会突然变成别的样子。
+     */
+    public static int alphaPct(Context ctx) {
+        String v = prefs(ctx).getString(PickupWidgetProvider.KEY_ALPHA, "92");
+        if ("solid".equals(v)) return 92;
+        if ("half".equals(v)) return 62;
+        if ("clear".equals(v)) return 0;
+        try {
+            int pct = Integer.parseInt(v);
+            int best = 0;
+            int diff = 999;
+            for (int i = 0; i < ALPHA_STEPS.length; i++) {
+                int d = Math.abs(ALPHA_STEPS[i] - pct);
+                if (d < diff) { diff = d; best = i; }
+            }
+            return ALPHA_STEPS[best];
+        } catch (Throwable t) {
+            return 92;
+        }
     }
 
-    public static void setAlpha(Context ctx, String v) {
-        prefs(ctx).edit().putString(PickupWidgetProvider.KEY_ALPHA, v).apply();
+    /** 当前透明度档位下标 0~6（对应 {@link #ALPHA_STEPS}） */
+    public static int alphaIndex(Context ctx) {
+        int pct = alphaPct(ctx);
+        for (int i = 0; i < ALPHA_STEPS.length; i++) {
+            if (ALPHA_STEPS[i] == pct) return i;
+        }
+        return 0;
+    }
+
+    public static void setAlphaPct(Context ctx, int pct) {
+        prefs(ctx).edit().putString(PickupWidgetProvider.KEY_ALPHA, String.valueOf(pct)).apply();
+    }
+
+    /** 旧接口：只用于兼容，内部转成百分比 */
+    public static String alpha(Context ctx) {
+        return String.valueOf(alphaPct(ctx));
+    }
+
+    // ==================== 配色（v4.2） ====================
+
+    /**
+     * 文字配色：{@code single} / {@code rainbow} / {@code sunset} / {@code aurora} / {@code sakura}。
+     *
+     * <p>{@code single} 是单色（深色主题白字、浅色主题墨字），其余四套是彩色主题，
+     * 每一行的取件码按色板循环换色，让多行之间能一眼分开。
+     */
+    public static String palette(Context ctx) {
+        String v = prefs(ctx).getString("widget_palette", "single");
+        if ("rainbow".equals(v) || "sunset".equals(v) || "aurora".equals(v) || "sakura".equals(v)) {
+            return v;
+        }
+        return "single";
+    }
+
+    public static void setPalette(Context ctx, String v) {
+        prefs(ctx).edit().putString("widget_palette", v == null ? "single" : v).apply();
     }
 
     public static float fontScale(Context ctx) {

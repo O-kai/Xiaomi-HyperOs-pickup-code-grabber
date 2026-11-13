@@ -150,10 +150,23 @@ public final class WidgetBackdrop {
             int w = full.getWidth();
             int h = full.getHeight();
             int pad = (int) (PAD_DP * ctx.getResources().getDisplayMetrics().density);
-            int left = clamp((int) (w * pl.left) - pad, 0, w - 1);
-            int right = clamp((int) (w * pl.right) + pad, left + 1, w);
-            int top = clamp((int) (h * pl.top) - pad, 0, h - 1);
-            int bottom = clamp((int) (h * pl.bottom) + pad, top + 1, h);
+
+            // 裁「整块格子」（桌面那个蓝框），不是卡片本身：
+            // 卡片在格子里还有留白，只裁卡片会把圆角切掉，预览就看不到边缘了。
+            // 拿不到格子框时退回卡片区域。
+            float fl = pl.left, ft = pl.top, fr = pl.right, fb = pl.bottom;
+            float[] frame = pl.frameRatios(ctx);
+            if (frame != null) {
+                fl = frame[0];
+                ft = frame[1];
+                fr = frame[2];
+                fb = frame[3];
+            }
+
+            int left = clamp((int) (w * fl) - pad, 0, w - 1);
+            int right = clamp((int) (w * fr) + pad, left + 1, w);
+            int top = clamp((int) (h * ft) - pad, 0, h - 1);
+            int bottom = clamp((int) (h * fb) + pad, top + 1, h);
             crop = Bitmap.createBitmap(full, left, top, right - left, bottom - top);
 
             // 3) 压一下再存：预览用不上原分辨率，省内存
