@@ -619,31 +619,52 @@ public final class WidgetPlacement {
     }
 
     /**
-     * 预览用的框：左右和上边用格子边界，**下边收到卡片底部**。
+     * 预览框 = 卡片四边各外扩 {@link #PREVIEW_PAD_DP} 的壁纸，{left, top, right, bottom}。
      *
-     * <p>为什么底部留白不要：桌面在组件正下方紧挨着搜索栏/分页点，
-     * 按格子边界裁会把它们一起裁进来，预览最下面露出一块灰。
-     * 那块不属于壁纸，收掉之后预览里剩下的全是「桌面上的样子」。
+     * <p><b>这里绝不夹屏幕边界</b>（v4.2.1）。以前写的是
+     * {@code l = max(0, left - pad)}、{@code r = min(1, right + pad)}，
+     * 于是卡片贴着屏幕左边时，左边那一圈壁纸被夹成 0、右边还是 12dp ——
+     * 画出来就是「卡片贴在框的左边，右边空一条」。用户一眼就看出不对。
+     *
+     * <p>框只是一个**装饰性viewport**：它表达的是「卡片 + 四周一圈壁纸」，
+     * 不需要和屏幕坐标严格对齐。卡片位置在框里是否居中只取决于这里是否等距，
+     * 所以四个方向用同一个 pad、不夹边界。真机裁图那边要看边界，走
+     * {@link #previewCropRatios}。
      */
     public float[] previewRatios(Context ctx) {
         int[] s = screenSize(ctx);
         if (s[0] <= 0 || s[1] <= 0) return null;
 
-        // 预览框 = **卡片四边各留一圈壁纸**，而不是贴到格子边界。
-        //
-        // 为什么不贴格子边界：桌面上的卡片是贴着格子顶边的（marginTop=0），
-        // 贴边裁出来文字直接压在框顶；格子底边又紧挨着桌面搜索栏/分页点，
-        // 一直裁到 2181 会把它们也带进来（真机上露过一条灰）。
-        // 四边等距既解决了「上下留白不一致」，也不会裁进别人的 UI。
         float padX = dp(ctx, PREVIEW_PAD_DP) / (float) s[0];
         float padY = dp(ctx, PREVIEW_PAD_DP) / (float) s[1];
-        // 底部再收一点：系统手势条常驻，裁进来会在预览最下面露一条
-        float maxBottom = 1f - dp(ctx, 20) / (float) s[1];
 
-        float l = Math.max(0f, left - padX);
-        float t = Math.max(0f, top - padY);
-        float r = Math.min(1f, right + padX);
-        float b = Math.min(maxBottom, bottom + padY);
+        float l = left - padX;
+        float t = top - padY;
+        float r = right + padX;
+        float b = bottom + padY;
+        if (r <= l || b <= t) return null;
+        return new float[]{l, t, r, b};
+    }
+
+    /**
+     * 抓背景时按哪个矩形裁：{@link #previewRatios} 再夹回屏幕内。
+     *
+     * <p>卡片贴着屏幕边时框会伸到屏幕外，那部分像素不存在，只能夹掉；
+     * 夹掉的那一条由预览框拉伸一点点壁纸补上（最多 12dp，肉眼看不出来），
+     * 换来的好处是卡片在框里始终四边等距。
+     *
+     * <p>底部额外让出系统手势条：它常驻在屏幕最下方，裁进来会在预览底部露一条灰。
+     */
+    public float[] previewCropRatios(Context ctx) {
+        float[] f = previewRatios(ctx);
+        if (f == null) return null;
+        int[] s = screenSize(ctx);
+        if (s[0] <= 0 || s[1] <= 0) return f;
+        float maxBottom = 1f - dp(ctx, 20) / (float) s[1];
+        float l = Math.max(0f, f[0]);
+        float t = Math.max(0f, f[1]);
+        float r = Math.min(1f, f[2]);
+        float b = Math.min(maxBottom, f[3]);
         if (r <= l || b <= t) return null;
         return new float[]{l, t, r, b};
     }
@@ -651,8 +672,8 @@ public final class WidgetPlacement {
     /**
      * 卡片相对「预览框」的内缩比例，{left, top, right, bottom}，0~1。
      *
-     * <p>框是按卡片四边各留 {@link #PREVIEW_PAD_DP} 生成的，所以正常情况下
-     * 四边内缩相等；卡片贴到屏幕边缘时，那一侧会被夹小。
+     * <p>框是按卡片四边各留 {@link #PREVIEW_PAD_DP} 生成的，且不夹边界，
+     * 所以四边内缩**恒等**——卡片永远居中，不会一边贴边一边空一条。
      */
     public float[] previewInset(Context ctx) {
         float[] f = previewRatios(ctx);

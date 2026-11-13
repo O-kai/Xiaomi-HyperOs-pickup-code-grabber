@@ -39,8 +39,22 @@ public class WidgetSettingsActivity extends Activity {
 
     /** 配色展开区的容器与箭头 */
     private LinearLayout paletteBox;
+    /** 配色按钮那一行（单色 + 四套彩色）：选中态会变，需要就地重画 */
+    private LinearLayout paletteRow;
     private LinearLayout settingsCard;
     private LinearLayout bgSeg;
+
+    /**
+     * 透明度七块所在的容器。
+     *
+     * <p>v4.2.1：从「每次点都 recreate 整页」改成「只重画这一条」。
+     * 色块底色跟着深/浅主题走，主题一变这条就得重画，但整页不用动。
+     */
+    private LinearLayout alphaStrip;
+    /** 「透明度」标题右边那行当前档位（实底/微透…），改档位时要就地改字 */
+    private TextView alphaHeadValue;
+    /** 预览里那张卡片：主题/透明度一变就换背景 drawable */
+    private android.widget.FrameLayout previewCard;
 
     /** 「配色」行右边那行小字（色点 + 名称/色值），选色时要实时改 */
     private TextView paletteValueText;
@@ -56,6 +70,11 @@ public class WidgetSettingsActivity extends Activity {
     private UiKit.Switch codeSwitch;
     /** 下级的整行容器——上级关掉时要整行变淡 */
     private LinearLayout placeRow;
+    /** 根布局 / 底部预览区：抓完背景只换这一块，不重建整页 */
+    private LinearLayout rootView;
+    private View previewDock;
+    /** 屏幕像素尺寸（预览框换算要用） */
+    private int screenW, screenH;
     /** 组件在桌面上的位置（v4.1.0）：预览卡片按它的宽高比渲染 */
     private WidgetPlacement placement;
     /** 预览内容相对真实组件的缩放系数 */
@@ -69,6 +88,16 @@ public class WidgetSettingsActivity extends Activity {
     /** 从「无障碍设置」回来、服务已开启 → 自动补一次重新校准 */
     private boolean recalibrateOnResume = false;
     private static final int REQ_BACKDROP = 1001;
+
+    /**
+     * ScrollView 的固定 ID（v4.2.1）。
+     *
+     * <p>代码里 new 出来的视图默认没有 ID，而 View 的状态保存（包括滚动位置）
+     * 只认「有 ID 的视图」—— 没有 ID 就什么都不存，重建后页面回到最顶上。
+     * 这一页虽然已经不再用 {@code recreate()} 刷界面了，但旋转、切换系统深色、
+     * 改系统字号这些配置变更仍会重建 Activity，给个固定 ID 就能把滚动位置带回来。
+     */
+    private static final int SCROLL_ID = 0x0A0A0001;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,8 +114,6 @@ public class WidgetSettingsActivity extends Activity {
                     UiKit.isDark(this) ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         } catch (Throwable ignored) { }
 
-        final int screenW;
-        final int screenH;
         {
             int ww, hh;
             try {
@@ -121,8 +148,11 @@ public class WidgetSettingsActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(P.bg);
         root.addView(buildHeader());
+        rootView = root;
 
         ScrollView sv = new ScrollView(this);
+        // 有 ID 才会保存/恢复滚动位置（见 SCROLL_ID 的说明）
+        sv.setId(SCROLL_ID);
         sv.setFillViewport(true);
         sv.setPadding(dp(18), dp(4), dp(18), dp(6));
         LinearLayout box = new LinearLayout(this);
@@ -133,7 +163,8 @@ public class WidgetSettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         // v4.1.0：实时预览固定在底部，不参与滚动 —— 调上面任何一项都能立刻看到，
         // 不会因为滚动把预览滚出屏幕。
-        root.addView(buildPreviewDock(pl, onDesktop, screenW, screenH));
+        previewDock = buildPreviewDock(pl, onDesktop, screenW, screenH);
+        root.addView(previewDock);
 
         // v4.1.0：第一次进这个页面、还没有背景图时，自动抓一次。
         // 不让用户先面对一块灰底发愣，也不用教他再点一次按钮。
@@ -319,7 +350,7 @@ public class WidgetSettingsActivity extends Activity {
         }
     }
 
-    /** 确定：写盘、刷新桌面组件、重建页面 */
+    /** 确定：写盘、刷新桌面组件、收起色盘（不重建整页） */
     private void confirmTempColor() {
         if (tempPalette != null) {
             WidgetPrefs.setCustomColor(this, tempColor);
@@ -327,13 +358,32 @@ public class WidgetSettingsActivity extends Activity {
         }
         tempPalette = null;
         applyToWidget();
-        recreate();
+        // 收起色盘和配色区 —— 和原来 recreate 之后折叠态一致，也是「选完了」的反馈
+        if (colorPanel != null) colorPanel.setVisibility(View.GONE);
+        paletteOpen = false;
+        if (paletteBox != null) paletteBox.setVisibility(View.GONE);
+        refreshPaletteRow();
+        refreshPaletteTint();
+        refreshPreview();
     }
 
     /** 七段色阶条：每块直接用该档的底色画出来，点到哪块就是哪档 */
     private View buildAlphaStrip() {
-        LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
+        alphaStrip = new LinearLayout(this);
+        alphaStrip.setOrientation(LinearLayout.HORIZONTAL);
+        fillAlphaStrip();
+        return alphaStrip;
+    }
+
+    /**
+     * 重画七块色阶（不重建整页）。
+     *
+     * <p>选中的描边、色块本身的底色、文字色都跟「当前档位 + 深/浅主题 + 配色」有关，
+     * 这三样任何一个变了都调这里。以前是整页 {@code recreate()}，页面会闪一下、
+     * 滚动位置也会被重置。
+     */
+    private void fillAlphaStrip() {
+        if (alphaStrip == null) return;
         int cur = WidgetPrefs.alphaIndex(this);
         int[] steps = WidgetPrefs.ALPHA_STEPS;
 
@@ -344,9 +394,10 @@ public class WidgetSettingsActivity extends Activity {
                 new android.graphics.drawable.GradientDrawable();
         trough.setCornerRadius(dp(13));
         trough.setColor(lightUi ? 0xFF3A3A3E : 0xFFE8E8EC);
-        strip.setBackground(trough);
-        strip.setPadding(dp(4), dp(4), dp(4), dp(4));
+        alphaStrip.setBackground(trough);
+        alphaStrip.setPadding(dp(4), dp(4), dp(4), dp(4));
 
+        alphaStrip.removeAllViews();
         alphaChips.clear();
         for (int i = 0; i < steps.length; i++) {
             boolean on = i == cur;
@@ -372,15 +423,36 @@ public class WidgetSettingsActivity extends Activity {
             t.setPadding(0, dp(10), 0, dp(10));
 
             final int idx = i;
-            t.setOnClickListener(v -> {
-                WidgetPrefs.setAlphaPct(this, steps[idx]);
-                applyToWidget();
-                recreate();
-            });
+            t.setOnClickListener(v -> pickAlpha(idx));
             alphaChips.add(t);
-            strip.addView(t, lp);
+            alphaStrip.addView(t, lp);
         }
-        return strip;
+    }
+
+    /**
+     * 换透明度档位（v4.2.1：就地更新，不重建整页）。
+     *
+     * <p>原来这里 {@code WidgetPrefs.setAlphaPct → applyToWidget → recreate}，
+     * 整页销毁重建一次：预览区会闪、会抖，滚动位置还被重置。
+     * 真正需要变的只有「这一条七块 + 预览卡片的背景图」。
+     */
+    private void pickAlpha(int idx) {
+        if (idx < 0 || idx >= WidgetPrefs.ALPHA_STEPS.length) return;
+        if (WidgetPrefs.alphaIndex(this) == idx) return;   // 点的是当前档，什么都不用做
+        WidgetPrefs.setAlphaPct(this, WidgetPrefs.ALPHA_STEPS[idx]);
+        applyToWidget();
+        applyPreviewCardBackground();
+        if (alphaHeadValue != null) {
+            alphaHeadValue.setText(WidgetPrefs.ALPHA_NAMES[WidgetPrefs.alphaIndex(this)]);
+        }
+        // 这一拍正在分发这条里某个色块的点击事件，重画要延后
+        if (alphaStrip != null) alphaStrip.post(this::fillAlphaStrip);
+    }
+
+    /** 预览卡片换背景（深/浅 × 七档透明度，全在 drawable 里） */
+    private void applyPreviewCardBackground() {
+        if (previewCard == null) return;
+        previewCard.setBackgroundResource(PickupWidgetProvider.backgroundRes(this));
     }
 
     /** 色阶块本身的底色：就是该档不透明度叠在主题底色上的样子 */
@@ -676,8 +748,14 @@ public class WidgetSettingsActivity extends Activity {
 
         // ---- 透明度 ----
         card.addView(UiKit.divider(this, P));
-        card.addView(sectionHead("透明度",
-                WidgetPrefs.ALPHA_NAMES[WidgetPrefs.alphaIndex(this)]));
+        LinearLayout alphaHead = (LinearLayout) sectionHead("透明度",
+                WidgetPrefs.ALPHA_NAMES[WidgetPrefs.alphaIndex(this)]);
+        // 右边那个「实底/微透…」要能就地改字（以前靠 recreate 重画）
+        if (alphaHead.getChildCount() > 1
+                && alphaHead.getChildAt(1) instanceof TextView) {
+            alphaHeadValue = (TextView) alphaHead.getChildAt(1);
+        }
+        card.addView(alphaHead);
         card.addView(buildAlphaStrip());
 
         // ---- 字号 ----
@@ -757,25 +835,42 @@ public class WidgetSettingsActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(0, dp(2), 0, dp(8));
-
-        String cur = WidgetPrefs.palette(this);
-        boolean single = "single".equals(cur) || "custom".equals(cur);
-        addPaletteChip(row, "单色", null, single, 0.72f, this::toggleColorPanel);
-        addPaletteChip(row, "雨后彩虹", new int[]{0xFFFF9EC4, 0xFFC6A8FF},
-                "rainbow".equals(cur), 1f, () -> selectPalette("rainbow"));
-        addPaletteChip(row, "夏日夕阳", new int[]{0xFFFFB067, 0xFFFFD54A},
-                "sunset".equals(cur), 1f, () -> selectPalette("sunset"));
-        addPaletteChip(row, "极光夜空", new int[]{0xFF7BE0A6, 0xFFC9A2FF},
-                "aurora".equals(cur), 1f, () -> selectPalette("aurora"));
-        addPaletteChip(row, "樱花初雪", new int[]{0xFFFFC2D8, 0xFFDCC6EC},
-                "sakura".equals(cur), 1f, () -> selectPalette("sakura"));
-        box.addView(row);
+        paletteRow = new LinearLayout(this);
+        paletteRow.setOrientation(LinearLayout.HORIZONTAL);
+        paletteRow.setPadding(0, dp(2), 0, dp(8));
+        fillPaletteRow();
+        box.addView(paletteRow);
 
         box.addView(buildColorPanel());
         return box;
+    }
+
+    /** 铺满配色按钮行（可重复调用：选中态变了只重画这一行） */
+    private void fillPaletteRow() {
+        if (paletteRow == null) return;
+        paletteRow.removeAllViews();
+        String cur = currentPaletteKey();
+        boolean single = "single".equals(cur) || "custom".equals(cur);
+        addPaletteChip(paletteRow, "单色", null, single, 0.72f, this::toggleColorPanel);
+        addPaletteChip(paletteRow, "雨后彩虹", new int[]{0xFFFF9EC4, 0xFFC6A8FF},
+                "rainbow".equals(cur), 1f, () -> selectPalette("rainbow"));
+        addPaletteChip(paletteRow, "夏日夕阳", new int[]{0xFFFFB067, 0xFFFFD54A},
+                "sunset".equals(cur), 1f, () -> selectPalette("sunset"));
+        addPaletteChip(paletteRow, "极光夜空", new int[]{0xFF7BE0A6, 0xFFC9A2FF},
+                "aurora".equals(cur), 1f, () -> selectPalette("aurora"));
+        addPaletteChip(paletteRow, "樱花初雪", new int[]{0xFFFFC2D8, 0xFFDCC6EC},
+                "sakura".equals(cur), 1f, () -> selectPalette("sakura"));
+    }
+
+    /**
+     * 重画配色按钮行（延后一拍）。
+     *
+     * <p>调用点常常正处在「这一行里某个按钮的点击回调」中，
+     * 直接 removeAllViews 会把正在分发事件的视图摘掉。等这一轮分发完再动。
+     */
+    private void refreshPaletteRow() {
+        if (paletteRow == null) return;
+        paletteRow.post(this::fillPaletteRow);
     }
 
     /**
@@ -881,11 +976,22 @@ public class WidgetSettingsActivity extends Activity {
         row.addView(chip, lp);
     }
 
-    /** 四套预设：点一下直接生效，不需要再确认 */
+    /**
+     * 四套预设：点一下直接生效。
+     *
+     * <p>v4.2.1：不再 {@code recreate()}。整页重建会让预览闪一下、滚动位置回顶，
+     * 而实际要变的只有「配色行的小字 + 配色按钮的选中态 + 透明度七块的字色 + 预览行」。
+     */
     private void selectPalette(String key) {
         WidgetPrefs.setPalette(this, key);
         applyToWidget();
-        recreate();
+        // 之前可能正停在「挑自定义色」的临时态上：这次选了预设，临时值要作废，
+        // 否则 currentPaletteKey() 还返回临时色，预览会继续画那个颜色。
+        tempPalette = null;
+        if (colorPanel != null) colorPanel.setVisibility(View.GONE);
+        refreshPaletteRow();
+        refreshPaletteTint();
+        refreshPreview();
     }
 
     /** 分段小标题：左标题、右当前值（都为正文色，靠字号区分层级） */
@@ -1056,6 +1162,7 @@ public class WidgetSettingsActivity extends Activity {
         final float corner = Math.max(4f, dp(20) * k);
         android.widget.FrameLayout card = new android.widget.FrameLayout(this);
         card.setBackgroundResource(PickupWidgetProvider.backgroundRes(this));
+        previewCard = card;   // 主题/透明度变了就地换背景，不用重建整页
         card.setClipToOutline(true);
         card.setOutlineProvider(new android.view.ViewOutlineProvider() {
             @Override
@@ -1120,35 +1227,39 @@ public class WidgetSettingsActivity extends Activity {
      * <p>本页是 edge-to-edge 的（内容画到系统栏下面），不处理 insets 的话
      * 预览框会一路画到导航条底下，真机上就是「预览最下面还有一条灰带」——
      * 那其实是系统手势条压在上面。这里按 insets 加内边距，取不到时退一个固定值。
+     *
+     * <p>v4.2.1：改成**建视图时同步算好**。以前整段放在 {@code post()} 里 ——
+     * 第一帧用 20dp、第二帧才换成 nav+10dp，dock 高度一变，上面的预览就往上跳一下，
+     * 这就是点按钮时看到的「抖」。
      */
     private void applyDockInsets(View dock) {
-        dock.post(() -> {
-            int nav = 0;
-            try {
-                android.view.WindowInsets in = dock.getRootWindowInsets();
+        int nav = navBarHeightPx();
+        int bottom = Math.max(dp(20), nav > 0 ? nav + dp(10) : dp(30));
+        if (dock.getPaddingBottom() != bottom) {
+            dock.setPadding(dock.getPaddingLeft(), dock.getPaddingTop(),
+                    dock.getPaddingRight(), bottom);
+        }
+    }
+
+    /** 手势条 / 导航栏高度（px）；拿不到返回 0 */
+    private int navBarHeightPx() {
+        int nav = 0;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                android.view.WindowInsets in = getWindowManager()
+                        .getCurrentWindowMetrics().getWindowInsets();
                 if (in != null) {
-                    if (android.os.Build.VERSION.SDK_INT >= 30) {
-                        int b2 = in.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom;
-                        if (b2 > 0) nav = b2;
-                    }
-                    if (nav == 0) {
-                        int b2 = in.getSystemWindowInsetBottom();
-                        if (b2 > 0) nav = b2;
-                    }
+                    nav = in.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom;
                 }
+            }
+        } catch (Throwable ignored) { }
+        if (nav == 0) {
+            try {
+                int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+                if (id > 0) nav = getResources().getDimensionPixelSize(id);
             } catch (Throwable ignored) { }
-            if (nav == 0) {
-                try {
-                    int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
-                    if (id > 0) nav = getResources().getDimensionPixelSize(id);
-                } catch (Throwable ignored) { }
-            }
-            int bottom = Math.max(dp(20), nav > 0 ? nav + dp(10) : dp(30));
-            if (dock.getPaddingBottom() != bottom) {
-                dock.setPadding(dock.getPaddingLeft(), dock.getPaddingTop(),
-                        dock.getPaddingRight(), bottom);
-            }
-        });
+        }
+        return nav;
     }
 
     /**
@@ -1249,10 +1360,38 @@ public class WidgetSettingsActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_BACKDROP) {
-            if (resultCode == RESULT_OK) recreate();
+            // v4.2.1：以前靠整页 recreate 把这个标志位「自然复位」，
+            // 现在不重建页面了，得手动清 —— 否则「重新校准」点过一次就再用不了，
+            // onResume 里的位置检查也会被它一直挡住。
+            realigning = false;
+            if (resultCode == RESULT_OK) rebuildPreviewDock();
             else Toast.makeText(this,
                     "没抓到背景（可能需要 root 授权），可以再试一次", Toast.LENGTH_LONG).show();
         }
+    }
+
+    /**
+     * 只重画底部预览区（v4.2.1）。
+     *
+     * <p>抓完背景回来要换图、可能还要换宽高比，以前是整页 {@code recreate()}：
+     * 设置卡片会重新构建、滚动位置也回到顶上。其实上面那块完全没变，
+     * 换掉 dock 一块就够。
+     */
+    private void rebuildPreviewDock() {
+        if (rootView == null || previewDock == null) return;
+        int index = rootView.indexOfChild(previewDock);
+        if (index < 0) return;
+
+        boolean onDesktop = WidgetPlacement.hasWidget(this);
+        previewOnDesktop = onDesktop;
+        WidgetPlacement pl = onDesktop ? WidgetPlacement.cached(this) : null;
+        if (pl == null) pl = WidgetPlacement.fallback(this);
+        placement = pl;
+
+        rootView.removeViewAt(index);
+        previewDock = buildPreviewDock(pl, onDesktop, screenW, screenH);
+        rootView.addView(previewDock, index);
+        refreshPreview();
     }
 
     /** 状态栏高度：整屏铺满后，标题栏要自己让出这一段 */
@@ -1350,27 +1489,9 @@ public class WidgetSettingsActivity extends Activity {
         if (bgSeg != null) {
             bgSeg.removeAllViews();
             String t = WidgetPrefs.theme(this);
-            addSeg(bgSeg, "深色", "dark".equals(t), () -> {
-                WidgetPrefs.setTheme(this, "dark");
-                rebuildSegments();
-                refreshPreview();
-                applyToWidget();
-                recreate();      // 背景图/文字色都要跟着换
-            });
-            addSeg(bgSeg, "浅色", "light".equals(t), () -> {
-                WidgetPrefs.setTheme(this, "light");
-                rebuildSegments();
-                refreshPreview();
-                applyToWidget();
-                recreate();
-            });
-            addSeg(bgSeg, "跟随系统", "system".equals(t), () -> {
-                WidgetPrefs.setTheme(this, "system");
-                rebuildSegments();
-                refreshPreview();
-                applyToWidget();
-                recreate();
-            });
+            addSeg(bgSeg, "深色", "dark".equals(t), () -> pickTheme("dark"));
+            addSeg(bgSeg, "浅色", "light".equals(t), () -> pickTheme("light"));
+            addSeg(bgSeg, "跟随系统", "system".equals(t), () -> pickTheme("system"));
         }
         if (rowsSeg != null) {
             rowsSeg.removeAllViews();
@@ -1389,6 +1510,29 @@ public class WidgetSettingsActivity extends Activity {
                 applyToWidget();
             });
         }
+    }
+
+    /**
+     * 换组件背景色（深色 / 浅色 / 跟随系统）—— 就地更新，不重建整页（v4.2.1）。
+     *
+     * <p>原来这里 {@code setTheme} 之后直接 {@code recreate()}：整页销毁重建，
+     * 预览要重新解一次背景图、dock 的底边距还要等一帧才补上，
+     * 表现就是「点一下，下面闪一下、抖一下，页面还跳回最顶上」。
+     *
+     * <p>其实跟主题有关的只有四处：分段按钮的选中态、透明度七块的底色
+     * （浅色底 vs 深色底）、预览卡片的背景 drawable、预览里的文字色。
+     * 逐个就地换掉，页面的滚动位置和预览图都不用动。
+     */
+    private void pickTheme(String key) {
+        if (key == null || key.equals(WidgetPrefs.theme(this))) return;
+        WidgetPrefs.setTheme(this, key);
+        applyToWidget();
+        fillAlphaStrip();          // 七块色阶的底色/字色跟着深浅走
+        applyPreviewCardBackground();
+        refreshPreview();          // 预览行按新主题重新取色
+        refreshPaletteTint();      // 「配色」小字里的色点（单色时取主题文字色）
+        // 这一拍正在分发 bgSeg 里某个按钮的点击事件，重建这一段要延后
+        if (bgSeg != null) bgSeg.post(this::rebuildSegments);
     }
 
     private void addSeg(LinearLayout parent, String label, boolean selected, Runnable onClick) {

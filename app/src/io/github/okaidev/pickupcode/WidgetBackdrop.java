@@ -155,7 +155,9 @@ public final class WidgetBackdrop {
             // 卡片在格子里还有留白，只裁卡片会把圆角切掉，预览就看不到边缘了。
             // 拿不到格子框时退回卡片区域。
             float fl = pl.left, ft = pl.top, fr = pl.right, fb = pl.bottom;
-            float[] frame = pl.previewRatios(ctx);
+            // 用 previewCropRatios 而不是 previewRatios：后者不夹屏幕边界
+            // （它要保证卡片在框里四边等距），这里有真实像素，必须夹回屏幕内。
+            float[] frame = pl.previewCropRatios(ctx);
             if (frame != null) {
                 fl = frame[0];
                 ft = frame[1];
@@ -171,7 +173,7 @@ public final class WidgetBackdrop {
             int left = clamp((int) (w * fl) - pad, 0, w - 1);
             int right = clamp((int) (w * fr) + pad, left + 1, w);
             int top = clamp((int) (h * ft) - pad, 0, h - 1);
-            // 底部保护已经由 previewRatios 负责（那里按屏幕比例让出了手势条），
+            // 底部保护已经由 previewCropRatios 负责（那里按屏幕比例让出了手势条），
             // 这里只兜住位图边界 —— 再夹一次会和矩形不是同一个比例，卡片会错位。
             int bottom = clamp((int) (h * fb) + pad, top + 1, h);
 
