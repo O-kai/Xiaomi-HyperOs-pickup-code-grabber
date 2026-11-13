@@ -359,7 +359,30 @@ public class PickupWidgetProvider extends AppWidgetProvider {
         if ("sunset".equals(p)) return PAL_SUNSET;
         if ("aurora".equals(p)) return PAL_AURORA;
         if ("sakura".equals(p)) return PAL_SAKURA;
+        if ("custom".equals(p)) return customRamp(WidgetPrefs.customColor(ctx));
         return null;
+    }
+
+    /**
+     * 自定义色只给一个主色，这里现算 5 档。
+     *
+     * <p>不要求用户挑五个颜色：那是设计活，不是他的活。
+     * 用同一个色相、只动明度和一点饱和度，几行之间既能分开，又是一套的。
+     */
+    static int[] customRamp(int base) {
+        float[] hsv = new float[3];
+        android.graphics.Color.colorToHSV(base | 0xFF000000, hsv);
+        // 亮度只降不升：升亮度的档在浅色壁纸上会糊成一片（自定义紫色时真机踩过）
+        float[] vScale = {1.0f, 0.84f, 0.94f, 0.64f, 0.74f};
+        float[] sScale = {1.0f, 0.92f, 0.72f, 1.0f, 0.86f};
+        int[] out = new int[5];
+        for (int i = 0; i < 5; i++) {
+            float[] h = hsv.clone();
+            h[2] = Math.max(0.30f, Math.min(1f, hsv[2] * vScale[i]));
+            h[1] = Math.max(0.15f, Math.min(1f, hsv[1] * sScale[i]));
+            out[i] = android.graphics.Color.HSVToColor(h) & 0xFFFFFF;
+        }
+        return out;
     }
 
     /**
@@ -389,6 +412,22 @@ public class PickupWidgetProvider extends AppWidgetProvider {
      */
     static CharSequence strikeText(String text) {
         if (text == null || text.isEmpty()) return text;
+
+        // 取件码是纯 ASCII：用组合字符 U+0336 叠两次，得到**双横线**，
+        // 而且线长天然跟着字数走，不会划过头。
+        // 中文不能这么叠（中文字体没有这个组合字形，会变成豆腐块），
+        // 含中文的地点退回 Html 的 <s> —— 单线，但至少是干净的。
+        boolean ascii = true;
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) >= 128) { ascii = false; break; }
+        }
+        if (ascii) {
+            StringBuilder sb = new StringBuilder(text.length() * 3);
+            for (int i = 0; i < text.length(); i++) {
+                sb.append(text.charAt(i)).append('\u0336').append('\u0336');
+            }
+            return sb.toString();
+        }
         return Html.fromHtml("<s>" + escapeHtml(text) + "</s>");
     }
 

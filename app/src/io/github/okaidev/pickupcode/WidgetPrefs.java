@@ -122,7 +122,8 @@ public final class WidgetPrefs {
      */
     public static String palette(Context ctx) {
         String v = prefs(ctx).getString("widget_palette", "single");
-        if ("rainbow".equals(v) || "sunset".equals(v) || "aurora".equals(v) || "sakura".equals(v)) {
+        if ("rainbow".equals(v) || "sunset".equals(v) || "aurora".equals(v)
+                || "sakura".equals(v) || "custom".equals(v)) {
             return v;
         }
         return "single";
@@ -130,6 +131,20 @@ public final class WidgetPrefs {
 
     public static void setPalette(Context ctx, String v) {
         prefs(ctx).edit().putString("widget_palette", v == null ? "single" : v).apply();
+    }
+
+    /**
+     * 自定义配色的主色。
+     *
+     * <p>默认给一个紫色，不是白色：白色做主色时「自定义」按钮就是白底白字，
+     * 打开配色面板会看到一块空白（真机上出现过）。
+     */
+    public static int customColor(Context ctx) {
+        return prefs(ctx).getInt("widget_custom_color", 0xFF845EF7);
+    }
+
+    public static void setCustomColor(Context ctx, int color) {
+        prefs(ctx).edit().putInt("widget_custom_color", color).apply();
     }
 
     public static float fontScale(Context ctx) {

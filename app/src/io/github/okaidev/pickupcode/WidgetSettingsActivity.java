@@ -98,7 +98,7 @@ public class WidgetSettingsActivity extends Activity {
 
         ScrollView sv = new ScrollView(this);
         sv.setFillViewport(true);
-        sv.setPadding(dp(18), dp(4), dp(18), dp(24));
+        sv.setPadding(dp(18), dp(4), dp(18), dp(6));
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         sv.addView(box, new ViewGroup.LayoutParams(
@@ -114,10 +114,7 @@ public class WidgetSettingsActivity extends Activity {
         if (onDesktop && !WidgetBackdrop.exists(this)) {
             root.postDelayed(this::captureBackdrop, 350);
         }
-        box.addView(buildLookCard(), UiKit.cardLp(this, 10));
-        box.addView(buildFontCard(), UiKit.cardLp(this, 10));
-        box.addView(buildShowCard(), UiKit.cardLp(this, 10));
-        box.addView(buildRowsCard(), UiKit.cardLp(this, 10));
+        box.addView(buildSettingsCard(), UiKit.cardLp(this, 10));
 
         // v4.0.2：加「重新添加」入口。
         //
@@ -239,85 +236,21 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     /**
-     * 「外观」卡片（v4.2）：配色 + 七档透明度 + 主题。
-     *
-     * <p>配色分两类：单色（深色主题白字、浅色主题墨字）和四套彩色主题
-     * （雨后彩虹 / 夏日夕阳 / 极光夜空 / 樱花初雪）——彩色主题下每行取件码
-     * 按色板循环换色，多行之间一眼能分开。
-     *
-     * <p>透明度做成七段色阶条：每块直接用该档的底色画出来，
-     * 铺在壁纸上一眼能看出「实底 → 全透」的差别，不用挨个点开试。
-     */
-    private View buildLookCard() {
-        LinearLayout card = UiKit.card(this, P);
-
-        TextView head = UiKit.text(this, "外观", 14.5f, P.navInk);
-        head.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        card.addView(head);
-        card.addView(UiKit.divider(this, P));
-
-        // ---- 配色 ----
-        card.addView(UiKit.row(this, P, R.drawable.ic_palette, "配色",
-                paletteLabel(), UiKit.chevron(this, P)));
-        card.getChildAt(card.getChildCount() - 1).setOnClickListener(v -> showPaletteDialog());
-
-        card.addView(UiKit.divider(this, P));
-
-        // ---- 七档透明度 ----
-        LinearLayout alphaHead = new LinearLayout(this);
-        alphaHead.setOrientation(LinearLayout.HORIZONTAL);
-        alphaHead.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams ahlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        ahlp.setMargins(0, dp(12), 0, dp(8));
-        alphaHead.addView(UiKit.text(this, "透明度", 14f, P.navInk),
-                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        alphaHead.addView(UiKit.text(this, WidgetPrefs.ALPHA_NAMES[WidgetPrefs.alphaIndex(this)],
-                12f, P.muteInk));
-        card.addView(alphaHead);
-
-        card.addView(buildAlphaStrip());
-
-        TextView alphaHint = UiKit.text(this,
-                "越往右越透，全透时只剩文字压在你的壁纸上", 11.5f, P.muteInk);
-        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hlp.setMargins(dp(2), dp(8), dp(2), 0);
-        card.addView(alphaHint, hlp);
-
-        card.addView(UiKit.divider(this, P));
-
-        // ---- 主题（决定单色文字与浅底/深底）----
-        card.addView(UiKit.row(this, P, R.drawable.ic_grid, "主题",
-                themeLabel(), UiKit.chevron(this, P)));
-        card.getChildAt(card.getChildCount() - 1).setOnClickListener(v ->
-                UiKit.chooser(this, P, R.drawable.ic_grid, "主题",
-                        new CharSequence[]{"深色", "浅色", "跟随系统"},
-                        themeIndex(), idx -> {
-                            WidgetPrefs.setTheme(this,
-                                    idx == 0 ? "dark" : idx == 1 ? "light" : "system");
-                            applyToWidget();
-                            recreate();
-                        }));
-
-        return card;
-    }
-
-    /**
      * 配色选择（v4.2）：彩色主题的按钮**本身就是那套渐变色**。
      *
      * <p>彩色主题不用色点：按钮整体铺开，一眼就是「雨后彩虹」「夏日夕阳」的样子。
      * 单色相反 —— 它只有白/黑，必须放一个色点才看得出是什么颜色。
      */
     private void showPaletteDialog() {
-        final String[] keys = {"single", "rainbow", "sunset", "aurora", "sakura"};
-        final String[] names = {"单色", "雨后彩虹", "夏日夕阳", "极光夜空", "樱花初雪"};
+        final String[] keys = {"single", "rainbow", "sunset", "aurora", "sakura", "custom"};
+        final String[] names = {"单色", "雨后彩虹", "夏日夕阳", "极光夜空", "樱花初雪", "自定义"};
         final int[][] grad = {
                 null,
                 {0xFFFF9EC4, 0xFFC6A8FF},
                 {0xFFFFB067, 0xFFFFD54A},
                 {0xFF7BE0A6, 0xFFC9A2FF},
                 {0xFFFFC2D8, 0xFFDCC6EC},
+                null,
         };
         final int cur = paletteIndex();
 
@@ -339,8 +272,17 @@ public class WidgetSettingsActivity extends Activity {
             // 单色按钮直接画成「组件实底的样子」：深色主题就是深灰底白字，
             // 浅色主题就是白底黑字。放在白色弹窗上时，白底那块要补一圈细边，
             // 否则按钮会「消失」在白底里。
+            boolean isCustom = i == 5;
             int labelColor;
-            if (grad[i] == null) {
+            if (isCustom) {
+                // 「自定义」用当前选中的主色画渐变，一眼知道现在是哪个色
+                int[] ramp = PickupWidgetProvider.customRamp(
+                        WidgetPrefs.customColor(this));
+                bg.setOrientation(
+                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT);
+                bg.setColors(new int[]{ramp[0], ramp[2]});
+                labelColor = 0xFFFFFFFF;
+            } else if (grad[i] == null) {
                 // 「单色」不是一个颜色（深色主题是白、浅色主题是墨），
                 // 所以不画成实心色块 —— 那样总有一种主题下文字会糊掉。
                 // 用浅灰底 + 正文色 + 一个墨色圆点，弹窗在什么主题下都清楚。
@@ -372,7 +314,7 @@ public class WidgetSettingsActivity extends Activity {
             TextView label = UiKit.text(this, names[i], 14.5f, labelColor);
             // 樱花那几套本身很浅（#F0E2F5 之类），纯白字放上去几乎看不见；
             // 一圈淡阴影能把字从渐变里「拎」出来，又不改变配色本身。
-            if (grad[i] != null) {
+            if (grad[i] != null || isCustom) {
                 label.setShadowLayer(Math.max(2f, dp(3)), 0, dp(1), 0x99000000);
             }
             btn.addView(label, new LinearLayout.LayoutParams(
@@ -392,6 +334,11 @@ public class WidgetSettingsActivity extends Activity {
             blp.setMargins(0, dp(5), 0, dp(5));
 
             btn.setOnClickListener(v -> {
+                if ("custom".equals(keys[idx])) {
+                    if (holder[0] != null) holder[0].dismiss();
+                    showCustomColorDialog();
+                    return;
+                }
                 WidgetPrefs.setPalette(this, keys[idx]);
                 applyToWidget();
                 if (holder[0] != null) holder[0].dismiss();
@@ -401,6 +348,57 @@ public class WidgetSettingsActivity extends Activity {
         }
 
         holder[0] = UiKit.dialog(this, P, R.drawable.ic_palette, "配色", null, box,
+                UiKit.ghost("取消", () -> { }));
+    }
+
+    /**
+     * 自定义配色：只选一个主色。
+     *
+     * <p>不要求用户挑满五色——那是设计活。选一个主色之后，
+     * 组件按它的色相自动排五档深浅（见 {@code customRamp}），
+     * 几行之间既有区分，又是一整套。
+     */
+    private void showCustomColorDialog() {
+        final int[] colors = {
+                0xFFFFFFFF, 0xFFE5E5EA, 0xFFC7C7CC, 0xFF8E8E93, 0xFF3A3A3C, 0xFF1C1C1E,
+                0xFFFFC2D8, 0xFFFF9EC4, 0xFFFF8A80, 0xFFFF6B6B, 0xFFE64980, 0xFFBE4BDB,
+                0xFFFFD98E, 0xFFFFB067, 0xFFFFD54A, 0xFF9BE7C4, 0xFF51CF66, 0xFF20C997,
+                0xFF8FC7FF, 0xFF4DABF7, 0xFF5C7CFA, 0xFFC6A8FF, 0xFF845EF7, 0xFFA9A2FF,
+        };
+
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        final android.app.Dialog[] holder = new android.app.Dialog[1];
+
+        for (int r = 0; r < 4; r++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            for (int c = 0; c < 6; c++) {
+                final int color = colors[r * 6 + c];
+                View cell = new View(this);
+                android.graphics.drawable.GradientDrawable cb =
+                        new android.graphics.drawable.GradientDrawable();
+                cb.setCornerRadius(dp(10));
+                cb.setColor(color);
+                cb.setStroke(Math.max(1, dp(1)), 0x22888888);
+                cell.setBackground(cb);
+                LinearLayout.LayoutParams lp =
+                        new LinearLayout.LayoutParams(0, dp(40), 1f);
+                lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+                cell.setOnClickListener(v -> {
+                    WidgetPrefs.setCustomColor(this, color);
+                    WidgetPrefs.setPalette(this, "custom");
+                    applyToWidget();
+                    if (holder[0] != null) holder[0].dismiss();
+                    recreate();
+                });
+                row.addView(cell, lp);
+            }
+            grid.addView(row);
+        }
+
+        holder[0] = UiKit.dialog(this, P, R.drawable.ic_palette, "自定义配色",
+                "选一个主色，组件按它自动排五档深浅", grid,
                 UiKit.ghost("取消", () -> { }));
     }
 
@@ -455,6 +453,7 @@ public class WidgetSettingsActivity extends Activity {
         if ("sunset".equals(p)) return 2;
         if ("aurora".equals(p)) return 3;
         if ("sakura".equals(p)) return 4;
+        if ("custom".equals(p)) return 5;
         return 0;
     }
 
@@ -474,6 +473,7 @@ public class WidgetSettingsActivity extends Activity {
             case 2: return "夏日夕阳";
             case 3: return "极光夜空";
             case 4: return "樱花初雪";
+            case 5: return "自定义";
             default: return "单色";
         }
     }
@@ -561,76 +561,6 @@ public class WidgetSettingsActivity extends Activity {
         }, "realign").start();
     }
 
-    private View buildFontCard() {
-        LinearLayout card = UiKit.card(this, P);
-        card.setPadding(dp(16), dp(14), dp(16), dp(16));
-
-        TextView title = UiKit.text(this, "取件码字号", 14.5f, P.navInk);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        card.addView(title);
-
-        TextView sub = UiKit.text(this, "码和地点一起缩放", 11.5f, P.muteInk);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.setMargins(0, dp(4), 0, 0);
-        card.addView(sub, slp);
-
-        fontSeg = new LinearLayout(this);
-        fontSeg.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        flp.setMargins(0, dp(12), 0, 0);
-        card.addView(fontSeg, flp);
-        return card;
-    }
-
-    /**
-     * 「显示」卡片（v4.0.3 第二轮重做）。
-     *
-     * <p>原来是并列的两个开关：「显示取件地点」+「隐藏取件码」。
-     * 两个问题：
-     * <ol>
-     *   <li><b>否定式</b>——「隐藏取件码：关」要在脑子里取反一次才知道是什么意思；</li>
-     *   <li><b>没有层级</b>——地点是码的附属信息，码都不显示了，
-     *       地点开关就没有任何意义，它俩不该平起平坐。</li>
-     * </ol>
-     *
-     * <p>所以改成上下级：「显示取件码」在上（默认开），「显示取件地点」缩进在下面；
-     * 上级关掉时下级整行变淡且不可点——<b>不是隐藏</b>，隐藏会让人不知道还有这一项。
-     * 下级开关的值不清空：下次打开上级，地点按他原来的选择恢复。
-     */
-    private View buildShowCard() {
-        LinearLayout card = UiKit.card(this, P);
-
-        codeSwitch = new UiKit.Switch(this, P, WidgetPrefs.showCode(this));
-        codeSwitch.setOnToggle(on -> {
-            WidgetPrefs.setShowCode(this, on);
-            refreshSubordinateRows();
-            applyToWidget();
-            refreshPreview();
-        });
-        card.addView(UiKit.row(this, P, R.drawable.ic_qr, "显示取件码",
-                "关掉后组件只显示件数；下面的地点也一并失效", codeSwitch));
-        card.addView(UiKit.divider(this, P));
-
-        placeSwitch = new UiKit.Switch(this, P, WidgetPrefs.showPlace(this));
-        placeSwitch.setOnToggle(on -> {
-            // 上级关着时这个开关本来就被禁用，这里是第二道保险
-            if (!WidgetPrefs.showCode(this)) return;
-            WidgetPrefs.setShowPlace(this, on);
-            applyToWidget();
-            refreshPreview();
-        });
-        placeRow = UiKit.row(this, P, R.drawable.ic_pin, "显示取件地点",
-                "关掉后只显示大号取件码，更清爽", placeSwitch);
-        // 缩进 28dp 表示它是上一行的下级；垂直 padding 保持不变
-        placeRow.setPadding(dp(28), dp(11), 0, dp(11));
-        card.addView(placeRow);
-
-        refreshSubordinateRows();
-        return card;
-    }
-
     /**
      * 按上级开关的状态刷新下级的可用性。
      *
@@ -648,38 +578,101 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     /**
-     * 「显示内容」卡片。
+     * 设置卡片（v4.2）：所有「组件长什么样」的选项合并成一张。
      *
-     * <p>v4.0.2：原先这里���「最多显示条数」（2–5 条可选）。用户指出：
-     * 「最多可显示条数不应该有太明显的限制框架，我们只需要根据小组件的实际大小
-     * 来展示就可以了。组件够大，展示的内容就多，反正用户会自己调整大小，
-     * 他自己能感知得到。」
-     *
-     * <p>所以条数选项整个去掉——行数现在完全由组件高度决定。
-     * 这里换成「显示内容」：待取件（默认）或全部信息（含已取件）。
+     * <p>之前是「外观 / 字号 / 显示 / 显示内容」四张卡片，每张都带自己的标题、
+     * 内边距和卡片间距，一屏里四个块把页面撑得很长；而它们本质上都在调同一件事。
+     * 现在用细分割线分段，一张卡片到底，页面上只留「设置」和「预览」两个区域。
      */
-    private View buildRowsCard() {
+    private View buildSettingsCard() {
         LinearLayout card = UiKit.card(this, P);
-        card.setPadding(dp(16), dp(14), dp(16), dp(16));
+        card.setPadding(dp(16), dp(12), dp(16), dp(14));
 
-        TextView title = UiKit.text(this, "显示内容", 14.5f, P.navInk);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        card.addView(title);
+        // ---- 配色 ----
+        card.addView(UiKit.row(this, P, R.drawable.ic_palette, "配色",
+                paletteLabel(), UiKit.chevron(this, P)));
+        card.getChildAt(card.getChildCount() - 1).setOnClickListener(v -> showPaletteDialog());
 
-        TextView sub = UiKit.text(this,
-                "显示条数由组件高度决定——把组件拉大就能看到更多", 11.5f, P.muteInk);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.setMargins(0, dp(4), 0, 0);
-        card.addView(sub, slp);
+        // ---- 透明度 ----
+        card.addView(UiKit.divider(this, P));
+        card.addView(sectionHead("透明度",
+                WidgetPrefs.ALPHA_NAMES[WidgetPrefs.alphaIndex(this)]));
+        card.addView(buildAlphaStrip());
 
+        // ---- 主题 ----
+        card.addView(UiKit.divider(this, P));
+        card.addView(UiKit.row(this, P, R.drawable.ic_grid, "主题",
+                themeLabel(), UiKit.chevron(this, P)));
+        card.getChildAt(card.getChildCount() - 1).setOnClickListener(v ->
+                UiKit.chooser(this, P, R.drawable.ic_grid, "主题",
+                        new CharSequence[]{"深色", "浅色", "跟随系统"},
+                        themeIndex(), idx -> {
+                            WidgetPrefs.setTheme(this,
+                                    idx == 0 ? "dark" : idx == 1 ? "light" : "system");
+                            applyToWidget();
+                            recreate();
+                        }));
+
+        // ---- 字号 ----
+        card.addView(UiKit.divider(this, P));
+        card.addView(sectionHead("字号", "码和地点一起缩放"));
+        fontSeg = new LinearLayout(this);
+        fontSeg.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        flp.setMargins(0, 0, 0, dp(4));
+        card.addView(fontSeg, flp);
+
+        // ---- 显示 ----
+        card.addView(UiKit.divider(this, P));
+        codeSwitch = new UiKit.Switch(this, P, WidgetPrefs.showCode(this));
+        codeSwitch.setOnToggle(on -> {
+            WidgetPrefs.setShowCode(this, on);
+            refreshSubordinateRows();
+            applyToWidget();
+            refreshPreview();
+        });
+        card.addView(UiKit.row(this, P, R.drawable.ic_qr, "显示取件码",
+                "关掉后只显示件数", codeSwitch));
+
+        card.addView(UiKit.divider(this, P));
+        placeSwitch = new UiKit.Switch(this, P, WidgetPrefs.showPlace(this));
+        placeSwitch.setOnToggle(on -> {
+            if (!WidgetPrefs.showCode(this)) return;
+            WidgetPrefs.setShowPlace(this, on);
+            applyToWidget();
+            refreshPreview();
+        });
+        placeRow = UiKit.row(this, P, R.drawable.ic_pin, "显示取件地点",
+                "关掉后只显示大号取件码", placeSwitch);
+        card.addView(placeRow);
+        refreshSubordinateRows();
+
+        // ---- 显示内容 ----
+        card.addView(UiKit.divider(this, P));
+        card.addView(sectionHead("显示内容", "条数由组件高度决定"));
         rowsSeg = new LinearLayout(this);
         rowsSeg.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rlp.setMargins(0, dp(12), 0, 0);
+        rlp.setMargins(0, 0, 0, dp(4));
         card.addView(rowsSeg, rlp);
+
         return card;
+    }
+
+    /** 分段小标题：左标题、右当前值（都为正文色，靠字号区分层级） */
+    private View sectionHead(String title, String value) {
+        LinearLayout h = new LinearLayout(this);
+        h.setOrientation(LinearLayout.HORIZONTAL);
+        h.setGravity(Gravity.CENTER_VERTICAL);
+        h.setPadding(0, dp(10), 0, dp(8));
+        h.addView(UiKit.text(this, title, 14f, P.navInk),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (value != null) {
+            h.addView(UiKit.text(this, value, 12f, P.muteInk));
+        }
+        return h;
     }
 
     /**
@@ -709,7 +702,7 @@ public class WidgetSettingsActivity extends Activity {
         LinearLayout dock = new LinearLayout(this);
         dock.setOrientation(LinearLayout.VERTICAL);
         dock.setBackgroundColor(P.bg);
-        dock.setPadding(dp(18), dp(12), dp(18), dp(18));
+        dock.setPadding(dp(18), dp(8), dp(18), dp(20));
 
         View line = new View(this);
         line.setBackgroundColor(0x1A888888);
@@ -748,7 +741,7 @@ public class WidgetSettingsActivity extends Activity {
         // 预览要展示的是「整块格子」——桌面上拖尺寸时那个蓝框，
         // 不是卡片本身。只展示卡片会把四角圆边和周围留白切掉，
         // 看着像一张贴纸，而不是它在桌面上的样子。
-        float[] frame = pl != null ? pl.frameRatios(this) : null;
+        float[] frame = pl != null ? pl.previewRatios(this) : null;
         float frameW;
         float frameH;
         if (frame != null) {
@@ -768,7 +761,9 @@ public class WidgetSettingsActivity extends Activity {
         }
 
         int availW = screenW - dp(18) * 2;
-        int maxH = (int) (screenH * 0.40f);
+        // 0.40 时预览框底部会顶到系统手势导航栏下面，被遮出一条灰边。
+        // 0.32 让出导航栏和「重新校准」那一行的空间，底部不再贴边。
+        int maxH = (int) (screenH * 0.32f);
         int boxW = availW;
         int boxH = (int) (boxW * ratio);
         if (boxH > maxH) {
@@ -793,9 +788,11 @@ public class WidgetSettingsActivity extends Activity {
         int cardL = Math.round(inset[0] * boxW);
         int cardT = Math.round(inset[1] * boxH);
         int cardR = Math.round(inset[2] * boxW);
-        int cardB = Math.round(inset[3] * boxH);
+        // 框底就是卡片底，下边不再留白
+        int cardB = 0;
+        int padTop = dp(10);
         int cardW = Math.max(dp(60), boxW - cardL - cardR);
-        int cardH = Math.max(dp(40), boxH - cardT - cardB);
+        int cardH = Math.max(dp(40), boxH - cardT - cardB - padTop);
 
         // 内容按「真实卡片宽度 → 预览卡片宽度」等比缩
         float realCardW = Math.max(1f, frameW * (1f - inset[0] - inset[2]));
@@ -815,7 +812,7 @@ public class WidgetSettingsActivity extends Activity {
         android.widget.FrameLayout.LayoutParams clp =
                 new android.widget.FrameLayout.LayoutParams(cardW, cardH);
         clp.leftMargin = cardL;
-        clp.topMargin = cardT;
+        clp.topMargin = cardT + padTop;
         stage.addView(card, clp);
 
         int padPx = (int) (dp(10) * k);

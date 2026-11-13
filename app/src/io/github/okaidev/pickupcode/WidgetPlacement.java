@@ -608,6 +608,20 @@ public final class WidgetPlacement {
     }
 
     /**
+     * 预览用的框：左右和上边用格子边界，**下边收到卡片底部**。
+     *
+     * <p>为什么底部留白不要：桌面在组件正下方紧挨着搜索栏/分页点，
+     * 按格子边界裁会把它们一起裁进来，预览最下面露出一块灰。
+     * 那块不属于壁纸，收掉之后预览里剩下的全是「桌面上的样子」。
+     */
+    public float[] previewRatios(Context ctx) {
+        float[] f = frameRatios(ctx);
+        if (f == null) return null;
+        float b = Math.min(f[3], Math.max(f[1] + 0.01f, bottom));
+        return new float[]{f[0], f[1], f[2], b};
+    }
+
+    /**
      * 卡片相对格子框的内缩比例，{left, top, right, bottom}，0~1。
      *
      * <p>拿不到的返回全 0（卡片铺满框）——宁可铺满，也别凭空猜一个留白。

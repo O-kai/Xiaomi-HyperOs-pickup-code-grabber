@@ -155,7 +155,7 @@ public final class WidgetBackdrop {
             // 卡片在格子里还有留白，只裁卡片会把圆角切掉，预览就看不到边缘了。
             // 拿不到格子框时退回卡片区域。
             float fl = pl.left, ft = pl.top, fr = pl.right, fb = pl.bottom;
-            float[] frame = pl.frameRatios(ctx);
+            float[] frame = pl.previewRatios(ctx);
             if (frame != null) {
                 fl = frame[0];
                 ft = frame[1];
@@ -163,10 +163,22 @@ public final class WidgetBackdrop {
                 fb = frame[3];
             }
 
+            // 截图比逻辑屏幕高时（部分 ROM 会把系统手势条算进 screencap），
+            // 按逻辑屏高换算，否则比例会被拉长、底部把导航条一起裁进来。
+            int logicalH = pl.screenH > 0 ? pl.screenH : h;
+            int logicalW = pl.screenW > 0 ? pl.screenW : w;
+
             int left = clamp((int) (w * fl) - pad, 0, w - 1);
             int right = clamp((int) (w * fr) + pad, left + 1, w);
             int top = clamp((int) (h * ft) - pad, 0, h - 1);
-            int bottom = clamp((int) (h * fb) + pad, top + 1, h);
+            // 底部再让出 40px：那是系统手势条的常驻区域，
+            // 裁进来会在预览最下面露一条浅灰（真机上看到的就是它）。
+            int bottom = clamp((int) (h * fb) + pad, top + 1,
+                    Math.max(top + 1, h - dp(ctx, 40)));
+
+            android.util.Log.d("PICKUPDEBUG", "backdrop: shot=" + w + "x" + h
+                    + " screen=" + logicalW + "x" + logicalH
+                    + " crop=" + left + "," + top + "-" + right + "," + bottom);
             crop = Bitmap.createBitmap(full, left, top, right - left, bottom - top);
 
             // 3) 压一下再存：预览用不上原分辨率，省内存
@@ -189,6 +201,14 @@ public final class WidgetBackdrop {
             try {
                 RootShell.exec("rm -f " + TMP, 5000);
             } catch (Throwable ignored) { }
+        }
+    }
+
+    private static int dp(Context ctx, float v) {
+        try {
+            return Math.round(v * ctx.getResources().getDisplayMetrics().density);
+        } catch (Throwable t) {
+            return Math.round(v * 3f);
         }
     }
 
