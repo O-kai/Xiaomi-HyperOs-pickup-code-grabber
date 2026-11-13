@@ -39,6 +39,8 @@ public class WidgetA11yService extends AccessibilityService {
     private int cellW, cellH, spanX, spanY;
     private String status = "SUSPECT";
     private Rect lastRect;
+    /** 上次落盘的校验结果：矩形没变但状态从 SUSPECT 变 OK 时也要重写 */
+    private String lastStatus;
     /** 这次读到的格子边界（AppWidgetHostView 的矩形）。没有 margin，是标定的唯一依据 */
     private Rect lastHost;
 
@@ -89,8 +91,11 @@ public class WidgetA11yService extends AccessibilityService {
         try {
             Rect rect = probe();
             if (rect != null) {
-                if (!rect.equals(lastRect)) {
+                // 矩形没变但校验结果变了也要重写：第一轮常常是 SUSPECT（节点还没稳定），
+                // 后面稳定了是 OK，只按矩形判断会把 SUSPECT 永远留在文件里。
+                if (!rect.equals(lastRect) || !status.equals(lastStatus)) {
                     lastRect = new Rect(rect);
+                    lastStatus = status;
                     write(rect);
                 }
             } else {
@@ -109,10 +114,12 @@ public class WidgetA11yService extends AccessibilityService {
             if (root == null) continue;
             CharSequence p = root.getPackageName();
             if (p == null || !isLauncher(p.toString())) continue;
-            Rect host = findHost(root, 0);
-            if (host == null) continue;
+            AccessibilityNodeInfo hostNode = findHostNode(root, 0);
+            if (hostNode == null) continue;
+            Rect host = new Rect();
+            hostNode.getBoundsInScreen(host);
 
-            Rect card = largestChildOfHost(root, host);
+            Rect card = largestChild(hostNode, host);
             if (card == null) card = host;
 
             // 用桌面上任意 1x1 图标的像素尺寸反推格子数（不读桌面私有库）
@@ -135,45 +142,59 @@ public class WidgetA11yService extends AccessibilityService {
         return null;
     }
 
-    /** 找到 host 节点（组件标签 + 尺寸合理） */
-    private Rect findHost(AccessibilityNodeInfo node, int depth) {
+    /**
+     * 找到 host 节点。
+     *
+     * <p>两条路：组件标签（contentDescription == 应用名），或者标题文字。
+     * 只认「待取件」是不够的 —— 切成「显示全部信息」后标题变成「取件记录」，
+     * 之前就是这样一条都匹配不上，探针一直写旧值。
+     */
+    private AccessibilityNodeInfo findHostNode(AccessibilityNodeInfo node, int depth) {
         if (node == null || depth > 40) return null;
         Rect b = new Rect();
         node.getBoundsInScreen(b);
         CharSequence cd = node.getContentDescription();
+        if (cd != null && getString(R.string.app_name).contentEquals(cd) && plausible(b)) {
+            return node;
+        }
         CharSequence text = node.getText();
-        boolean labeled = cd != null && getString(R.string.app_name).contentEquals(cd);
-        boolean title = text != null && text.toString().contains("待取件");
-        if (labeled && plausible(b)) return new Rect(b);
-        if (title) {
-            Rect up = walkUp(node, 0);
+        if (text != null && isWidgetTitle(text.toString())) {
+            AccessibilityNodeInfo up = walkUpNode(node);
             if (up != null) return up;
         }
         for (int i = 0; i < node.getChildCount(); i++) {
-            Rect r = findHost(node.getChild(i), depth + 1);
+            AccessibilityNodeInfo r = findHostNode(node.getChild(i), depth + 1);
             if (r != null) return r;
         }
         return null;
     }
 
-    /** host 的子节点里最大的那个 = 可见卡片 */
-    private Rect largestChildOfHost(AccessibilityNodeInfo node, Rect host) {
-        AccessibilityNodeInfo found = findLabeledNode(node, 0);
-        if (found == null) return null;
-        return largestChild(found, host);
+    /** 组件的标题文字（「待取件」/「取件记录」/「取件记录已关闭」） */
+    private boolean isWidgetTitle(String t) {
+        return t.contains("待取件") || t.contains("取件记录");
     }
 
-    private AccessibilityNodeInfo findLabeledNode(AccessibilityNodeInfo node, int depth) {
-        if (node == null || depth > 40) return null;
-        CharSequence cd = node.getContentDescription();
-        Rect b = new Rect();
-        node.getBoundsInScreen(b);
-        if (cd != null && getString(R.string.app_name).contentEquals(cd) && plausible(b)) return node;
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo r = findLabeledNode(node.getChild(i), depth + 1);
-            if (r != null) return r;
+    /**
+     * 从文字节点往上找到组件本体。
+     *
+     * <p>取「最大的那个合理祖先」：标题 → 标题栏 → 卡片 → host，一路都在合理范围内，
+     * 再往上就是整屏的桌面根节点（被 {@link #plausible} 挡掉）。只取第一个符合条件的
+     * 会停在卡片上，HOST 写小了，标定就会把卡片留白算成 0。
+     */
+    private AccessibilityNodeInfo walkUpNode(AccessibilityNodeInfo node) {
+        AccessibilityNodeInfo last = null;
+        AccessibilityNodeInfo cur = node;
+        for (int i = 0; i < 14 && cur != null; i++) {
+            Rect b = new Rect();
+            cur.getBoundsInScreen(b);
+            if (plausible(b)) {
+                last = cur;
+            } else if (last != null) {
+                break;
+            }
+            cur = cur.getParent();
         }
-        return null;
+        return last;
     }
 
     /**
@@ -228,20 +249,18 @@ public class WidgetA11yService extends AccessibilityService {
         return best;
     }
 
-    /** 从文字节点往上找组件的容器：宽度 ≥ 2 格、高度 ≥ 1 格、且不是整屏 */
-    private Rect walkUp(AccessibilityNodeInfo node, int depth) {
-        if (node == null || depth > 8) return null;
-        Rect b = new Rect();
-        node.getBoundsInScreen(b);
-        if (plausible(b)) return b;
-        return walkUp(node.getParent(), depth + 1);
-    }
-
+    /**
+     * 是不是「一个组件」的尺寸。
+     *
+     * <p>上限放到 0.92 屏高：5×9 这种拉满的组件就有 0.78 屏高，
+     * 之前卡 0.75 会把它当成「整屏根节点」直接排掉（真机上就是这样丢的）。
+     * 桌面根节点是整屏高度，仍然会被挡在 0.92 之外。
+     */
     private boolean plausible(Rect b) {
         int w = b.width(), h = b.height();
         int sw = getResources().getDisplayMetrics().widthPixels;
         int sh = getResources().getDisplayMetrics().heightPixels;
-        return w >= 400 && w <= sw && h >= 200 && h <= sh * 0.75f;
+        return w >= 400 && w <= sw && h >= 200 && h <= sh * 0.92f;
     }
 
     private void write(Rect r) {

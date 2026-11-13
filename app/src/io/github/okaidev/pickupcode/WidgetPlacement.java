@@ -117,6 +117,9 @@ public final class WidgetPlacement {
     /** 无障碍直接读到的像素矩形（0 = 没有）。标定时用它算卡片 margin */
     public int pxL, pxT, pxR, pxB;
 
+    /** 预览框在卡片四周各留多少（dp）。够看出「卡片浮在壁纸上」，又不至于挤掉内容 */
+    public static final float PREVIEW_PAD_DP = 12f;
+
     /** 这条数据是在多大的屏幕上量的（host 是像素，换算成比例要用） */
     public int screenW, screenH;
 
@@ -546,6 +549,14 @@ public final class WidgetPlacement {
     }
 
     /** 真实屏幕尺寸（含系统栏），换算格子必须用这个 */
+    private static int dp(Context ctx, float v) {
+        try {
+            return Math.round(v * ctx.getResources().getDisplayMetrics().density);
+        } catch (Throwable t) {
+            return Math.round(v * 3f);
+        }
+    }
+
     private static int[] screenSize(Context ctx) {
         try {
             android.view.WindowManager wm =
@@ -615,10 +626,42 @@ public final class WidgetPlacement {
      * 那块不属于壁纸，收掉之后预览里剩下的全是「桌面上的样子」。
      */
     public float[] previewRatios(Context ctx) {
-        float[] f = frameRatios(ctx);
-        if (f == null) return null;
-        float b = Math.min(f[3], Math.max(f[1] + 0.01f, bottom));
-        return new float[]{f[0], f[1], f[2], b};
+        int[] s = screenSize(ctx);
+        if (s[0] <= 0 || s[1] <= 0) return null;
+
+        // 预览框 = **卡片四边各留一圈壁纸**，而不是贴到格子边界。
+        //
+        // 为什么不贴格子边界：桌面上的卡片是贴着格子顶边的（marginTop=0），
+        // 贴边裁出来文字直接压在框顶；格子底边又紧挨着桌面搜索栏/分页点，
+        // 一直裁到 2181 会把它们也带进来（真机上露过一条灰）。
+        // 四边等距既解决了「上下留白不一致」，也不会裁进别人的 UI。
+        float padX = dp(ctx, PREVIEW_PAD_DP) / (float) s[0];
+        float padY = dp(ctx, PREVIEW_PAD_DP) / (float) s[1];
+        // 底部再收一点：系统手势条常驻，裁进来会在预览最下面露一条
+        float maxBottom = 1f - dp(ctx, 20) / (float) s[1];
+
+        float l = Math.max(0f, left - padX);
+        float t = Math.max(0f, top - padY);
+        float r = Math.min(1f, right + padX);
+        float b = Math.min(maxBottom, bottom + padY);
+        if (r <= l || b <= t) return null;
+        return new float[]{l, t, r, b};
+    }
+
+    /**
+     * 卡片相对「预览框」的内缩比例，{left, top, right, bottom}，0~1。
+     *
+     * <p>框是按卡片四边各留 {@link #PREVIEW_PAD_DP} 生成的，所以正常情况下
+     * 四边内缩相等；卡片贴到屏幕边缘时，那一侧会被夹小。
+     */
+    public float[] previewInset(Context ctx) {
+        float[] f = previewRatios(ctx);
+        if (f == null) return new float[]{0f, 0f, 0f, 0f};
+        float w = Math.max(1e-4f, f[2] - f[0]);
+        float h = Math.max(1e-4f, f[3] - f[1]);
+        return new float[]{
+                (left - f[0]) / w, (top - f[1]) / h,
+                (f[2] - right) / w, (f[3] - bottom) / h};
     }
 
     /**

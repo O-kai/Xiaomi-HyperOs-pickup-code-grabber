@@ -41,6 +41,14 @@ public class WidgetSettingsActivity extends Activity {
     private LinearLayout paletteBox;
     private LinearLayout settingsCard;
     private LinearLayout bgSeg;
+
+    /** 「配色」行右边那行小字（色点 + 名称/色值），选色时要实时改 */
+    private TextView paletteValueText;
+    /** 页内展开的色盘（不弹窗，免得盖住下面的实时预览） */
+    private LinearLayout colorPanel;
+    private final java.util.List<View> colorCells = new java.util.ArrayList<>();
+    /** 透明度七块上的文字，颜色跟着配色走 */
+    private final java.util.List<TextView> alphaChips = new java.util.ArrayList<>();
     private TextView paletteArrow;
     private boolean paletteOpen;
     private TextView previewCount;
@@ -252,60 +260,18 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     /**
-     * 单色挑选（原来的「自定义」并进来了）。
+     * 选一个颜色（只改预览，确定才落盘）。
      *
-     * <p>点色块**只改预览**，点「确定」才写配置：用户可以来回试几个颜色，
-     * 不会每点一下桌面组件就跟着变一次，退出后还留着一个他不要的色。
+     * <p>以前是弹窗，弹窗会把下面的实时预览整块盖住 —— 组件拉到最大时预览本就
+     * 只剩一条窄带，再盖住就完全看不到效果了。现在色盘在「配色」下面就地展开，
+     * 预览始终露在外面，点一个色就能看见一个色。
      */
-    private void showColorPicker() {
-        final int[] colors = {
-                0xFFFFFFFF, 0xFFE5E5EA, 0xFFC7C7CC, 0xFF8E8E93, 0xFF3A3A3C, 0xFF1C1C1E,
-                0xFFFFC2D8, 0xFFFF9EC4, 0xFFFF8A80, 0xFFFF6B6B, 0xFFE64980, 0xFFBE4BDB,
-                0xFFFFD98E, 0xFFFFB067, 0xFFFFD54A, 0xFF9BE7C4, 0xFF51CF66, 0xFF20C997,
-                0xFF8FC7FF, 0xFF4DABF7, 0xFF5C7CFA, 0xFFC6A8FF, 0xFF845EF7, 0xFFA9A2FF,
-        };
-
+    private void pickTempColor(int color) {
         tempPalette = "custom";
-        tempColor = WidgetPrefs.customColor(this);
-
-        final java.util.List<View> cells = new java.util.ArrayList<>();
-        LinearLayout grid = new LinearLayout(this);
-        grid.setOrientation(LinearLayout.VERTICAL);
-
-        for (int r = 0; r < 4; r++) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            for (int c = 0; c < 6; c++) {
-                final int color = colors[r * 6 + c];
-                View cell = new View(this);
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1f);
-                lp.setMargins(dp(3), dp(3), dp(3), dp(3));
-                cell.setTag(color);
-                cells.add(cell);
-                cell.setOnClickListener(v -> {
-                    tempColor = color;
-                    paintColorCells(cells, tempColor);
-                    refreshPreview();          // 只动预览，不落盘
-                });
-                row.addView(cell, lp);
-            }
-            grid.addView(row);
-        }
-        paintColorCells(cells, tempColor);
-
-        UiKit.dialog(this, P, R.drawable.ic_palette, "单色",
-                "点一个颜色先看效果，确定后才会保存", grid,
-                UiKit.ghost("取消", () -> {
-                    tempPalette = null;
-                    refreshPreview();
-                }),
-                UiKit.primary("确定", () -> {
-                    WidgetPrefs.setCustomColor(this, tempColor);
-                    WidgetPrefs.setPalette(this, "custom");
-                    tempPalette = null;
-                    applyToWidget();
-                    recreate();
-                }));
+        tempColor = color;
+        paintColorCells(colorCells, tempColor);
+        refreshPreview();        // 只动预览，不落盘
+        refreshPaletteTint();    // 配色行的小字和透明度文字跟着变
     }
 
     private void paintColorCells(java.util.List<View> cells, int selected) {
@@ -319,6 +285,37 @@ public class WidgetSettingsActivity extends Activity {
             else d.setStroke(Math.max(1, dp(1)), 0x22888888);
             v.setBackground(d);
         }
+    }
+
+    /** 展开/收起色盘（不弹窗，预览一直在下面露着） */
+    private void toggleColorPanel() {
+        if (colorPanel == null) return;
+        boolean open = colorPanel.getVisibility() != View.VISIBLE;
+        if (settingsCard != null) {
+            android.transition.TransitionManager.beginDelayedTransition(
+                    settingsCard, new android.transition.AutoTransition().setDuration(180));
+        }
+        colorPanel.setVisibility(open ? View.VISIBLE : View.GONE);
+        if (open) {
+            // 打开时按「当前自定义色」把色盘画好，但**不**改预览：
+            // 用户还没点，没理由让预览先跳到一个他没选的颜色。
+            paintColorCells(colorCells, WidgetPrefs.customColor(this));
+        } else if (tempPalette != null) {
+            tempPalette = null;
+            refreshPreview();
+            refreshPaletteTint();
+        }
+    }
+
+    /** 确定：写盘、刷新桌面组件、重建页面 */
+    private void confirmTempColor() {
+        if (tempPalette != null) {
+            WidgetPrefs.setCustomColor(this, tempColor);
+            WidgetPrefs.setPalette(this, "custom");
+        }
+        tempPalette = null;
+        applyToWidget();
+        recreate();
     }
 
     /** 七段色阶条：每块直接用该档的底色画出来，点到哪块就是哪档 */
@@ -338,10 +335,13 @@ public class WidgetSettingsActivity extends Activity {
         strip.setBackground(trough);
         strip.setPadding(dp(4), dp(4), dp(4), dp(4));
 
+        alphaChips.clear();
         for (int i = 0; i < steps.length; i++) {
             boolean on = i == cur;
+            // 字色取当前配色的主色（和上面「配色」那行同一个色），
+            // 但按各自色块的实际底色提亮/压暗，保证七块都看得清。
             TextView t = UiKit.text(this, WidgetPrefs.ALPHA_NAMES[i], 10.5f,
-                    on ? P.accentInk : P.navInk);
+                    readableOn(paletteTint(), alphaChipBg(steps[i])));
             t.setGravity(Gravity.CENTER);
             t.setIncludeFontPadding(false);
 
@@ -365,6 +365,7 @@ public class WidgetSettingsActivity extends Activity {
                 applyToWidget();
                 recreate();
             });
+            alphaChips.add(t);
             strip.addView(t, lp);
         }
         return strip;
@@ -377,7 +378,7 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     private int paletteIndex() {
-        String p = WidgetPrefs.palette(this);
+        String p = currentPaletteKey();
         if ("rainbow".equals(p)) return 1;
         if ("sunset".equals(p)) return 2;
         if ("aurora".equals(p)) return 3;
@@ -392,18 +393,122 @@ public class WidgetSettingsActivity extends Activity {
             case 2: return "sunset";
             case 3: return "aurora";
             case 4: return "sakura";
+            case 5: return "custom";
             default: return "single";
         }
     }
 
+    /** 当前生效的配色名（挑色时用临时值，让预览/文案先跟着走） */
+    private String currentPaletteKey() {
+        return tempPalette != null ? tempPalette : WidgetPrefs.palette(this);
+    }
+
+    private int currentCustomColor() {
+        return (tempPalette != null && "custom".equals(tempPalette))
+                ? tempColor : WidgetPrefs.customColor(this);
+    }
+
+    /**
+     * 「配色」行下面那行小字。
+     *
+     * <p>选了具体颜色之后显示的是**颜色本身**（色点 + 色值），不再是「单色」两个字：
+     * 「单色」只说明「只有一种颜色」，不说明是哪一种，用户看不出自己选了什么。
+     */
     private String paletteLabel() {
-        switch (paletteIndex()) {
-            case 1: return "雨后彩虹";
-            case 2: return "夏日夕阳";
-            case 3: return "极光夜空";
-            case 4: return "樱花初雪";
-            default: return "单色";
+        String key = currentPaletteKey();
+        if ("rainbow".equals(key)) return "雨后彩虹";
+        if ("sunset".equals(key)) return "夏日夕阳";
+        if ("aurora".equals(key)) return "极光夜空";
+        if ("sakura".equals(key)) return "樱花初雪";
+        if ("custom".equals(key)) {
+            return String.format("#%06X", currentCustomColor() & 0xFFFFFF);
         }
+        return "单色";
+    }
+
+    /** 文案前面加一个该配色的色点 */
+    private CharSequence paletteSubText() {
+        int[] pal = PickupWidgetProvider.rampOf(currentPaletteKey(), currentCustomColor());
+        int dot = (pal != null && pal.length > 0) ? (pal[0] | 0xFF000000) : fg(0xFF);
+        android.text.SpannableString sp =
+                new android.text.SpannableString("■ " + paletteLabel());
+        sp.setSpan(new android.text.style.ForegroundColorSpan(dot), 0, 1,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return sp;
+    }
+
+    /** row(...) 里那一列：0=标题，1=副标题 */
+    private TextView findRowSubText(LinearLayout row) {
+        for (int i = 0; i < row.getChildCount(); i++) {
+            View v = row.getChildAt(i);
+            if (!(v instanceof LinearLayout)) continue;
+            LinearLayout col = (LinearLayout) v;
+            if (col.getChildCount() >= 2 && col.getChildAt(1) instanceof TextView) {
+                return (TextView) col.getChildAt(1);
+            }
+        }
+        return null;
+    }
+
+    /** 配色主色（单色时就是主题文字色） */
+    private int paletteTint() {
+        int[] pal = PickupWidgetProvider.rampOf(currentPaletteKey(), currentCustomColor());
+        if (pal != null && pal.length > 0) return pal[0] | 0xFF000000;
+        return PickupWidgetProvider.isLightTheme(this) ? 0xFF1C1C1E : 0xFFFFFFFF;
+    }
+
+    /** 配色/临时色一变，配色行小字和透明度七块的字色一起跟着变 */
+    private void refreshPaletteTint() {
+        if (paletteValueText != null) paletteValueText.setText(paletteSubText());
+        int[] steps = WidgetPrefs.ALPHA_STEPS;
+        for (int i = 0; i < alphaChips.size() && i < steps.length; i++) {
+            alphaChips.get(i).setTextColor(readableOn(paletteTint(), alphaChipBg(steps[i])));
+        }
+    }
+
+    /** 某档透明度色块叠在底衬上的实际颜色 */
+    private int alphaChipBg(int pct) {
+        boolean light = PickupWidgetProvider.isLightTheme(this);
+        int base = light ? 0xFFFFFF : 0x1B1B1B;
+        int trough = light ? 0xFF3A3A3E : 0xFFE8E8EC;
+        float a = Math.max(0, Math.min(100, pct)) / 100f;
+        int r = Math.round(((base >> 16) & 0xFF) * a + ((trough >> 16) & 0xFF) * (1 - a));
+        int g = Math.round(((base >> 8) & 0xFF) * a + ((trough >> 8) & 0xFF) * (1 - a));
+        int bl = Math.round((base & 0xFF) * a + (trough & 0xFF) * (1 - a));
+        return 0xFF000000 | (r << 16) | (g << 8) | bl;
+    }
+
+    /**
+     * 让文字色在给定底色上看得清：色相不变，只调明度。
+     *
+     * <p>不直接写死黑/白 —— 那样「文字跟着配色走」就断了；
+     * 也不原样用 —— 浅色板（樱花、白色单色）压在浅底上会看不见。
+     */
+    private static int readableOn(int fg, int bg) {
+        float[] hsv = new float[3];
+        android.graphics.Color.colorToHSV(fg | 0xFF000000, hsv);
+        int out = fg | 0xFF000000;
+        boolean darker = relLum(bg) > 0.45f;
+        for (int i = 0; i < 18 && contrast(out, bg) < 2.6f; i++) {
+            hsv[2] = Math.max(0.05f, Math.min(1f, hsv[2] + (darker ? -0.06f : 0.06f)));
+            out = android.graphics.Color.HSVToColor(hsv);
+        }
+        return out;
+    }
+
+    private static float relLum(int c) {
+        float[] f = new float[3];
+        for (int i = 0; i < 3; i++) {
+            float v = ((c >> (16 - i * 8)) & 0xFF) / 255f;
+            f[i] = v <= 0.03928f ? v / 12.92f : (float) Math.pow((v + 0.055f) / 1.055f, 2.4f);
+        }
+        return 0.2126f * f[0] + 0.7152f * f[1] + 0.0722f * f[2];
+    }
+
+    private static float contrast(int a, int b) {
+        float la = relLum(a) + 0.05f;
+        float lb = relLum(b) + 0.05f;
+        return Math.max(la, lb) / Math.min(la, lb);
     }
 
     private int themeIndex() {
@@ -519,7 +624,8 @@ public class WidgetSettingsActivity extends Activity {
 
         // ---- 配色：点一下就地展开，不弹窗 ----
         LinearLayout paletteHead = UiKit.row(this, P, R.drawable.ic_palette, "配色",
-                paletteLabel(), UiKit.chevron(this, P));
+                paletteSubText(), UiKit.chevron(this, P));
+        paletteValueText = findRowSubText(paletteHead);
         paletteHead.setOnClickListener(v -> togglePalette());
         card.addView(paletteHead);
 
@@ -602,6 +708,14 @@ public class WidgetSettingsActivity extends Activity {
                             .setDuration(180));
         }
         paletteBox.setVisibility(paletteOpen ? View.VISIBLE : View.GONE);
+        if (!paletteOpen) {
+            if (colorPanel != null) colorPanel.setVisibility(View.GONE);
+            if (tempPalette != null) {
+                tempPalette = null;
+                refreshPreview();
+                refreshPaletteTint();
+            }
+        }
     }
 
     /**
@@ -611,13 +725,16 @@ public class WidgetSettingsActivity extends Activity {
      * 四套彩色各占一份 —— 4 个字刚好放得下。
      */
     private View buildPaletteChips() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(0, dp(2), 0, dp(8));
 
         String cur = WidgetPrefs.palette(this);
         boolean single = "single".equals(cur) || "custom".equals(cur);
-        addPaletteChip(row, "单色", null, single, 0.72f, this::showColorPicker);
+        addPaletteChip(row, "单色", null, single, 0.72f, this::toggleColorPanel);
         addPaletteChip(row, "雨后彩虹", new int[]{0xFFFF9EC4, 0xFFC6A8FF},
                 "rainbow".equals(cur), 1f, () -> selectPalette("rainbow"));
         addPaletteChip(row, "夏日夕阳", new int[]{0xFFFFB067, 0xFFFFD54A},
@@ -626,7 +743,76 @@ public class WidgetSettingsActivity extends Activity {
                 "aurora".equals(cur), 1f, () -> selectPalette("aurora"));
         addPaletteChip(row, "樱花初雪", new int[]{0xFFFFC2D8, 0xFFDCC6EC},
                 "sakura".equals(cur), 1f, () -> selectPalette("sakura"));
-        return row;
+        box.addView(row);
+
+        box.addView(buildColorPanel());
+        return box;
+    }
+
+    /**
+     * 页内色盘（点「单色」时从按钮行下面展开）。
+     *
+     * <p>不做弹窗：弹窗正好压在实时预览上，把「边调边看」这件事废掉了。
+     * 展开在页面里，预览始终在下面露着，选一个色就能看到预览跟着变。
+     */
+    private View buildColorPanel() {
+        colorPanel = new LinearLayout(this);
+        colorPanel.setOrientation(LinearLayout.VERTICAL);
+        colorPanel.setVisibility(View.GONE);
+
+        TextView hint = UiKit.text(this, "点一个颜色先看效果，确定后才会保存", 11.5f, P.muteInk);
+        hint.setPadding(dp(2), 0, dp(2), dp(7));
+        colorPanel.addView(hint);
+
+        final int[] colors = {
+                0xFFFFFFFF, 0xFFE5E5EA, 0xFFC7C7CC, 0xFF8E8E93, 0xFF3A3A3C, 0xFF1C1C1E,
+                0xFFFFC2D8, 0xFFFF9EC4, 0xFFFF8A80, 0xFFFF6B6B, 0xFFE64980, 0xFFBE4BDB,
+                0xFFFFD98E, 0xFFFFB067, 0xFFFFD54A, 0xFF9BE7C4, 0xFF51CF66, 0xFF20C997,
+                0xFF8FC7FF, 0xFF4DABF7, 0xFF5C7CFA, 0xFFC6A8FF, 0xFF845EF7, 0xFFA9A2FF,
+        };
+        colorCells.clear();
+        for (int r = 0; r < 4; r++) {
+            LinearLayout line = new LinearLayout(this);
+            line.setOrientation(LinearLayout.HORIZONTAL);
+            for (int c = 0; c < 6; c++) {
+                final int color = colors[r * 6 + c];
+                View cell = new View(this);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(34), 1f);
+                lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+                cell.setTag(color);
+                colorCells.add(cell);
+                cell.setOnClickListener(v -> pickTempColor(color));
+                line.addView(cell, lp);
+            }
+            colorPanel.addView(line);
+        }
+        paintColorCells(colorCells, WidgetPrefs.customColor(this));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.END);
+        actions.setPadding(0, dp(10), 0, dp(2));
+
+        TextView cancel = UiKit.text(this, "取消", 13f, P.muteInk);
+        cancel.setGravity(Gravity.CENTER);
+        cancel.setPadding(dp(20), dp(9), dp(20), dp(9));
+        cancel.setBackground(UiKit.bg(P.chipBg, this, 10));
+        cancel.setOnClickListener(v -> toggleColorPanel());
+
+        TextView ok = UiKit.text(this, "确定", 13f, P.onAccent);
+        ok.setGravity(Gravity.CENTER);
+        ok.setPadding(dp(26), dp(9), dp(26), dp(9));
+        ok.setBackground(UiKit.bg(P.accent, this, 10));
+        ok.setOnClickListener(v -> confirmTempColor());
+
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.setMargins(0, 0, dp(8), 0);
+        actions.addView(cancel, clp);
+        actions.addView(ok);
+        colorPanel.addView(actions);
+
+        return colorPanel;
     }
 
     private void addPaletteChip(LinearLayout row, String label, int[] gradient,
@@ -814,23 +1000,26 @@ public class WidgetSettingsActivity extends Activity {
         slp.gravity = Gravity.CENTER_HORIZONTAL;
         dock.addView(stage, slp);
 
-        // 卡片在框内按真实留白内缩（K90 上横向各 40/41、纵向 0/44）
-        float[] inset = pl != null ? pl.cardInset(this) : new float[]{0, 0, 0, 0};
+        // 卡片在框内按「四边等距」内缩：框本身就是卡片 ± 一圈壁纸生成的，
+        // 所以上下左右留白一致，也不会把卡片底边裁掉（之前是画到框外被切）。
+        float[] inset = pl != null ? pl.previewInset(this) : new float[]{0, 0, 0, 0};
         int cardL = Math.round(inset[0] * boxW);
         int cardT = Math.round(inset[1] * boxH);
         int cardR = Math.round(inset[2] * boxW);
-        // 框底就是卡片底，下边不再留白
-        int cardB = 0;
-        int padTop = dp(10);
+        int cardB = Math.round(inset[3] * boxH);
         int cardW = Math.max(dp(60), boxW - cardL - cardR);
-        int cardH = Math.max(dp(40), boxH - cardT - cardB - padTop);
+        int cardH = Math.max(dp(40), boxH - cardT - cardB);
 
-        // 内容按「真实卡片宽度 → 预览卡片宽度」等比缩
-        float realCardW = Math.max(1f, frameW * (1f - inset[0] - inset[2]));
+        // 内容按「真实卡片宽度 → 预览卡片宽度」等比缩。
+        // 用卡片自身宽度，不用框宽：框里含四周留白，拿它当基准会整体偏小。
+        float realCardW = pl != null
+                ? Math.max(1f, (pl.right - pl.left) * screenW)
+                : Math.max(1f, frameW);
         float k = cardW / realCardW;
-        k = Math.max(0.35f, Math.min(1.4f, k));
+        k = Math.max(0.2f, Math.min(1.4f, k));
 
-        final float corner = Math.max(6f, dp(16) * k);
+        // 圆角跟真实卡片一致（drawable 里是 20dp）
+        final float corner = Math.max(4f, dp(20) * k);
         android.widget.FrameLayout card = new android.widget.FrameLayout(this);
         card.setBackgroundResource(PickupWidgetProvider.backgroundRes(this));
         card.setClipToOutline(true);
@@ -843,7 +1032,7 @@ public class WidgetSettingsActivity extends Activity {
         android.widget.FrameLayout.LayoutParams clp =
                 new android.widget.FrameLayout.LayoutParams(cardW, cardH);
         clp.leftMargin = cardL;
-        clp.topMargin = cardT + padTop;
+        clp.topMargin = cardT;
         stage.addView(card, clp);
 
         int padPx = (int) (dp(10) * k);

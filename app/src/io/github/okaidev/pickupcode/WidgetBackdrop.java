@@ -171,10 +171,9 @@ public final class WidgetBackdrop {
             int left = clamp((int) (w * fl) - pad, 0, w - 1);
             int right = clamp((int) (w * fr) + pad, left + 1, w);
             int top = clamp((int) (h * ft) - pad, 0, h - 1);
-            // 底部再让出 40px：那是系统手势条的常驻区域，
-            // 裁进来会在预览最下面露一条浅灰（真机上看到的就是它）。
-            int bottom = clamp((int) (h * fb) + pad, top + 1,
-                    Math.max(top + 1, h - dp(ctx, 40)));
+            // 底部保护已经由 previewRatios 负责（那里按屏幕比例让出了手势条），
+            // 这里只兜住位图边界 —— 再夹一次会和矩形不是同一个比例，卡片会错位。
+            int bottom = clamp((int) (h * fb) + pad, top + 1, h);
 
             android.util.Log.d("PICKUPDEBUG", "backdrop: shot=" + w + "x" + h
                     + " screen=" + logicalW + "x" + logicalH
