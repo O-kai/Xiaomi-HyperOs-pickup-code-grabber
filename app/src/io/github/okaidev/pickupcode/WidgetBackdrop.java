@@ -39,7 +39,20 @@ public final class WidgetBackdrop {
     private static final String PREFS = "widget_backdrop";
     private static final String K_WP_ID = "wallpaper_id";
 
+    /**
+     * 本次校准刚算出的矩形，由 {@code realign()} 在打开抓取页前塞进来。
+     *
+     * <p>为什么不直接在 {@link #capture} 里再读一次缓存：读缓存是另一次独立解析，
+     * 和刚才那次校准之间隔着 su 往返，两者可能不是同一份数据 —— 真机上出现过
+     * 「位置已经算对了、背景却按旧矩形裁」的错位。用完即清，不影响下一次。
+     */
+    private static WidgetPlacement pending;
+
     private WidgetBackdrop() { }
+
+    public static void setPending(WidgetPlacement p) {
+        pending = p;
+    }
 
     /** 裁切时四周外扩的像素数（按当前屏幕密度换算） */
     public static int PAD_DP_PX(Context ctx) {
@@ -109,7 +122,9 @@ public final class WidgetBackdrop {
      * @return true = 成功
      */
     public static boolean capture(Context ctx) {
-        WidgetPlacement pl = WidgetPlacement.cached(ctx);
+        WidgetPlacement pl = pending;
+        pending = null;                       // 只用一次，避免下次误用旧值
+        if (pl == null) pl = WidgetPlacement.cached(ctx);
         if (pl == null) pl = WidgetPlacement.fallback(ctx);
 
         // 1) 系统截屏到临时文件（root 通道，不切桌面）

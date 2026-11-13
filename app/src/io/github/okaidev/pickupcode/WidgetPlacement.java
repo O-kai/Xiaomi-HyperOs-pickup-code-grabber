@@ -89,10 +89,37 @@ public final class WidgetPlacement {
     public boolean fromLauncher;
     /** v4.2：矩形来自无障碍服务（不需要 root） */
     public boolean fromA11y;
+    /** 矩形是「桌面库格子 + 网格标定」算出来的，等同精确 */
+    public boolean fromCalib;
     /** 无障碍测到的单格像素尺寸（0 = 没测到） */
     public int cellWpx, cellHpx;
     /** 这份数据是什么时候拿到的（毫秒），用于和无障碍文件比新旧 */
     public long savedAt;
+    /**
+     * 数据源本身的时间（毫秒）。
+     *
+     * <p>a11y 文件 = 文件 mtime；桌面库 = db（含 -wal）的 mtime。
+     * 用它判断哪一边更新：桌面库更新说明用户刚挪过组件，服务还没来得及读。
+     */
+    public long sourceAt;
+    /**
+     * 格子边界：无障碍服务给的 AppWidgetHostView 矩形，**不含卡片 margin**。
+     *
+     * <p>它是反解网格参数的唯一依据（格子宽 = 宽 / spanX）。
+     * 全 0 表示没有。
+     */
+    public int hostL, hostT, hostR, hostB;
+
+    public boolean hasHost() {
+        return hostR > hostL && hostB > hostT;
+    }
+
+    /** 无障碍直接读到的像素矩形（0 = 没有）。标定时用它算卡片 margin */
+    public int pxL, pxT, pxR, pxB;
+
+    public boolean hasPx() {
+        return pxR > pxL && pxB > pxT;
+    }
 
     // ==================== 对外 ====================
 
@@ -105,18 +132,8 @@ public final class WidgetPlacement {
     public static WidgetPlacement detect(Context ctx) {
         WidgetPlacement cached = load(ctx);
         if (cached != null) return cached;
-        // 无障碍写出的矩形最便宜：不碰 su，也不依赖桌面库
-        WidgetPlacement a11y = readA11yRect(ctx);
-        if (a11y != null) {
-            save(ctx, a11y);
-            return a11y;
-        }
-        WidgetPlacement p = readFromDb(ctx);
-        if (p != null) {
-            save(ctx, p);
-            return p;
-        }
-        return null;
+        // 和「重新校准」走同一套判断：库和 a11y 文件谁新用谁
+        return remeasure(ctx);
     }
 
     /**
@@ -126,25 +143,63 @@ public final class WidgetPlacement {
      * 读到了会顺带刷新缓存。
      */
     public static WidgetPlacement remeasure(Context ctx) {
+        // 两路并行拿数据，再比谁新：
+        //   cells —— 桌面库里的格子（走 su）。用户挪完组件，桌面会先写库。
+        //   a11y  —— 服务在桌面上读到的像素矩形（不碰 su）。服务要等窗口事件才读。
+        // 谁的时间新就用谁。之前是无条件优先 a11y 文件，于是用户挪完组件立刻
+        // 点「重新对齐」，拿到的还是上一次的旧矩形（真机复现：组件在 cellX=1,
+        // cellY=5，文件里还是 cellX=0, cellY=3 的坐标）。
+        WidgetPlacement cells = readFromDb(ctx);
+        if (cells == null && !RootShell.isReady()) {
+            // 第一次进这个页面时 root 通道可能还在建（Magisk 授权刚弹），
+            // 直接读会拿到 null，标定就建不起来 —— 真机上表现为「第一次点校准没反应，
+            // 再点一次才对」。等它一下再读一次。
+            try { Thread.sleep(800L); } catch (Throwable ignored) { }
+            cells = readFromDb(ctx);
+        }
         WidgetPlacement a11y = readA11yRect(ctx);
+
+        boolean a11yFresh = a11y != null
+                && (cells == null || a11y.sourceAt >= cells.sourceAt);
+
+        if (a11yFresh) {
+            // 服务读到的是最新布局：矩形信它，格子信库（服务不写格子）
+            calibrate(ctx, a11y, cells);
+            if (cells != null) {
+                a11y.cellX = cells.cellX;
+                a11y.cellY = cells.cellY;
+                a11y.spanX = cells.spanX;
+                a11y.spanY = cells.spanY;
+                a11y.cols = cells.cols;
+                a11y.rows = cells.rows;
+            }
+            save(ctx, a11y);
+            return a11y;
+        }
+
+        if (cells != null) {
+            // 库比服务新：用户刚挪过，服务还没读到。按标定把格子换算成像素。
+            fromCalib(ctx, cells);
+            save(ctx, cells);
+            return cells;
+        }
+
         if (a11y != null) {
             save(ctx, a11y);
             return a11y;
         }
-        WidgetPlacement p = readFromDb(ctx);
-        if (p != null) save(ctx, p);
-        return p;
+        return null;
     }
 
     /** 只读缓存，不碰 su。页面初始化时用这个。 */
     public static WidgetPlacement cached(Context ctx) {
         WidgetPlacement p = load(ctx);
-        // 无障碍矩形是像素级的，只要文件在就优先用它。
-        // 用户要挪组件必然在桌面上，服务那时已经刷新过文件，不存在"用旧位置"的情况。
+        // 只有服务读到的比缓存新才覆盖。缓存里可能已经是「标定换算 + 新格子」的结果，
+        // 而无障碍文件还停在上一次读数上——无条件覆盖会把位置退回旧值（真机踩过）。
         WidgetPlacement a11y = readA11yRect(ctx);
-        if (a11y != null) {
+        if (a11y != null && (p == null || a11y.sourceAt > p.savedAt)) {
             save(ctx, a11y);
-            return a11y;
+            p = a11y;
         }
         if (p == null) return null;
         // 缓存属于另一个组件实例（用户删了重加、或换了尺寸）→ 作废。
@@ -202,8 +257,11 @@ public final class WidgetPlacement {
             java.io.File f = new java.io.File(ctx.getFilesDir(), "a11y_widget_rect.txt");
             if (!f.exists()) return null;
             String line = null;
+            String hostLine = null;
             try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f))) {
                 line = r.readLine();
+                // 第二行是格子边界，老版本没有，读到 null 属正常
+                hostLine = r.readLine();
             }
             if (line == null || !line.startsWith("RECT|")) return null;
             String[] v = line.split("\\|");
@@ -226,6 +284,11 @@ public final class WidgetPlacement {
             p.fromLauncher = true;
             p.fromA11y = true;
             p.savedAt = f.lastModified();
+            p.sourceAt = f.lastModified();
+            p.pxL = l;
+            p.pxT = t;
+            p.pxR = rr;
+            p.pxB = b;
             if (v.length >= 12) {
                 p.cellWpx = parseIntOr(v[8], 0);
                 p.cellHpx = parseIntOr(v[9], 0);
@@ -235,6 +298,22 @@ public final class WidgetPlacement {
             if (p.spanX <= 0 || p.spanY <= 0) {
                 p.spanX = 0;
                 p.spanY = 0;
+            }
+            // HOST|l|t|r|b —— 格子边界，没有 margin
+            if (hostLine != null && hostLine.startsWith("HOST|")) {
+                String[] h = hostLine.split("\\|");
+                if (h.length >= 5) {
+                    int hl = parseIntOr(h[1], 0);
+                    int ht = parseIntOr(h[2], 0);
+                    int hr = parseIntOr(h[3], 0);
+                    int hb = parseIntOr(h[4], 0);
+                    if (hr > hl && hb > ht) {
+                        p.hostL = hl;
+                        p.hostT = ht;
+                        p.hostR = hr;
+                        p.hostB = hb;
+                    }
+                }
             }
             android.util.Log.d("PICKUPDEBUG", "使用无障碍矩形: " + l + "," + t + " - " + rr + "," + b
                     + " cell=" + p.cellWpx + "x" + p.cellHpx + " span=" + p.spanX + "x" + p.spanY);
@@ -277,7 +356,13 @@ public final class WidgetPlacement {
           .append("ifnull((select max(cellY+spanY) from favorites where container=-100),0) ")
           .append("from favorites where appWidgetId=").append(widgetId)
           .append(" and itemType=4 limit 1\" 2>/dev/null); ");
-        sb.append("[ -n \"$R\" ] && { RES=\"HIT|$F|$R\"; break; }; ");
+        // 顺带取库文件的修改时间：它比无障碍文件新，说明用户刚挪过组件、
+        // 服务还没读到，此时不能拿服务那份旧矩形去用（踩过：预览停在旧位置）。
+        sb.append("[ -n \"$R\" ] && { MT=$(stat -c %Y \"$F\" 2>/dev/null || echo 0); ");
+        sb.append("for X in \"$F-wal\" \"$F-journal\" \"$F-shm\"; do ");
+        sb.append("M2=$(stat -c %Y \"$X\" 2>/dev/null || echo 0); ");
+        sb.append("[ \"$M2\" -gt \"$MT\" ] && MT=$M2; done; ");
+        sb.append("RES=\"HIT|$F|$MT|$R\"; break; }; ");
         sb.append("done; done; done; ");
         sb.append("[ -n \"$RES\" ] && echo \"$RES\" || echo NONE; ");
         // v4.1.0：桌面进程（LauncherProbe）会把组件的真实像素矩形写到它自己的
@@ -317,9 +402,9 @@ public final class WidgetPlacement {
 
         try {
             String[] seg = hitLine.split("\\|");
-            if (seg.length < 3) return null;
+            if (seg.length < 4) return null;
             String dbPath = seg[1];
-            String[] v = seg[2].trim().split(",");
+            String[] v = seg[3].trim().split(",");
             if (v.length < 4) return null;
 
             WidgetPlacement p = new WidgetPlacement();
@@ -329,6 +414,8 @@ public final class WidgetPlacement {
             p.spanY = Integer.parseInt(v[3].trim());
             p.widgetId = widgetId;
             p.fromDb = true;
+            // 秒级时间戳 → 毫秒
+            p.sourceAt = (long) (parseIntOr(seg[2], 0)) * 1000L;
 
             // 网格行列：优先用「桌面用到的最右/最下边界」推断。
             // 只有当推断值不比组件自身大（说明桌面上没有别的图标贴到边，
@@ -482,6 +569,154 @@ public final class WidgetPlacement {
         return -1;
     }
 
+    // ==================== 网格标定 ====================
+
+    /**
+     * 网格参数：把「第几格、占几格」换算成像素矩形。
+     *
+     * <p>这些值不能写死 —— 换主题、改网格、换机器都会变。只能从一次真实读数里反解：
+     * <pre>
+     *   cellW   = 格子宽 / spanX
+     *   originX = 格子左边界 − cellX × cellW
+     *   marginX = (格子宽 − 卡片宽) / 2
+     * </pre>
+     *
+     * <p>有了它，用户把组件挪到别的格子，不必再回桌面读一次 ——
+     * 桌面库里的格子是实时的，套上参数就是像素矩形。
+     */
+    public static final class Calib {
+        public float cellW, cellH, originX, originY;
+        /**
+         * 卡片相对格子四边各让出多少。
+         *
+         * <p>**不能当成四边相等**：实测 K90 上横向左右各 40.5，
+         * 纵向顶部 0、底部 44 —— 卡片是贴着格子顶边的。
+         * 用平均值会让整张卡片上移半格。
+         */
+        public float marginL, marginT, marginR, marginB;
+        public long at;
+
+        public boolean valid() {
+            return cellW > 0 && cellH > 0;
+        }
+    }
+
+    private static final String PREF_CALIB = "widget_calib";
+
+    public static Calib calib(Context ctx) {
+        try {
+            SharedPreferences sp = ctx.getSharedPreferences(PREF_CALIB, Context.MODE_PRIVATE);
+            if (!sp.contains("cell_w")) return null;
+            Calib c = new Calib();
+            c.cellW = sp.getFloat("cell_w", 0);
+            c.cellH = sp.getFloat("cell_h", 0);
+            c.originX = sp.getFloat("origin_x", 0);
+            c.originY = sp.getFloat("origin_y", 0);
+            // 老版本存的是对称值，读回来时四边同值
+            c.marginL = sp.getFloat("margin_l", sp.getFloat("margin_x", 0));
+            c.marginT = sp.getFloat("margin_t", sp.getFloat("margin_y", 0));
+            c.marginR = sp.getFloat("margin_r", sp.getFloat("margin_x", 0));
+            c.marginB = sp.getFloat("margin_b", sp.getFloat("margin_y", 0));
+            c.at = sp.getLong("at", 0);
+            return c.valid() ? c : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 用一次「像素矩形 + 同一次读到的格子」反解网格参数。
+     *
+     * <p>必须用 host（格子）而不是卡片：卡片四周有 margin，用它算会把 margin
+     * 摊进格子宽，挪一格就偏十几像素。
+     */
+    private static void calibrate(Context ctx, WidgetPlacement a11y, WidgetPlacement cells) {
+        try {
+            if (a11y == null || cells == null) return;
+            if (!a11y.hasHost() || !a11y.hasPx()) return;
+            if (cells.spanX <= 0 || cells.spanY <= 0) return;
+
+            float cellW = (a11y.hostR - a11y.hostL) / (float) cells.spanX;
+            float cellH = (a11y.hostB - a11y.hostT) / (float) cells.spanY;
+            if (cellW < 40 || cellH < 40 || cellW > 1000 || cellH > 1000) return;
+
+            Calib c = new Calib();
+            c.cellW = cellW;
+            c.cellH = cellH;
+            c.originX = a11y.hostL - cells.cellX * cellW;
+            c.originY = a11y.hostT - cells.cellY * cellH;
+            c.marginL = Math.max(0, a11y.pxL - a11y.hostL);
+            c.marginT = Math.max(0, a11y.pxT - a11y.hostT);
+            c.marginR = Math.max(0, a11y.hostR - a11y.pxR);
+            c.marginB = Math.max(0, a11y.hostB - a11y.pxB);
+            c.at = System.currentTimeMillis();
+
+            // 反解出负数原点说明这两份数据本来就不是同一次布局，丢掉
+            if (c.originX < -400 || c.originY < -800
+                    || c.originX > 1000 || c.originY > 2600) return;
+
+            ctx.getSharedPreferences(PREF_CALIB, Context.MODE_PRIVATE).edit()
+                    .putFloat("cell_w", c.cellW)
+                    .putFloat("cell_h", c.cellH)
+                    .putFloat("origin_x", c.originX)
+                    .putFloat("origin_y", c.originY)
+                    .putFloat("margin_l", c.marginL)
+                    .putFloat("margin_t", c.marginT)
+                    .putFloat("margin_r", c.marginR)
+                    .putFloat("margin_b", c.marginB)
+                    .putLong("at", c.at)
+                    .apply();
+            android.util.Log.d("PICKUPDEBUG", "网格标定: cell=" + c.cellW + "x" + c.cellH
+                    + " origin=" + c.originX + "," + c.originY
+                    + " margin=" + c.marginL + "/" + c.marginT
+                    + "/" + c.marginR + "/" + c.marginB);
+        } catch (Throwable t) {
+            android.util.Log.w("PICKUPDEBUG", "标定失败: " + t);
+        }
+    }
+
+    /**
+     * 用网格参数把格子换算成比例，直接覆盖到 p 上。
+     *
+     * @return true = 换算成功（p 的位置已更新）
+     */
+    private static boolean fromCalib(Context ctx, WidgetPlacement p) {
+        try {
+            Calib c = calib(ctx);
+            if (c == null || !c.valid()) return false;
+            if (p.spanX <= 0 || p.spanY <= 0) return false;
+
+            int[] size = screenSize(ctx);
+            int sw = size[0], sh = size[1];
+            if (sw <= 0 || sh <= 0) return false;
+
+            float hostL = c.originX + p.cellX * c.cellW;
+            float hostT = c.originY + p.cellY * c.cellH;
+            float cardL = hostL + c.marginL;
+            float cardT = hostT + c.marginT;
+            float cardR = hostL + p.spanX * c.cellW - c.marginR;
+            float cardB = hostT + p.spanY * c.cellH - c.marginB;
+
+            // 换过主题 / 网格设置，参数就失效了：算出来的框会跑到屏幕外或小得离谱
+            if (cardL < -8 || cardT < -8 || cardR > sw + 8 || cardB > sh + 8) return false;
+            if (cardR - cardL < c.cellW * 0.5f) return false;
+            if (cardB - cardT < c.cellH * 0.5f) return false;
+
+            p.left = cardL / sw;
+            p.right = cardR / sw;
+            p.top = cardT / sh;
+            p.bottom = cardB / sh;
+            p.fromDb = true;
+            p.fromCalib = true;
+            android.util.Log.d("PICKUPDEBUG", "按标定换算: 格=" + p.cellX + "," + p.cellY
+                    + " 跨=" + p.spanX + "x" + p.spanY + " → "
+                    + (int) cardL + "," + (int) cardT + " - " + (int) cardR + "," + (int) cardB);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     // ==================== 缓存 ====================
 
     private static WidgetPlacement load(Context ctx) {
@@ -502,7 +737,9 @@ public final class WidgetPlacement {
             p.widgetId = sp.getInt(K_WIDGET_ID, -1);
             p.fromLauncher = sp.getBoolean("from_launcher", false);
             p.fromA11y = sp.getBoolean("from_a11y", false);
+            p.fromCalib = sp.getBoolean("from_calib", false);
             p.savedAt = sp.getLong("saved_at", 0);
+            p.sourceAt = sp.getLong("source_at", 0);
             p.fromDb = true;
             return p;
         } catch (Throwable t) {
@@ -526,7 +763,9 @@ public final class WidgetPlacement {
                     .putInt(K_WIDGET_ID, p.widgetId)
                     .putBoolean("from_launcher", p.fromLauncher)
                     .putBoolean("from_a11y", p.fromA11y)
+                    .putBoolean("from_calib", p.fromCalib)
                     .putLong("saved_at", System.currentTimeMillis())
+                    .putLong("source_at", p.sourceAt)
                     .apply();
             p.savedAt = System.currentTimeMillis();
         } catch (Throwable ignored) { }

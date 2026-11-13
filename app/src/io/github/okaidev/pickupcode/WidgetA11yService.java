@@ -39,6 +39,8 @@ public class WidgetA11yService extends AccessibilityService {
     private int cellW, cellH, spanX, spanY;
     private String status = "SUSPECT";
     private Rect lastRect;
+    /** 这次读到的格子边界（AppWidgetHostView 的矩形）。没有 margin，是标定的唯一依据 */
+    private Rect lastHost;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable probeTask = this::probeSafely;
@@ -123,6 +125,7 @@ public class WidgetA11yService extends AccessibilityService {
             } else {
                 cellW = cellH = spanX = spanY = 0;
             }
+            lastHost = new Rect(host);
             status = verify(root, card);
             Log.i(TAG, "a11y card=" + card + " host=" + host
                     + " cell=" + cellW + "x" + cellH + " span=" + spanX + "x" + spanY
@@ -250,6 +253,12 @@ public class WidgetA11yService extends AccessibilityService {
                     + "|" + size[0] + "|" + size[1]
                     + "|" + cellW + "|" + cellH + "|" + spanX + "|" + spanY
                     + "|" + status);
+            // 第二行：格子边界。卡片四周有 margin，只有这行能反解出网格参数，
+            // 之后组件被挪到别的格子时，就能按格子算出新的像素矩形，不必再回桌面读。
+            if (lastHost != null) {
+                w.write("\nHOST|" + lastHost.left + "|" + lastHost.top
+                        + "|" + lastHost.right + "|" + lastHost.bottom);
+            }
             w.close();
             Log.i(TAG, "a11y rect written: " + r);
         } catch (Throwable t) {

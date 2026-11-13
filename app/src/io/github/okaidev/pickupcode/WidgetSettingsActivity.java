@@ -328,7 +328,7 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     /**
-     * 「重新对齐」（v4.1.0）。
+     * 「重新校准」（v4.1.0，原名「重新对齐」）。
      *
      * <p>把「重测位置」和「重抓背景」合成动作。这两件事对用户是同一件事——
      * 都是「让预览和桌面一致」，拆成两个按钮只会让人犹豫点哪个。
@@ -339,7 +339,7 @@ public class WidgetSettingsActivity extends Activity {
     private void realign() {
         if (realigning) return;
         realigning = true;
-        Toast.makeText(this, "正在对齐桌面…", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "正在重新校准…", Toast.LENGTH_SHORT).show();
 
         new Thread(() -> {
             WidgetPlacement p = null;
@@ -356,9 +356,18 @@ public class WidgetSettingsActivity extends Activity {
                 }
                 if (got == null) {
                     Toast.makeText(this,
-                            "没读到桌面位置（可能需要 root 授权），先按原有位置更新背景",
+                            "没读到桌面位置（需要 root 或无障碍权限），先按原有位置更新背景",
+                            Toast.LENGTH_LONG).show();
+                } else if (!got.fromLauncher && !got.fromCalib) {
+                    // 格子读到了，但还没标定过网格参数 → 只能估算。
+                    Toast.makeText(this,
+                            a11yEnabled()
+                                    ? "位置还是估算的：回桌面停一秒再进来，就能对上"
+                                    : "位置是估算的：开启「桌面位置读取」后点这里即可精确对齐",
                             Toast.LENGTH_LONG).show();
                 }
+                // 把这次算出的矩形直接带给抓取页，避免它再读一次缓存读到别的值
+                if (got != null) WidgetBackdrop.setPending(got);
                 // 走到这里交给抓取页；回来后整页 recreate，realigning 自然复位
                 captureBackdrop();
             });
@@ -530,12 +539,13 @@ public class WidgetSettingsActivity extends Activity {
 
         // 告诉用户当前预览是「桌面给的精确矩形」还是「按格子估算」——
         // 加了桌面作用域就能变前者，用户自己看得见，不用猜。
-        String src = pl != null && pl.fromLauncher ? "精确对齐" : "按格子估算";
+        boolean exact = pl != null && (pl.fromLauncher || pl.fromCalib);
+        String src = exact ? "精确对齐" : "按格子估算";
         TextView title = UiKit.text(this, "小组件实时预览 · " + src, 13f, P.muteInk);
         head.addView(title, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView action = UiKit.text(this, onDesktop ? "重新对齐" : "添加到桌面",
+        TextView action = UiKit.text(this, onDesktop ? "重新校准" : "添加到桌面",
                 12.5f, P.accentInk);
         action.setPadding(dp(14), dp(10), dp(2), dp(10));
         if (onDesktop) {
@@ -620,7 +630,7 @@ public class WidgetSettingsActivity extends Activity {
         if (!onDesktop) {
             hintText = "示例预览 · 添加到桌面后会自动换成你的桌面";
         } else if (bg == null) {
-            hintText = "点右上角「重新对齐」，换成你的桌面背景";
+            hintText = "点右上角「重新校准」，换成你的桌面背景";
         }
         if (hintText != null) {
             TextView hint = UiKit.text(this, hintText, 11.5f, P.muteInk);
@@ -634,6 +644,29 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     /** 开一次透明页抓背景，回来刷新界面 */
+    /**
+     * 本 App 的无障碍服务现在是不是开着。
+     *
+     * <p>覆盖安装会把它从「已启用」里踢出去（系统认为服务变了），
+     * 用户不知道，只会觉得「又不准了」。这里读一次做提示，不申请任何权限。
+     */
+    private boolean a11yEnabled() {
+        try {
+            android.view.accessibility.AccessibilityManager am =
+                    (android.view.accessibility.AccessibilityManager)
+                            getSystemService(ACCESSIBILITY_SERVICE);
+            if (am == null) return false;
+            for (android.accessibilityservice.AccessibilityServiceInfo info
+                    : am.getEnabledAccessibilityServiceList(
+                            android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)) {
+                android.content.pm.ResolveInfo ri = info.getResolveInfo();
+                if (ri != null && ri.serviceInfo != null
+                        && getPackageName().equals(ri.serviceInfo.packageName)) return true;
+            }
+        } catch (Throwable ignored) { }
+        return false;
+    }
+
     private void captureBackdrop() {
         try {
             android.util.Log.d("PICKUPDEBUG", "captureBackdrop: 启动抓取页");
