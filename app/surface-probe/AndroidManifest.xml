@@ -2,7 +2,6 @@
     xmlns:tools="http://schemas.android.com/tools">
     <application android:label="取件卡片测试" tools:replace="android:label">
         <receiver android:name=".SurfacePreviewActivity$DismissReceiver" android:exported="false" />
-        <meta-data android:name="xposedmodule" android:value="false" tools:replace="android:value" />
         <meta-data android:name="com.xiaomi.xms.BUILD_TYPE_DEBUG" android:value="true" />
         <provider android:name=".TodoProvider" android:enabled="false" android:exported="false"
             tools:replace="android:exported" />

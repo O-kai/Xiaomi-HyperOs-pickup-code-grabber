@@ -25,6 +25,7 @@ public class Notifier {
     private static final String CHANNEL_ID = "pickup";
 
     static final int PICKUP_ID = 1001;
+    static final int REAR_ID = 1003;
     private static final AtomicLong REVISION = new AtomicLong();
 
     public static void notifyCodes(Context ctx, List<String> codes, String titleExtra) {
@@ -36,7 +37,7 @@ public class Notifier {
             post(app, fallback, titleExtra, fallback.size(), true);
             return;
         }
-        PickupRepository.get(app).pendingSnapshotAsync(12, snapshot -> {
+        PickupRepository.get(app).pendingSnapshotAsync(Integer.MAX_VALUE, snapshot -> {
             if (REVISION.get() != revision) return;
             postSnapshot(app, snapshot, true);
         });
@@ -44,38 +45,110 @@ public class Notifier {
 
     /** Keep an existing reminder consistent after completion/deletion, without resurrecting a swipe. */
     static void refreshExisting(Context ctx) {
+        refreshExisting(ctx, () -> { });
+    }
+
+    static void refreshExisting(Context ctx, Runnable finished) {
         try {
             NotificationManager manager = ctx.getSystemService(NotificationManager.class);
             boolean active = false;
             for (android.service.notification.StatusBarNotification n : manager.getActiveNotifications()) {
                 if (n.getId() == PICKUP_ID) { active = true; break; }
             }
-            if (!active) return;
             long revision = REVISION.incrementAndGet();
             if (!NotesBackend.localSelected(ctx)) {
                 manager.cancel(PICKUP_ID);
+                manager.cancel(REAR_ID);
+                finished.run();
                 return;
             }
-            PickupRepository.get(ctx).pendingSnapshotAsync(12, snapshot -> {
-                if (REVISION.get() == revision) postSnapshot(ctx, snapshot, false);
+            final boolean refreshMain = active;
+            PickupRepository.get(ctx).pendingSnapshotAsync(Integer.MAX_VALUE, snapshot -> {
+                try {
+                    if (REVISION.get() != revision) return;
+                    postRearSnapshot(ctx, snapshot);
+                    if (refreshMain) postMainSnapshot(ctx, snapshot, false);
+                } finally { finished.run(); }
             });
         } catch (Exception e) {
             Log.w(TAG, "notification refresh failed: " + e.getClass().getSimpleName());
+            finished.run();
         }
     }
 
     static void postSnapshot(Context ctx, PickupRepository.PendingSnapshot snapshot, boolean alert) {
+        postRearSnapshot(ctx, snapshot);
         // The user may have dismissed the reminder while the asynchronous DB read was running.
         if (!alert && !hasActiveReminder(ctx)) return;
+        postMainSnapshot(ctx, snapshot, alert);
+    }
+
+    /** Explicit selection may restore a dismissed notification. Rear screen always uses all pending. */
+    static void pushSelected(Context context) {
+        Context app = context.getApplicationContext();
+        long revision = REVISION.incrementAndGet();
+        PickupRepository.get(app).pendingSnapshotAsync(Integer.MAX_VALUE, snapshot -> {
+            if (REVISION.get() == revision) postSnapshot(app, snapshot, true);
+        });
+    }
+
+    private static void postMainSnapshot(Context ctx, PickupRepository.PendingSnapshot snapshot, boolean alert) {
+        List<PickupRecord> selected = NotificationSelection.filter(ctx, snapshot.items);
         List<String> codes = new ArrayList<>();
-        for (PickupRecord item : snapshot.items) codes.add(item.code);
+        for (PickupRecord item : selected) if (codes.size() < 12) codes.add(item.code);
         if (codes.isEmpty()) {
             ctx.getSystemService(NotificationManager.class).cancel(PICKUP_ID);
             return;
         }
-        PickupRecord first = snapshot.items.get(0);
+        PickupRecord first = selected.get(0);
         String place = first.place == null || first.place.isEmpty() ? first.source : first.place;
-        post(ctx, codes, place, snapshot.pendingTotal, alert);
+        post(ctx, codes, place, selected.size(), alert);
+    }
+
+    private static void postRearSnapshot(Context ctx, PickupRepository.PendingSnapshot snapshot) {
+        NotificationManager manager = ctx.getSystemService(NotificationManager.class);
+        if (!RearScreen.available(ctx) || snapshot.pendingTotal == 0 || snapshot.items.isEmpty()) {
+            manager.cancel(REAR_ID);
+            return;
+        }
+        PickupRecord first = snapshot.items.get(0);
+        try {
+            boolean initial = true;
+            for (android.service.notification.StatusBarNotification value : manager.getActiveNotifications())
+                if (value.getId() == REAR_ID) initial = false;
+            manager.notify(REAR_ID, buildRear(ctx, first.code, first.place, snapshot.pendingTotal, initial));
+        } catch (Exception e) { Log.w(TAG, "rear notification failed: " + e.getClass().getSimpleName()); }
+    }
+
+    static Notification buildRear(Context ctx, String code, String place, int count) throws org.json.JSONException {
+        return buildRear(ctx, code, place, count, false);
+    }
+
+    private static Notification buildRear(Context ctx, String code, String place, int count, boolean initial) throws org.json.JSONException {
+        NotificationManager manager = ctx.getSystemService(NotificationManager.class);
+        NotificationChannel channel = new NotificationChannel("pickup_rear", "背屏待取件",
+                NotificationManager.IMPORTANCE_LOW);
+        channel.setDescription("随待取件更新，取完后自动消失");
+        channel.setSound(null, null);
+        manager.createNotificationChannel(channel);
+        Notification base = build(ctx, java.util.Collections.singletonList(code), place, count, false);
+        base.extras.remove(HyperIsland.PARAM);
+        base.extras.remove("miui.focus.pics");
+        base.extras.remove("miui.focus.actions");
+        // recoverBuilder retains the source extras, which take precedence over addExtras.
+        base.extras.remove(RearScreen.PARAM);
+        base.extras.remove(RearScreen.VIEW);
+        base.extras.remove(RearScreen.AOD);
+        Notification.Builder builder = Notification.Builder.recoverBuilder(ctx, base)
+                .setChannelId("pickup_rear").setOngoing(true).setOnlyAlertOnce(true)
+                .setDeleteIntent(PendingIntent.getBroadcast(ctx, REAR_ID,
+                        new Intent(ctx, RearReminderReceiver.class),
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE))
+                .setContentTitle(count + " 件待取").setContentText("背屏待取件 · 取完自动收起")
+                .setStyle(new Notification.BigTextStyle().bigText("背屏待取件 · 取完自动收起"));
+        builder.addExtras(RearScreen.pendingExtras(ctx, code, place == null ? "—" : place, count,
+                base.actions[1], base.actions[0], initial));
+        return builder.build();
     }
 
     private static boolean hasActiveReminder(Context context) {
@@ -145,8 +218,12 @@ public class Notifier {
 
     private static void post(Context ctx, List<String> codes, String place, int count, boolean alert) {
         try {
-            ctx.getSystemService(NotificationManager.class).notify(PICKUP_ID,
-                    build(ctx, codes, place, count, alert));
+            Notification notification = build(ctx, codes, place, count, alert);
+            // The independent rear reminder follows every pending parcel, not the manual island selection.
+            notification.extras.remove(RearScreen.PARAM);
+            notification.extras.remove(RearScreen.VIEW);
+            notification.extras.remove(RearScreen.AOD);
+            ctx.getSystemService(NotificationManager.class).notify(PICKUP_ID, notification);
             Log.i(TAG, "NOTIFY pending=" + count + " alert=" + alert);
         } catch (Exception e) {
             Log.e(TAG, "notify failed: " + e.getClass().getSimpleName());

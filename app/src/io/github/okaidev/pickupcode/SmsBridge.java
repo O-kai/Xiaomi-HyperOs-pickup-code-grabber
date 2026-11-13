@@ -3,7 +3,6 @@ package io.github.okaidev.pickupcode;
 import android.content.Intent;
 import android.telephony.SmsMessage;
 
-import de.robv.android.xposed.XposedHelpers;
 
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -60,25 +59,19 @@ public class SmsBridge {
      */
     private static android.content.Context obtainContext() {
         if (lastContext != null) return lastContext;
-        try {
-            Class<?> at = XposedHelpers.findClass("android.app.ActivityThread", null);
-            Object app = XposedHelpers.callStaticMethod(at, "currentApplication");
-            if (app instanceof android.content.Context) {
-                lastContext = (android.content.Context) app;
-            }
-        } catch (Throwable ignored) { }
+        lastContext = HookRuntime.context();
         return lastContext;
     }
 
-    public static void processArguments(de.robv.android.xposed.XC_MethodHook.MethodHookParam param) {
+    public static void processArguments(Object[] args) {
         // 记住 Context（广播转发用）
-        for (Object a : param.args) {
+        for (Object a : args) {
             if (a instanceof android.content.Context) {
                 lastContext = (android.content.Context) a;
             }
         }
         // 识别短信参数形态
-        for (Object a : param.args) {
+        for (Object a : args) {
             if (a instanceof Intent) {
                 handleIntent((Intent) a);
                 return;
@@ -107,15 +100,12 @@ public class SmsBridge {
         if (argDumpCounter < 15) {
             argDumpCounter++;
             StringBuilder sb = new StringBuilder("ARGDUMP:");
-            for (int i = 0; i < param.args.length; i++) {
-                Object a = param.args[i];
+            for (int i = 0; i < args.length; i++) {
+                Object a = args[i];
                 String cls = a == null ? "null" : a.getClass().getName();
-                String txt = a == null ? "null"
-                        : (a instanceof String ? (String) a
-                        : (String.valueOf(a).length() > 120 ? String.valueOf(a).substring(0, 120) : String.valueOf(a)));
-                sb.append(" #").append(i).append("(").append(cls).append(")=").append(txt);
+                sb.append(" #").append(i).append("(").append(cls).append(")");
             }
-            XposedEntry.log(sb.toString());
+            ModuleLog.log(sb.toString());
         }
     }
 
@@ -125,10 +115,10 @@ public class SmsBridge {
      * S8：SmsProvider.insert 兜底——所有短信入库必经，无论普通短信还是小米网络短信。
      * 参数：insert(Uri, ContentValues)
      */
-    public static void processProviderInsert(de.robv.android.xposed.XC_MethodHook.MethodHookParam param) {
-        if (param.args == null || param.args.length < 2) return;
-        Object uri = param.args[0];
-        Object cv = param.args[1];
+    public static void processProviderInsert(Object[] args) {
+        if (args == null || args.length < 2) return;
+        Object uri = args[0];
+        Object cv = args[1];
         if (!(cv instanceof android.content.ContentValues)) return;
         if (!isSmsUri(uri)) return;
         handleContentValues((android.content.ContentValues) cv);
@@ -137,10 +127,10 @@ public class SmsBridge {
     /**
      * S8b：bulkInsert(Uri, ContentValues[])
      */
-    public static void processProviderBulkInsert(de.robv.android.xposed.XC_MethodHook.MethodHookParam param) {
-        if (param.args == null || param.args.length < 2) return;
-        Object uri = param.args[0];
-        Object cvArr = param.args[1];
+    public static void processProviderBulkInsert(Object[] args) {
+        if (args == null || args.length < 2) return;
+        Object uri = args[0];
+        Object cvArr = args[1];
         if (!isSmsUri(uri)) return;
         if (cvArr instanceof Object[]) {
             for (Object o : (Object[]) cvArr) {
@@ -165,7 +155,7 @@ public class SmsBridge {
         long date = cv.getAsLong("date") != null ? cv.getAsLong("date") : System.currentTimeMillis();
         // Provider 写入 = 整条短信一次入库 → 立即处理
         pushParts(sender, body, 1, true);
-        XposedEntry.log("PROVIDER-INSERT: date=" + date + " sender=" + sender);
+        ModuleLog.log("PROVIDER-INSERT: received");
     }
 
     private static void handleIntent(Intent intent) {
@@ -194,7 +184,7 @@ public class SmsBridge {
                 if (sender == null) sender = m.getOriginatingAddress();
                 bodyBuilder.append(m.getMessageBody() == null ? "" : m.getMessageBody());
             } catch (Throwable t) {
-                XposedEntry.log("pdu decode err: " + t);
+                ModuleLog.log("pdu decode err: " + t);
             }
         }
         pushParts(sender, bodyBuilder.toString(), pdus.length, false);
@@ -208,7 +198,7 @@ public class SmsBridge {
             if (sender == null) sender = m.getOriginatingAddress();
             pushParts(sender, m.getMessageBody() == null ? "" : m.getMessageBody(), 1, false);
         } catch (Throwable t) {
-            XposedEntry.log("pdu decode err: " + t);
+            ModuleLog.log("pdu decode err: " + t);
         }
     }
 
@@ -218,7 +208,7 @@ public class SmsBridge {
             if (sender == null) sender = m.getOriginatingAddress();
             pushParts(sender, m.getMessageBody() == null ? "" : m.getMessageBody(), 1, false);
         } catch (Throwable t) {
-            XposedEntry.log("sms err: " + t);
+            ModuleLog.log("sms err: " + t);
         }
     }
 
@@ -278,7 +268,7 @@ public class SmsBridge {
         String fingerprint = sender + "|" + body.hashCode();
         synchronized (RECENT) {
             if (RECENT.contains(fingerprint)) {
-                XposedEntry.log("dup skip: sender=" + sender);
+                ModuleLog.log("dup skip");
                 return;
             }
             RECENT.add(fingerprint);
@@ -290,7 +280,7 @@ public class SmsBridge {
         }
 
         // 日志（PICKUPDEBUG 双通道）：只记录长度，不打印短信正文，避免诊断报告泄露地址/姓名。
-        XposedEntry.log("SMS: sender=" + sender + " | parts=" + part.parts
+        ModuleLog.log("SMS: parts=" + part.parts
                 + " | len=" + body.length());
 
         // 转发给模块自身进程：提取 → 去重 → 写待办 → 通知
@@ -299,7 +289,7 @@ public class SmsBridge {
         // Provider 调用失败时直接进入本地 su 直写兜底（默认关闭，见 SystemDirectWriter）。
         android.content.Context ctx = obtainContext();
         if (ctx == null) {
-            XposedEntry.log("EVENT dispatch skipped: no app context");
+            ModuleLog.log("EVENT dispatch skipped: no app context");
             return;
         }
         try {
@@ -311,15 +301,15 @@ public class SmsBridge {
                     android.net.Uri.parse("content://io.github.okaidev.pickupcode.provider"),
                     "onSms", null, extras);
             int rc = result == null ? 0 : result.getInt("rc", 0);
-            XposedEntry.log("EVENT dispatched (provider), rc=" + rc + " result=" + result);
+            ModuleLog.log("EVENT dispatched (provider), rc=" + rc + " accepted=" + (rc == 0));
             if (rc == -3) {
                 // 正常情况下不应出现：说明调用方 UID 白名单与当前 ROM 不匹配。
                 // 只记录，不降级到广播（广播入口已移除）。
-                XposedEntry.log("EVENT provider denied: check CallerPolicy for this ROM");
+                ModuleLog.log("EVENT provider denied: check CallerPolicy for this ROM");
             }
             return;
         } catch (Throwable t) {
-            XposedEntry.log("EVENT provider dispatch err: " + t);
+            ModuleLog.log("EVENT provider dispatch err: " + t);
         }
 
         // v2.7.0：模块 App 转发失败（被 ColorOS 冻结 / 进程不可唤醒）→ 本进程内 su 直写兜底

@@ -1,8 +1,11 @@
 <resources>
-    <color name="widget_surface">#20242D</color>
-    <color name="widget_ink">#F3F5FA</color>
-    <color name="widget_muted">#A0ABBD</color>
-    <color name="widget_accent">#A9BEFF</color>
-    <color name="widget_chip">#303D60</color>
-    <color name="widget_line">#353C49</color>
+    <color name="widget_surface">#232420</color>
+    <color name="widget_wash">#2A2B26</color>
+    <color name="widget_ink">#F0EDE4</color>
+    <color name="widget_muted">#B2AFA2</color>
+    <color name="widget_accent">#E7C790</color>
+    <color name="widget_chip">#3C3527</color>
+    <color name="widget_line">#414139</color>
+    <color name="widget_action">#C2BDAF</color>
+    <color name="widget_marker">#D6B577</color>
 </resources>

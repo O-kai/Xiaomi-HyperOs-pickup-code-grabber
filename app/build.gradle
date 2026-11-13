@@ -145,7 +145,12 @@ def digestSha256(String text) {
 
 android {
     namespace 'io.github.okaidev.pickupcode'
-    compileSdk 34
+    compileSdk 37
+    buildToolsVersion "37.0.0"
+    buildFeatures {
+        resValues = true
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId 'io.github.okaidev.pickupcode'
@@ -193,8 +198,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     // 非标准源码布局，与 Termux 手工构建脚本保持一致
@@ -231,11 +236,13 @@ androidComponents {
 
 dependencies {
     // 官方 Xposed API（仅编译期；运行时由 LSPosed 提供，不打包进 APK）
-    compileOnly 'de.robv.android.xposed:api:82'
+    compileOnly 'io.github.libxposed:api:102.0.0'
+    implementation 'io.github.libxposed:service:102.0.0'
+    testImplementation 'io.github.libxposed:api:102.0.0'
 
     // Real Android View dispatch under Robolectric; never touches the device's saved targets/data.
     testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.robolectric:robolectric:4.14.1'
+    testImplementation 'org.robolectric:robolectric:4.17'
 
     // 4.0：本地取件库只运行在 App 进程；Hook 进程不引用 Room。
     implementation 'androidx.room:room-runtime:2.6.1'

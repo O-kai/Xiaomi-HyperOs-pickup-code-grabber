@@ -100,53 +100,12 @@ public class Diagnostics {
 
     // ==================== 体检 ====================
 
-    /**
-     * 配置快照的可读性（v4.0.2 第十轮新增）。
-     *
-     * <p>查的是 {@value RuntimePaths#SYNC_DIR} 里那三个文件的 SELinux 标签。
-     * 为什么要单独一项：{@code system_server} 里的通知通道靠读它们拿规则与开关，
-     * 而 App 用 root 写文件时标签默认是 {@code shell_data_file}。
-     * 标签不对时功能「看起来正常、实际用内置规则」，日志里也看不出来——
-     * 只有把标签显示出来，出问题的人才知道该修什么。
-     *
-     * <p>判据：
-     * <ul>
-     *   <li>三个文件都是 {@code system_data_file} → 通过；</li>
-     *   <li>是别的标签 → 不通过，但说明「多数 ROM 也能读，HyperOS 实测可读」，
-     *       并给出修复动作（体检后会顺手修）。</li>
-     * </ul>
-     */
+    /** Modern configuration IPC does not rely on file labels or su. */
     private static Check checkConfigLabels() {
-        StringBuilder sb = new StringBuilder("ls -Z ");
-        for (String f : RuntimePaths.CONFIG_FILES) {
-            sb.append(f).append(" ");
-        }
-        sb.append("2>&1; echo ").append(PROBE_MARK);
-        String[] r = suExecPublic(sb.toString(), 12);
-        if (!hasMark(r)) {
-            return new Check("配置快照", false, "root 命令没跑起来：" + tail(suErr(r), 120));
-        }
-        String all = stdoutOf(r);
-        if (all.contains("No such file")) {
-            // 新装/还没触发过同步时文件本来就不存在——此时系统进程用编译内置规则，
-            // 属于【正常状态】，不能报红。报红会让刚装好的用户以为哪里坏了
-            // （而「体检全绿」是这个模块最要紧的心理预期）。
-            return new Check("配置快照", true,
-                    "还没有生成（首次写入待办或改动设置后自动创建，当前用内置规则）");
-        }
-        int good = 0;
-        int total = RuntimePaths.CONFIG_FILES.length;
-        for (String line : all.split("\n")) {
-            if (line.contains("system_data_file")) good++;
-        }
-        if (good >= total) {
-            return new Check("配置快照", true,
-                    total + " 个文件标签正常（system_data_file）✓ 系统进程可读");
-        }
-        return new Check("配置快照", false,
-                good + "/" + total + " 个文件是 system_data_file，其余为 "
-                        + guessLabel(all) + "——部分 ROM 上系统进程读不到，"
-                        + "表现为改了设置不生效。修复：再点一次「点击体检」会自动修正");
+        boolean ready = FrameworkClient.connected() && HookConfig.published();
+        return new Check("配置快照", ready, ready
+                ? "配置通过框架远程偏好同步，无需 root 或公开文件"
+                : "等待框架确认配置同步；本地设置已保留");
     }
 
     /**
@@ -197,18 +156,11 @@ public class Diagnostics {
         Check su = checkRoot();
         out.add(su);
         out.add(checkScope(ctx, su.ok));                    // v2.2.0：作用域精确比对
-        out.add(checkNotification(ctx));                    // v2.2.0：通知权限
+        out.add(checkNotification(ctx));
+        out.add(checkConfigLabels());
         if (su.ok) {
             out.add(checkSqlite3());
             out.add(checkNotesDb(ctx));
-            // 老版本写下的配置文件从来没被 chcon 过，升级后不会自动变。
-            // 这里借已建立的常驻通道补一次（只做一次，失败下次重试），
-            // 放在检测之前，免得用户看到「刚体检失败、其实已经修好了」。
-            try { Repair.fixConfigLabelsOnce(ctx); } catch (Throwable ignored) { }
-            // 「卸载前清理」会把开关文件删掉，而界面状态以偏好为准——
-            // 不对账的话会出现「显示开着、实际关闭」的静默失效。
-            try { Repair.ensureNotiFlagFile(ctx); } catch (Throwable ignored) { }
-            out.add(checkConfigLabels());                   // v4.0.2 第十轮：SELinux 标签
             // v4.0.3：只在 ColorOS / OPPO 系上加这一项。
             // 别的系统根本没有这个门禁类，给所有人显示只会多一条无关的红字。
             if (ColorOs.isColorOs()) {
@@ -302,54 +254,15 @@ public class Diagnostics {
         return e;
     }
 
-    /**
-     * 1) LSPosed 注入状态
-     *
-     * v3.0.1 重写（修「升级后误报未注入、提示重启手机」的老问题）：
-     *   旧实现只查 files/pickup_injected.flag 这个「历史标记文件」，
-     *   而该文件会在【升级安装 / App 清理数据】时被系统删掉，
-     *   导致明明 Hook 正常却报「未注入，请重启手机」。
-     *
-     * v3.0.1 最终方案（按可靠度）：
-     *   ① 内存实时标记：XposedEntry 在【本进程】被注入时置位。
-     *      同一进程同一 ClassLoader，必然读得到——这是最硬的证据，不依赖任何文件。
-     *   ② 标记文件：仅作「LSPosed 曾经加载过本模块」的辅助佐证。
-     *   ③ 兜底：直接问 LSPosed 配置库（root 可用时），看模块是否处于启用状态。
-     *   以上都拿不到才提示可能需要复检，且不再断言「未注入」。
-     */
+    /** Service binding is live activation evidence; historical self-hook marker files are ignored. */
     private static Check checkLsposedInject(Context ctx) {
-        // ① 内存实时标记：最可靠
-        if (injectedLive) {
-            return new Check("LSPosed 注入", true, "模块已被 LSPosed 加载（实时检测）");
-        }
-        // ② 标记文件佐证
-        File flag = new File(ctx.getFilesDir(), "pickup_injected.flag");
-        if (flag.exists()) {
-            long age = System.currentTimeMillis() - flag.lastModified();
-            String when = age < 60000 ? "刚刚" : (age / 60000) + " 分钟前";
-            return new Check("LSPosed 注入", true, "模块已被 LSPosed 加载（标记于 " + when + "）");
-        }
-        return new Check("LSPosed 注入", false,
-                "未检测到加载痕迹。若取件码能正常抓取可忽略；"
-                        + "若抓不到：确认 LSPosed 已勾选本模块，重启手机后打开本 App 复检");
+        return new Check("LSPosed 服务", FrameworkClient.connected(), FrameworkClient.description());
     }
 
-    /**
-     * 实时注入标记：由 XposedEntry 在【本进程】被 LSPosed 加载时置位。
-     * 同一进程内读取必然一致，不受升级/清理/文件权限影响。
-     */
-    private static volatile boolean injectedLive = false;
-
-    /** 供 XposedEntry 调用：标记「本进程已被注入」 */
-    public static void markInjectedLive() { injectedLive = true; }
-
-    /** 3.5) 作用域精确比对（v2.2.0）：root 读 LSPosed 配置库，缺哪项说哪项 */
+    /** Scope comes from the framework service and is compared as package tokens. */
     private static Check checkScope(Context ctx, boolean rootOk) {
-        if (!rootOk) {
-            return new Check("LSPosed 作用域", false, "需要 root 才能自动核对（见上一项）");
-        }
         Repair.LsposedStatus st = Repair.lsposedStatus(ctx);
-        if (!st.dbReadable) {
+        if (!st.scopeReadable) {
             // v4.0.1：这里只是「自动核对不了」，不等于配置一定不对——把这句话讲明白，
             // 否则用户会以为自己没勾作用域，反复折腾（真机上已出现过这种误报）
             return new Check("LSPosed 作用域", false,
@@ -364,11 +277,7 @@ public class Diagnostics {
                     "模块在 LSPosed 中未启用 → LSPosed 管理器 → 模块 → 勾选「取件码助手」，然后重启手机");
         }
         if (st.missingScope == null) {
-            // v4.1.0：不再说 system 无效——LSPosed 2.x 里它就是系统框架。
-            // 两者同时存在只是旧写法残留，不影响功能。
-            String extra = st.hasStaleSystem
-                    ? "（android 与 system 同时勾着，其中一条是旧写法残留，留着无害）"
-                    : "";
+            String extra = "";
             return new Check("LSPosed 作用域", true,
                     "必需目标齐全 ✓ " + st.scopeList + extra);
         }
@@ -385,7 +294,7 @@ public class Diagnostics {
                             // v4.1.0：LSPosed 2.x 把框架记作 system（置顶、带推荐标记），
                             // 旧版记作 android。原先这段写反了（让人别勾系统框架），已纠正。
                             ? "框架那一项是「系统框架（system）」，置顶、带推荐标记；"
-                              + "旧版 LSPosed 显示为「Android 系统（android）」。两者指同一个进程，勾一个即可；"
+                              + "旧版 LSPosed 显示为「Android 系统（android）」。API 102 必须勾选 system，android 仅代表系统应用进程；"
                             : "")
                         + "当前：" + (st.scopeList.isEmpty() ? "(空)" : st.scopeList));
     }
@@ -623,13 +532,11 @@ public class Diagnostics {
           .append("（构建号 ").append(verCode).append("）\n");
         sb.append("\n");
 
-        sb.append("---- LSPosed 配置库查询（原始结果，用于定位作用域判定问题）----\n");
+        sb.append("---- LSPosed 框架服务与作用域----\n");
         try {
             Repair.LsposedStatus lst = Repair.lsposedStatus(ctx);
-            sb.append("su 可执行: ").append(lst.suRan ? "是" : "否").append("\n");
-            sb.append("使用的配置库: ").append(lst.dbPath == null || lst.dbPath.isEmpty() ? "(未确定)" : lst.dbPath).append("\n");
-            sb.append("库可读: ").append(lst.dbReadable ? "是" : "否")
-              .append("｜模块启用记录: ").append(lst.moduleEnabled ? "enabled=1" : "未取到 enabled=1").append("\n");
+            sb.append("框架服务: ").append(lst.moduleEnabled ? "已连接" : "未连接").append("\n");
+            sb.append("作用域查询: ").append(lst.scopeReadable ? "成功" : "暂不可用").append("\n");
             sb.append("当前作用域: ").append(lst.scopeList == null || lst.scopeList.isEmpty() ? "(空)" : lst.scopeList).append("\n");
             if (lst.detail != null && !lst.detail.isEmpty()) sb.append("判定说明: ").append(lst.detail).append("\n");
             sb.append("原始输出（每行一条）：\n");
@@ -689,24 +596,13 @@ public class Diagnostics {
 
         sb.append("---- 被注入的进程（从日志统计）----\n");
         TreeSet<String> injected = new TreeSet<>();
-        Matcher m = Pattern.compile("handleLoadPackage: pkg=([\\w.]+)").matcher(logcat);
+        Matcher m = Pattern.compile("(?:onPackageReady|onSystemServerStarting): pkg=([\\w.]+)").matcher(logcat);
         while (m.find()) injected.add(m.group(1));
         if (injected.isEmpty()) {
             sb.append("(未统计到——日志为空)");
         } else {
             for (String p : injected) sb.append("  ").append(p).append("\n");
-            boolean self = injected.contains("io.github.okaidev.pickupcode");
-            boolean anyTarget = injected.contains("com.android.mms")
-                    || injected.contains("com.android.phone")
-                    || injected.contains("com.android.providers.telephony")
-                    || injected.contains("android");
-            // v3.0.1：日志只反映"进程启动那一刻"的注入情况，
-            // 刚重启/刚升级后可能尚未刷新到最新，因此措辞不再断言"未注入"，
-            // 改为给出线索 + 指向实时检测结论，避免误判。
-            sb.append("日志线索（仅供参考，最终以体检首项的实时检测为准）：")
-              .append("模块自身").append(self ? "出现过 ✓" : "本次未见 ✗")
-              .append("；Hook 目标进程").append(anyTarget ? "有 ✓" : "本次未见 ✗（可能作用域未勾选或进程尚未重启）")
-              .append("\n");
+            sb.append("以上是目标进程的加载日志，不代表真实包裹已成功入库；模块激活状态由框架服务确认。\n");
         }
         sb.append("\n");
 

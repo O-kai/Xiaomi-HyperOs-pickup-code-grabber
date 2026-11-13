@@ -57,7 +57,8 @@ Hook 只读取当前传入的一件包裹：`tb.ciR/ciS` 或 `tc/td.authCode/sta
   地址取所属分组的 `address`；此接口本身为当前待取列表，同样校验码。
 
 拼多多订单物流补充入口：`CommonCallback.parseResponseStringWrapper(String)` 完成后，
-接收 `com.xunmeng.pinduoduo.express.entry.CabinetInfo` 结果的 `result.code/address`，
+接收 `com.xunmeng.pinduoduo.express.entry.CabinetInfo` 结果的 `result.code/address`；
+4.3.0 增加同一模型 `cnInOutBound.address` 的空地址后备字段，
 仅接受 `status=3` 且 `showQrCodePickUp=false`。此入口尚未完成真实有件场景验收。
 不处理二维码或物流轨迹里的自然语言取件码。
 
@@ -78,10 +79,10 @@ JSON 解析和 IPC 在独立、有界的单线程队列执行；响应上限 256
 沿用现有待取码去重及系统待办的“码 + 当天”去重，因此原有的跨驿站同码合并限制也仍存在。
 成功的 IPC 在 Hook 进程内额外节流 30 秒，失败不会加入成功缓存；下次数据加载可以重试。
 
-旧版数组与新版 `META-INF/xposed/scope.list` 均包含这两个可选目标。
+4.2.0 的 `META-INF/xposed/scope.list` 包含这两个可选目标，模块入口使用 API 102。
 默认关闭，在“设置 → App 内包裹提取”开启；简洁模式在“更多选项”中。
 需要在 LSPosed 启用模块并勾选菜鸟、拼多多，随后重新启动对应 App。
-开关配置在 Hook 侧最多缓存 5 秒，Provider 侧每次读取，关闭立即阻止新写入。
+开关通过框架远程偏好同步，Provider 侧每次读取本地开关，关闭立即阻止新写入。
 
 模块只观察 App 实际收到或加载到本地的数据，不主动请求平台接口。
 如果 App 没运行、未登录，或者尚未收到含取件码的数据，不能保证后台发现新包裹。
@@ -119,3 +120,13 @@ Robolectric 测试验证真实 Provider 的开关和 IPC 拒绝路径。
 间隔超过 30 秒后重新加载列表，再次收到两次成功投递，记录仍为菜鸟 2 件、拼多多 2 件，未增加重复行。
 “取快递”分组结构已核对并有合成测试；其完整入库链路及订单 `CabinetInfo` 后备入口
 尚未完成真实有件场景验收。
+
+### 4.3.0 地址补齐
+
+“我的快递”普通列表仍没有明确取件地址；需要 App 实际加载“取快递”汇总分组或柜机详情。
+仅从上述结构化地址字段提取，不把收货地址或物流描述当作驿站地址。
+同一事件重复加载时也允许补齐原记录的未知地址，不新增重复记录；地址补齐会刷新列表、
+小组件和现有提醒。分组地址及嵌套后备字段有合成数据测试；后续真机验收已确认
+“取快递”汇总页的一件真实带码包裹成功补齐驿站地址，记录数没有增加。
+柜机详情的嵌套后备字段仍未遇到真实场景。
+背屏宿主适配另需勾选 `com.xiaomi.subscreencenter` 作用域，详见[待取件推送与背屏](pending-reminders.md)。

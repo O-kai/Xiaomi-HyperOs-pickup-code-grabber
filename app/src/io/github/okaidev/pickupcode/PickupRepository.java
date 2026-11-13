@@ -127,6 +127,7 @@ public final class PickupRepository {
                 + (body == null ? "" : body));
         int inserted = 0;
         int touched = 0;
+        boolean placeChanged = false;
 
         for (String code : codes) {
             if (code == null || code.trim().isEmpty()) {
@@ -137,6 +138,10 @@ public final class PickupRepository {
 
             PickupRecord existing = dao.findByEventHash(eventHash);
             if (existing != null) {
+                if (DEFAULT_UNKNOWN.equals(existing.place) && !DEFAULT_UNKNOWN.equals(placeVal)) {
+                    dao.updatePlace(existing.id, placeVal);
+                    placeChanged = true;
+                }
                 dao.touch(existing.id, now);
                 touched++;
                 continue;
@@ -150,6 +155,7 @@ public final class PickupRepository {
                 // 后到的来源若给出更完整的地点，补进去；已有真地点就不覆盖
                 if (DEFAULT_UNKNOWN.equals(active.place) && !DEFAULT_UNKNOWN.equals(placeVal)) {
                     dao.updatePlace(active.id, placeVal);
+                    placeChanged = true;
                 }
                 dao.touch(active.id, now);
                 touched++;
@@ -174,7 +180,7 @@ public final class PickupRepository {
                 touched++;
             }
         }
-        if (inserted > 0) {
+        if (inserted > 0 || placeChanged) {
             Log.i(TAG, "LOCAL DB: inserted=" + inserted + " touched=" + touched);
             PickupWidgetProvider.refreshAsync(appContext);
             notifyChanged();

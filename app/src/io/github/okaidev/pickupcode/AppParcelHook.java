@@ -1,6 +1,5 @@
 package io.github.okaidev.pickupcode;
 
-import android.app.AndroidAppHelper;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
@@ -14,9 +13,6 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 
 /** Observes completed data loads. Does not read Views or consume network streams. */
 public final class AppParcelHook {
@@ -30,35 +26,32 @@ public final class AppParcelHook {
     // Accessed only by the single worker; failed deliveries are never added.
     private static final LinkedHashMap<String, Long> DELIVERED = new LinkedHashMap<>();
     private static long lastQueueLog;
-    private static boolean enabled;
-    private static long nextConfigCheck;
     private static final java.util.Set<String> LOGGED_FAILURES = java.util.Collections.synchronizedSet(
             new java.util.HashSet<>());
+
+    private static final WeakIdentityMap<String> ENDPOINTS = new WeakIdentityMap<>(256);
 
     private AppParcelHook() { }
 
     public static void install(String pkg, ClassLoader loader) {
         if (AppParcelData.CAINIAO.equals(pkg)) {
             hook(loader, "com.cainiao.wireless.packagelist.manager.PackageListJsManager",
-                    "packageListDataChange", new XC_MethodHook() {
-                        @Override protected void afterHookedMethod(MethodHookParam param) {
-                            if (!param.hasThrowable() && param.args.length == 1 && param.args[0] instanceof String) {
-                                String data = (String) param.args[0];
+                    "packageListDataChange", HookRuntime.after((receiver, args, resultValue) -> {
+                            if (args.length == 1 && args[0] instanceof String) {
+                                String data = (String) args[0];
                                 if (data.length() <= AppParcelData.MAX_PAYLOAD) enqueue(pkg, () -> {
                                     List<AppParcelData.Event> events = AppParcelData.cainiaoHomepage(data);
-                                    if (!events.isEmpty()) XposedEntry.log("APP-DATA homepage candidates=" + events.size());
+                                    if (!events.isEmpty()) ModuleLog.log("APP-DATA homepage candidates=" + events.size());
                                     return events;
                                 });
                             }
-                        }
-                    });
+                        }));
             // This data-layer utility persists proprietary arrival pushes as AGENT_SIGN
             // parcels. Read only the incoming item, never its multi-account cache.
-            hook(loader, "com.cainiao.wireless.packagelist.util.c", "a", new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
+            hook(loader, "com.cainiao.wireless.packagelist.util.c", "a", HookRuntime.after((receiver, args, resultValue) -> {
                     try {
-                        if (param.hasThrowable() || param.args.length != 2 || param.args[1] == null) return;
-                        Object item = param.args[1];
+                        if (args.length != 2 || args[1] == null) return;
+                        Object item = args[1];
                         String type = item.getClass().getName();
                         String codeField;
                         String placeField;
@@ -69,100 +62,101 @@ public final class AppParcelHook {
                             codeField = "authCode";
                             placeField = "stationName";
                         } else return;
-                        Object code = XposedHelpers.getObjectField(item, codeField);
-                        Object place = XposedHelpers.getObjectField(item, placeField);
+                        Object code = Reflect.getObjectField(item, codeField);
+                        Object place = Reflect.getObjectField(item, placeField);
                         if (!(code instanceof String) || !AppParcelData.validCode(((String) code).trim())) return;
                         AppParcelData.Event event = new AppParcelData.Event(((String) code).trim(),
                                 place instanceof String ? (String) place : null);
                         enqueue(pkg, () -> java.util.Collections.singletonList(event));
                     } catch (Throwable t) { logFailure("Cainiao arrival push", t); }
-                }
-            });
-            hook(loader, "mtopsdk.mtop.domain.MtopResponse", "parseJsonByte", new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
+                }));
+            hook(loader, "mtopsdk.mtop.domain.MtopResponse", "parseJsonByte", HookRuntime.after((receiver, args, resultValue) -> {
                     try {
-                        if (param.hasThrowable()) return;
-                        String api = (String) XposedHelpers.getObjectField(param.thisObject, "api");
-                        Object status = XposedHelpers.getObjectField(param.thisObject, "retCode");
+                        String api = (String) Reflect.getObjectField(receiver, "api");
+                        Object status = Reflect.getObjectField(receiver, "retCode");
                         if (api == null || !api.startsWith("mtop.cainiao.") || !"SUCCESS".equals(status)) return;
-                        Object data = XposedHelpers.getObjectField(param.thisObject, "dataJsonObject");
-                        byte[] bytes = (byte[]) XposedHelpers.getObjectField(param.thisObject, "bytedata");
+                        Object data = Reflect.getObjectField(receiver, "dataJsonObject");
+                        byte[] bytes = (byte[]) Reflect.getObjectField(receiver, "bytedata");
                         if (!(data instanceof JSONObject) || bytes == null || bytes.length > AppParcelData.MAX_PAYLOAD) return;
-                        enqueue(pkg, () -> AppParcelData.cainiaoResponse(data.toString()));
+                        String snapshot = data.toString();
+                        if (snapshot.length() <= AppParcelData.MAX_PAYLOAD)
+                            enqueue(pkg, () -> AppParcelData.cainiaoResponse(snapshot));
                     } catch (Throwable t) { logFailure("Cainiao response", t); }
-                }
-            });
+                }));
             for (String manager : new String[]{"PickUpJsManager", "NewPickUpJsManager"}) {
                 hook(loader, "com.cainiao.wireless.pickup.bifrost." + manager,
-                        "onPickUpPageDataChange", new XC_MethodHook() {
-                            @Override protected void afterHookedMethod(MethodHookParam param) {
-                                if (!param.hasThrowable() && param.args.length == 1 && param.args[0] instanceof String) {
-                                    String data = (String) param.args[0];
+                        "onPickUpPageDataChange", HookRuntime.after((receiver, args, resultValue) -> {
+                                if (args.length == 1 && args[0] instanceof String) {
+                                    String data = (String) args[0];
                                     if (data.length() <= AppParcelData.MAX_PAYLOAD) {
                                         enqueue(pkg, () -> AppParcelData.cainiaoPickup(data));
                                     }
                                 }
-                            }
-                        });
+                            }));
             }
         } else if (AppParcelData.PINDUODUO.equals(pkg)) {
             // Bind the response callback to these two logistics endpoints only.
-            hook(loader, "com.xunmeng.pinduoduo.network_bridge.impl.AMNetworkImpl", "request", new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
+            hook(loader, "com.xunmeng.pinduoduo.network_bridge.impl.AMNetworkImpl", "request", HookRuntime.before((receiver, args, resultValue) -> {
                     try {
-                        if (param.args.length < 2 || !(param.args[0] instanceof JSONObject) || param.args[1] == null) return;
-                        String path = Uri.parse(((JSONObject) param.args[0]).optString("url")).getPath();
-                        XposedHelpers.removeAdditionalInstanceField(param.args[1], "pickup.endpoint");
+                        if (args.length < 2 || args[1] == null) return;
+                        ENDPOINTS.put(args[1], null);
+                        if (!(args[0] instanceof JSONObject)) return;
+                        String path = Uri.parse(((JSONObject) args[0]).optString("url")).getPath();
                         if (AppParcelData.PDD_TRACKBOX.equals(path) || AppParcelData.PDD_LIST.equals(path)) {
-                            XposedHelpers.setAdditionalInstanceField(param.args[1], "pickup.endpoint", path);
+                            ENDPOINTS.put(args[1], path);
+                            ModuleLog.log("APP-DATA PDD logistics request kind="
+                                    + (AppParcelData.PDD_TRACKBOX.equals(path) ? "station" : "list"));
                         }
                     } catch (Throwable t) { logFailure("PDD request association", t); }
-                }
-            });
-            hook(loader, "com.xunmeng.pinduoduo.network_bridge.impl.AMNetworkImpl", "callbackToJS", new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
+                }));
+            hook(loader, "com.xunmeng.pinduoduo.network_bridge.impl.AMNetworkImpl", "callbackToJS", HookRuntime.after((receiver, args, resultValue) -> {
                     try {
-                        if (param.hasThrowable() || param.args.length != 5 || !(param.args[0] instanceof Integer)
-                                || !(param.args[1] instanceof String) || param.args[2] == null) return;
-                        int status = (Integer) param.args[0];
+                        if (args.length != 5 || !(args[0] instanceof Integer)
+                                || !(args[1] instanceof String) || args[2] == null) return;
+                        int status = (Integer) args[0];
                         if (status < 200 || status >= 300) return;
-                        Object endpoint = XposedHelpers.getAdditionalInstanceField(param.args[2], "pickup.endpoint");
+                        Object endpoint = ENDPOINTS.get(args[2]);
                         boolean cabinet = AppParcelData.PDD_TRACKBOX.equals(endpoint);
                         if (!cabinet && !AppParcelData.PDD_LIST.equals(endpoint)) return;
+                        ModuleLog.log("APP-DATA PDD logistics response kind=" + (cabinet ? "station" : "list"));
                         // This argument is already decoded. Do not retain headers or mutate the JS callback.
-                        String raw = (String) param.args[1];
+                        String raw = (String) args[1];
                         if (raw.length() <= AppParcelData.MAX_PAYLOAD) enqueue(pkg, () -> cabinet
                                 ? AppParcelData.pinduoduoTrackbox(raw) : AppParcelData.pinduoduoList(raw));
                     } catch (Throwable t) { logFailure("PDD logistics response", t); }
-                }
-            });
+                }));
             hook(loader, "com.xunmeng.pinduoduo.basekit.http.callback.CommonCallback",
-                    "parseResponseStringWrapper", new XC_MethodHook() {
-                        @Override protected void afterHookedMethod(MethodHookParam param) {
+                    "parseResponseStringWrapper", HookRuntime.after((receiver, args, resultValue) -> {
                             try {
-                                if (param.hasThrowable()) return;
-                                Object response = param.getResult();
+                                Object response = resultValue;
                                 if (response == null || !"com.xunmeng.pinduoduo.express.entry.CabinetInfo"
                                         .equals(response.getClass().getName())) return;
-                                Object result = XposedHelpers.getObjectField(response, "result");
+                                Object result = Reflect.getObjectField(response, "result");
                                 if (result == null) return;
                                 // Snapshot just these fields; never retain the complete response.
                                 JSONObject compact = new JSONObject();
                                 for (String field : new String[]{"code", "address", "status", "showQrCodePickUp"}) {
-                                    compact.put(field, XposedHelpers.getObjectField(result, field));
+                                    compact.put(field, Reflect.getObjectField(result, field));
+                                }
+                                if (compact.optString("address", "").trim().isEmpty()
+                                        || compact.isNull("address")) {
+                                    try {
+                                        Object site = Reflect.getObjectField(result, "cnInOutBound");
+                                        if (site != null) compact.put("cnInOutBound", new JSONObject()
+                                                .put("address", Reflect.getObjectField(site, "address")));
+                                    } catch (NoSuchFieldException ignored) { }
                                 }
                                 String data = new JSONObject().put("result", compact).toString();
                                 enqueue(pkg, () -> AppParcelData.pinduoduo(data));
                             } catch (Throwable t) { logFailure("Pinduoduo response", t); }
-                        }
-                    });
+                        }));
         }
     }
 
-    private static void hook(ClassLoader loader, String cls, String method, XC_MethodHook callback) {
+    private static void hook(ClassLoader loader, String cls, String method, io.github.libxposed.api.XposedInterface.Hooker callback) {
         try {
-            int count = XposedBridge.hookAllMethods(XposedHelpers.findClass(cls, loader), method, callback).size();
-            XposedEntry.log("APP-DATA hook " + cls + "#" + method + " count=" + count);
+            int count = HookRuntime.hookAllMethods(Reflect.findClass(cls, loader), method, callback);
+            ModuleLog.log("APP-DATA hook " + cls + "#" + method + " count=" + count);
         } catch (Throwable t) { logFailure("missing " + cls + "#" + method, t); }
     }
 
@@ -172,29 +166,24 @@ public final class AppParcelHook {
         try {
             IO.execute(() -> {
                 try {
-                    Context context = AndroidAppHelper.currentApplication();
-                    if (context == null || !isEnabled(context, pkg)) return;
-                    for (AppParcelData.Event event : extract.get()) deliver(context, pkg, event);
+                    Context context = HookRuntime.context();
+                    if (context == null || !ProcessSync.load().appParcelEnabled) {
+                        String state = context == null ? "no context" : "disabled config";
+                        if (LOGGED_FAILURES.add("worker " + state)) ModuleLog.log("APP-DATA skipped: " + state);
+                        return;
+                    }
+                    List<AppParcelData.Event> events = extract.get();
+                    ModuleLog.log("APP-DATA parsed from " + pkg + " count=" + events.size());
+                    for (AppParcelData.Event event : events) deliver(context, pkg, event);
                 } catch (Throwable t) { logFailure("worker", t); }
             });
         } catch (java.util.concurrent.RejectedExecutionException busy) {
             long now = SystemClock.elapsedRealtime();
             if (now - lastQueueLog > 60_000L) {
                 lastQueueLog = now;
-                XposedEntry.log("APP-DATA queue full; data load skipped");
+                ModuleLog.log("APP-DATA queue full; data load skipped");
             }
         }
-    }
-
-    private static boolean isEnabled(Context context, String pkg) {
-        long now = SystemClock.elapsedRealtime();
-        if (now >= nextConfigCheck) {
-            enabled = false;
-            nextConfigCheck = now + 5_000L;
-            Bundle result = context.getContentResolver().call(PROVIDER, "appParcelEnabled", pkg, null);
-            enabled = result != null && result.getBoolean("enabled", false);
-        }
-        return enabled;
     }
 
     private static void deliver(Context context, String pkg, AppParcelData.Event event) {
@@ -209,16 +198,16 @@ public final class AppParcelHook {
         if (result != null && result.getInt("rc", -1) == 0) {
             DELIVERED.put(key, now);
             if (DELIVERED.size() > 128) DELIVERED.remove(DELIVERED.keySet().iterator().next());
-            XposedEntry.log("APP-DATA delivered from " + pkg);
+            ModuleLog.log("APP-DATA delivered from " + pkg);
         } else {
-            XposedEntry.log("APP-DATA delivery rejected from " + pkg);
+            ModuleLog.log("APP-DATA delivery rejected from " + pkg);
         }
     }
 
     private static void logFailure(String stage, Throwable t) {
         // Exception messages can contain response text or codes.
         if (LOGGED_FAILURES.size() >= 32 || !LOGGED_FAILURES.add(stage + t.getClass().getName())) return;
-        XposedEntry.log("APP-DATA " + stage + " failed: " + t.getClass().getSimpleName());
+        ModuleLog.log("APP-DATA " + stage + " failed: " + t.getClass().getSimpleName());
     }
 
 }

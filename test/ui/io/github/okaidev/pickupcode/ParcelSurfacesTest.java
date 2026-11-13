@@ -55,6 +55,8 @@ public class ParcelSurfacesTest {
         assertTrue(place.getTop() >= code.getBottom());
         assertTrue(done.getWidth() >= 44 && done.getHeight() >= 44);
         assertEquals("标记已取件", done.getContentDescription());
+        assertEquals("2 待取 · 1 已取", ((TextView) view.findViewById(R.id.widget_count)).getText().toString());
+        assertEquals("菜鸟 · 江南绿城西门", place.getText().toString());
         assertTrue(view.findViewById(R.id.widget_row_2).getBottom() <= 244);
     }
 
@@ -70,6 +72,7 @@ public class ParcelSurfacesTest {
         View view = widget();
         assertEquals(View.INVISIBLE, view.findViewById(R.id.widget_done_3).getVisibility());
         assertFalse(view.findViewById(R.id.widget_code_3).isEnabled());
+        assertEquals("取件码 09-8-7654，已取件", view.findViewById(R.id.widget_code_3).getContentDescription());
         assertTrue(((TextView) view.findViewById(R.id.widget_code_3)).getText()
                 instanceof android.text.Spanned);
     }
@@ -131,7 +134,7 @@ public class ParcelSurfacesTest {
         assertEquals("2 件待取", params.getString("aodTitle"));
     }
 
-    @Test public void rearScreenGetsDedicatedCardAndCodeFreeAodOnlyWhenHostExists() throws Exception {
+    @Test public void rearScreenShowsParcelDetailsInCardAndAodOnlyWhenHostExists() throws Exception {
         assertFalse(notification("12-3-4567").extras.containsKey(RearScreen.VIEW));
         android.content.pm.PackageInfo host = new android.content.pm.PackageInfo();
         host.packageName = "com.xiaomi.subscreencenter";
@@ -150,8 +153,8 @@ public class ParcelSurfacesTest {
         android.widget.RemoteViews aod = notification.extras.getParcelable(RearScreen.AOD);
         View sleeping = aod.apply(context, new FrameLayout(context));
         assertEquals("2 件待取", ((TextView) sleeping.findViewById(R.id.rear_count)).getText().toString());
-        assertNull(sleeping.findViewById(R.id.rear_code));
-        assertNull(sleeping.findViewById(R.id.rear_place));
+        assertEquals("12-3-4567", ((TextView) sleeping.findViewById(R.id.rear_code)).getText().toString());
+        assertEquals("示例驿站", ((TextView) sleeping.findViewById(R.id.rear_place)).getText().toString());
         assertNull(sleeping.findViewById(R.id.rear_done));
         assertFalse(notification.publicVersion.extras.containsKey(RearScreen.VIEW));
         assertFalse(notification.publicVersion.extras.containsKey(RearScreen.AOD));
@@ -175,6 +178,29 @@ public class ParcelSurfacesTest {
         assertTrue(card.findViewById(R.id.rear_done).getBottom() <= 196);
     }
 
+    @Test @Config(sdk = 34) public void rearOpenClickLaunchesParcelListWithoutCopyingOrCompleting() throws Exception {
+        Notification base = notification("12-3-4567");
+        android.os.Bundle payload = RearScreen.pendingExtras(context, "12-3-4567", "示例驿站", 2,
+                base.actions[1], base.actions[0], false);
+        android.widget.RemoteViews remote = payload.getParcelable(RearScreen.VIEW);
+        View card = remote.apply(context, new FrameLayout(context));
+        assertTrue(card.findViewById(R.id.rear_open).performClick());
+        android.content.Intent opened = shadowOf((android.app.Application) context).getNextStartedActivity();
+        assertNotNull(opened);
+        assertEquals(PickupListActivity.class.getName(), opened.getComponent().getClassName());
+        assertEquals(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                opened.getFlags() & (android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP));
+        assertFalse(opened.hasExtra("copy"));
+        assertFalse(opened.hasExtra("done"));
+        android.app.ActivityOptions options = org.robolectric.util.ReflectionHelpers.callStaticMethod(
+                android.app.ActivityOptions.class, "fromBundle",
+                org.robolectric.util.ReflectionHelpers.ClassParameter.from(android.os.Bundle.class,
+                        shadowOf(RearScreen.openList(context)).getOptions()));
+        assertEquals(android.view.Display.DEFAULT_DISPLAY, options.getLaunchDisplayId());
+        assertEquals(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED,
+                options.getPendingIntentCreatorBackgroundActivityStartMode());
+    }
+
     @Test @Config(sdk = 34) public void rearCardAndAodAvoid17ProMaxCameraCutout() throws Exception {
         org.robolectric.shadows.ShadowBuild.setDevice("popsicle");
         Notification base = notification("12-3-4567");
@@ -192,7 +218,10 @@ public class ParcelSurfacesTest {
             TextView code = card.findViewById(R.id.rear_code);
             if (code != null) {
                 assertTrue(code.getPaint().measureText(code.getText().toString()) <= code.getWidth() + 1);
-                assertTrue(card.findViewById(R.id.rear_done).getBottom() <= 212);
+                assertTrue(code.getBottom() <= 212);
+                assertTrue(card.findViewById(R.id.rear_place).getBottom() <= 212);
+                View done = card.findViewById(R.id.rear_done);
+                if (done != null) assertTrue(done.getBottom() <= 212);
             }
         }
     }
@@ -234,6 +263,23 @@ public class ParcelSurfacesTest {
         TextView code = view.findViewById(R.id.widget_code_1);
         assertTrue(code.getPaint().measureText(code.getText().toString()) <= code.getWidth() + 1);
         assertEquals("AB12-CD34-EF56-GH7890", code.getText().toString());
+    }
+
+    @Test public void wideCardFitsLongCodeAndReappliesToNarrowSize() {
+        android.widget.RemoteViews wide = PickupWidgetProvider.build(context,
+                snapshot("AB12-CD34-EF56-GH7890"), 300, 180, true);
+        View view = wide.apply(context, new FrameLayout(context));
+        view.measure(View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(180, View.MeasureSpec.EXACTLY));
+        view.layout(0, 0, 300, 180);
+        TextView code = view.findViewById(R.id.widget_code_1);
+        assertTrue(code.getPaint().measureText(code.getText().toString()) <= code.getWidth() + 1);
+        PickupWidgetProvider.build(context, snapshot("12-3-4567"), 200, 180, true).reapply(context, view);
+        view.measure(View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(180, View.MeasureSpec.EXACTLY));
+        view.layout(0, 0, 200, 180);
+        assertEquals("12-3-4567", code.getText().toString());
+        assertTrue(code.getPaint().measureText(code.getText().toString()) <= code.getWidth() + 1);
     }
 
     @Test public void samplePreviewHasNoActionsThatCouldAffectRealRecords() {

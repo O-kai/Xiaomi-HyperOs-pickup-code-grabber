@@ -120,7 +120,7 @@ public final class WidgetPrefs {
     }
 
     /**
-     * Count complete rows after card padding and header. A row never stretches to fill a card.
+     * Count complete rows in the Android 9–11 static sample preview. Live widgets use a scrollable list.
      * The renderer supplies a larger row height for increased font preferences.
      */
     public static int rowsForHeight(int heightDp, int widthDp, int maxRows) {

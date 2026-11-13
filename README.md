@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/O-kai/Xiaomi-HyperOs-pickup-code-grabber?style=flat-square)](https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases)
 [![Android](https://img.shields.io/badge/Android-9.0%2B-3ddc84?style=flat-square&logo=android)](#环境要求)
-![Version](https://img.shields.io/badge/version-V4.0.3-5b6b8c?style=flat-square)
+![Version](https://img.shields.io/badge/version-V4.4.3-5b6b8c?style=flat-square)
 
 一个跑在 **LSPosed** 上的取件码聚合模块：从短信和 App 通知里认出取件码，
 存进本地库，顺手同步到系统待办，并给桌面一个小部件。
@@ -41,6 +41,10 @@
 开发版补充：[菜鸟 / 拼多多 App 包裹数据采集](docs/app-parcel-hooks.md)，用于 App 不发送取件码通知的情况。
 默认关闭，版本与覆盖范围见适配说明。
 
+4.2.0 已全面迁到 **libxposed API 102**，旧框架需先升级。[入口、配置、构建和升级说明](docs/modern-xposed.md)。
+
+4.3.0 可在“取件记录 → 推送上岛”多选待取包裹；背屏独立显示全部待取件，全部取完后自动撤下。拼多多加载“取快递”汇总或柜机详情时补齐明确的驿站地址。[推送与背屏逻辑](docs/pending-reminders.md)。
+
 取件短信散在驿站、快递柜、电商平台各自的通道里，格式五花八门（`12-3-4567`、`A88123`……），
 翻找费劲，过期了才发现。这个模块做三件事：
 
@@ -58,8 +62,8 @@
 |---|---|
 | 系统 | HyperOS / MIUI、ColorOS 16（一加 / OPPO / realme），或荣耀 MagicOS 7+；Android 9 及以上 |
 | Root | Magisk 或 KernelSU（需要 `su`；写入系统待办依赖 root。荣耀侧给日历权限后可不 root 写入） |
-| 框架 | LSPosed 或兼容实现（Vector 等） |
-| 作用域 | 必勾 4 项：**系统框架**（LSPosed 2.x 叫「系统框架 / system」，旧版叫「Android 系统 / android」，两者等价，勾一个即可）、**电话**、**短信**（小米/一加是 `com.android.mms`，荣耀是 `com.hihonor.mms`）、**电话和短信存储**（`com.android.providers.telephony`）。；「小米笔记」和重复的「Android 系统」不再推荐勾选（勾着也不影响） |
+| 框架 | 提供现代 libxposed API 102 的 LSPosed 或兼容实现 |
+| 作用域 | 必勾 4 项：**系统框架（system）**，API 102 中普通包 `android` 不能替代它、**电话**、**短信**（小米/一加是 `com.android.mms`，荣耀是 `com.hihonor.mms`）、**电话和短信存储**（`com.android.providers.telephony`）。；「小米笔记」和重复的「Android 系统」不再推荐勾选（勾着也不影响） |
 
 > ⚠️ 作用域里的**框架那一项**（新版叫「系统框架」、旧版叫「Android 系统」）最容易被漏掉——
 > 漏勾它，模块会显示已激活却什么都抓不到。勾完必须**重启手机**。

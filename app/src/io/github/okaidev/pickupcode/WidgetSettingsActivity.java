@@ -319,7 +319,7 @@ public class WidgetSettingsActivity extends Activity {
         if (previewRows == null) return;
         previewRows.removeAllViews();
         android.widget.RemoteViews rv = PickupWidgetProvider.buildForDiag(this, null);
-        View preview = rv.apply(this, previewRows);
+        View preview = PickupWidgetProvider.applyPreview(this, rv);
         // Same RemoteViews as the host; sample data never enters the parcel database.
         previewRows.addView(preview, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));

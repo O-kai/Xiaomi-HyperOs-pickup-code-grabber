@@ -188,7 +188,7 @@ public final class AppParcelData {
             if (result == null || result.optInt("status", -1) != 3
                     || result.optBoolean("showQrCodePickUp", false)) return out;
             String code = pinduoduoCode(result.opt("code"));
-            if (validCode(code)) out.add(new Event(code, result.optString("address", "")));
+            if (validCode(code)) out.add(new Event(code, pinduoduoAddress(result)));
         } catch (Exception ignored) { }
         return out;
     }
@@ -208,7 +208,7 @@ public final class AppParcelData {
                 if (station == null) continue;
                 JSONArray tracks = station.optJSONArray("combine_track_list");
                 if (tracks == null) continue;
-                String place = station.optString("address", "");
+                String place = pinduoduoAddress(station);
                 for (int j = 0; j < tracks.length() && j < MAX_EVENTS && out.size() < MAX_EVENTS; j++) {
                     JSONObject track = tracks.optJSONObject(j);
                     if (track == null) continue;
@@ -248,6 +248,16 @@ public final class AppParcelData {
         String code = ((String) value).trim();
         if (code.startsWith("取件码")) code = code.substring(3).trim().replaceFirst("^[:：]\\s*", "");
         return code;
+    }
+
+    private static String pinduoduoAddress(JSONObject pickup) {
+        Object address = pickup.opt("address");
+        if (address instanceof String && !((String) address).trim().isEmpty())
+            return ((String) address).trim();
+        // CabinetInfo.Result.CnInOutBoundResponse is another explicit pickup-site address.
+        JSONObject inOut = pickup.optJSONObject("cnInOutBound");
+        Object nested = inOut == null ? null : inOut.opt("address");
+        return nested instanceof String ? ((String) nested).trim() : "";
     }
 
     private static boolean bounded(String value) {

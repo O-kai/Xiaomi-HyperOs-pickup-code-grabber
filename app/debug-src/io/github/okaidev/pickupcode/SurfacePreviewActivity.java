@@ -11,9 +11,14 @@ import android.widget.TextView;
 /** Local development surface. Excluded from release APKs; samples never enter the database. */
 public final class SurfacePreviewActivity extends Activity {
     private static final int ISLAND_SAMPLE_ID = 1009;
+    private android.appwidget.AppWidgetHost liveHost;
 
     public static final class DismissReceiver extends android.content.BroadcastReceiver {
         @Override public void onReceive(android.content.Context context, android.content.Intent intent) {
+            if (intent.getBooleanExtra("cleanup_widget_host", false)) {
+                new android.appwidget.AppWidgetHost(context, 9142).deleteHost();
+                return;
+            }
             context.getSystemService(android.app.NotificationManager.class).cancel(ISLAND_SAMPLE_ID);
         }
     }
@@ -26,6 +31,10 @@ public final class SurfacePreviewActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        if (getIntent().getBooleanExtra("live_widget", false)) {
+            showLiveWidget();
+            return;
+        }
         if (getIntent().getBooleanExtra("dismiss_island_sample", false)) {
             getSystemService(android.app.NotificationManager.class).cancel(ISLAND_SAMPLE_ID);
         }
@@ -44,7 +53,7 @@ public final class SurfacePreviewActivity extends Activity {
         label.setTextColor(getColor(R.color.widget_muted));
         label.setPadding(0, dp(8), 0, dp(24));
         column.addView(label);
-        View preview = PickupWidgetProvider.buildForDiag(this, null).apply(this, column);
+        View preview = PickupWidgetProvider.applyPreview(this, PickupWidgetProvider.buildForDiag(this, null));
         disableActions(preview);
         column.addView(preview, new LinearLayout.LayoutParams(-1, dp(WidgetPrefs.showAll(this) ? 244 : 180)));
         if (getIntent().getBooleanExtra("export_preview", false)) {
@@ -78,6 +87,52 @@ public final class SurfacePreviewActivity extends Activity {
                         java.util.Collections.singletonList(snap.items.get(0).code), null);
             });
         }
+    }
+
+    /** Temporary host for checking the real provider/service without adding a home-screen card. */
+    private void showLiveWidget() {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setPadding(dp(22), dp(48), dp(22), dp(32));
+        column.setBackgroundColor(getColor(R.color.widget_line));
+        TextView label = new TextView(this);
+        label.setText("实际桌面组件 · 临时验收\n关闭本页会移除此测试实例");
+        label.setTextSize(14);
+        label.setTextColor(getColor(R.color.widget_ink));
+        label.setPadding(0, 0, 0, dp(20));
+        column.addView(label);
+        liveHost = new android.appwidget.AppWidgetHost(this, 9142);
+        liveHost.deleteHost();
+        liveHost.startListening();
+        int id = liveHost.allocateAppWidgetId();
+        android.appwidget.AppWidgetManager manager = android.appwidget.AppWidgetManager.getInstance(this);
+        android.os.Bundle options = new android.os.Bundle();
+        options.putInt(android.appwidget.AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 300);
+        options.putInt(android.appwidget.AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 300);
+        options.putInt(android.appwidget.AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 180);
+        options.putInt(android.appwidget.AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 180);
+        boolean bound = manager.bindAppWidgetIdIfAllowed(id, new android.content.ComponentName(
+                RuntimePaths.PKG, WidgetPresence.PROVIDER_CLASS), options);
+        if (bound) {
+            android.appwidget.AppWidgetHostView view = liveHost.createView(this, id, manager.getAppWidgetInfo(id));
+            view.setPadding(0, 0, 0, 0);
+            column.addView(view, new LinearLayout.LayoutParams(dp(300), dp(180)));
+            android.content.Intent refresh = new android.content.Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE)
+                    .setComponent(new android.content.ComponentName(RuntimePaths.PKG, WidgetPresence.PROVIDER_CLASS))
+                    .putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_IDS, new int[]{id});
+            sendBroadcast(refresh);
+        } else {
+            label.append("\n需要先授予此探针临时 widget bind 权限。");
+        }
+        setContentView(column);
+    }
+
+    @Override protected void onDestroy() {
+        if (liveHost != null) {
+            liveHost.stopListening();
+            liveHost.deleteHost();
+        }
+        super.onDestroy();
     }
 
     /** Exercise the actual notification template without inserting or completing any records. */

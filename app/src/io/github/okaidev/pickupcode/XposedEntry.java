@@ -1,296 +1,111 @@
 package io.github.okaidev.pickupcode;
 
 import android.util.Log;
+import io.github.libxposed.api.XposedModule;
+import java.util.Set;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+/** Modern API 102 entry. Each target is installed once per process/classloader. */
+public final class XposedEntry extends XposedModule {
+    private final java.util.Map<ClassLoader, Set<String>> installed = new java.util.IdentityHashMap<>();
+    private String processName;
+    private boolean systemServer;
 
-/**
- * 取件码助手 v2 - 模块入口（P1：捕获验证版）
- *
- * 职责：按进程分流注册 Hook 点，捕获短信并输出日志（双通道：XposedBridge.log + Log.i）。
- * P1 只做捕获验证；提取/通知/待办写入在 P2+ 接入。
- */
-public class XposedEntry implements IXposedHookLoadPackage {
-
-    private static final String TAG = "PICKUPDEBUG";
-
-    @Override
-    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-        String pkg = lpparam.packageName;
-        log("handleLoadPackage: pkg=" + pkg + " process=" + lpparam.processName);
-        if (pkg == null) return;
-        // 模块自身进程：置位「本进程已被注入」内存标记 + 写文件佐证，然后返回
-        // v3.0.1：内存标记是体检判定的首要依据——同进程同 ClassLoader 必然读得到，
-        // 不像文件那样会被升级安装 / 清理数据删掉（那正是之前误报「未注入」的根因）。
-        if (pkg.equals("io.github.okaidev.pickupcode")) {
-            try {
-                Diagnostics.markInjectedLive();
-            } catch (Throwable ignored) { }
-            writeSelfInjectMarker(lpparam);
-            return;
+    @Override public void onModuleLoaded(ModuleLoadedParam param) {
+        processName = param.getProcessName();
+        systemServer = param.isSystemServer();
+        ModuleLog.framework = message -> log(Log.INFO, "PICKUPDEBUG", message);
+        HookRuntime.init(this);
+        try { HookConfig.attach(getRemotePreferences(HookConfig.GROUP)); }
+        catch (Throwable t) { ModuleLog.log("Framework preferences unavailable: " + t.getClass().getSimpleName()); }
+        if (!systemServer) {
+            try { HookRuntime.captureApplication(); }
+            catch (Throwable t) { ModuleLog.log("Application context hook failed: " + t.getClass().getSimpleName()); }
         }
+        ModuleLog.log("API102 module loaded process=" + processName + " systemServer=" + systemServer);
+    }
 
+    @Override public synchronized void onPackageReady(PackageReadyParam param) {
+        if (systemServer) return;
+        String pkg = param.getPackageName();
+        ClassLoader loader = param.getClassLoader();
+        if (!isTarget(pkg) || !installed.computeIfAbsent(loader, ignored -> new java.util.HashSet<>()).add(pkg)) return;
+        ModuleLog.log("onPackageReady: pkg=" + pkg + " process=" + processName);
+        if (RearHostHook.HOST.equals(pkg)) RearHostHook.install(loader);
+        else if (AppParcelData.supports(pkg)) AppParcelHook.install(pkg, loader);
+        else if ("com.android.providers.telephony".equals(pkg)) hookSmsProvider(loader);
+        else if ("com.android.phone".equals(pkg)) hookTelephony(loader);
+        else if (Honor.PKG_MMS.equals(pkg)) hookHonorMms(loader);
+        else hookMmsApp(loader);
+    }
+
+    @Override public void onSystemServerStarting(SystemServerStartingParam param) {
+        ModuleLog.log("onSystemServerStarting: pkg=system process=" + processName);
+        ClassLoader loader = param.getClassLoader();
+        hookTelephony(loader);
+        NotiHook.install(loader);
+        ColorOsProviderWake.install(loader);
+    }
+
+    private static boolean isTarget(String pkg) {
+        return RearHostHook.HOST.equals(pkg) || AppParcelData.supports(pkg) || "com.android.mms".equals(pkg)
+                || Honor.PKG_MMS.equals(pkg) || "com.android.phone".equals(pkg)
+                || "com.android.providers.telephony".equals(pkg);
+    }
+
+    private static int observe(ClassLoader loader, String cls, String method, boolean before,
+                               HookRuntime.Observer observer) {
         try {
-            if (AppParcelData.supports(pkg)) {
-                AppParcelHook.install(pkg, lpparam.classLoader);
-            } else if (pkg.equals("com.android.mms")) {
-                hookMmsApp(lpparam);
-            } else if (pkg.equals(Honor.PKG_MMS)) {
-                // v4.1.0：荣耀的「信息」是独立包名，AOSP 的 com.android.mms 在这代机器上不存在
-                hookHonorMms(lpparam);
-            } else if (pkg.equals("com.android.phone")
-                    || pkg.equals("android")          // 部分 ROM 将 systemserver 报告为 android
-                    || pkg.equals("system")) {         // LSPosed 常见写法
-                hookTelephony(lpparam);
-                // v2.9.0：system_server 内挂通知管线钩子（双通道之「通知提取」）
-                // 仅真正运行在 system_server 进程时挂载（android 域可能含多个进程）
-                if ("android".equals(pkg) && lpparam.processName != null
-                        && "android".equals(lpparam.processName)) {
-                    NotiHook.install(lpparam.classLoader);
-                    // v4.0.2 第八轮（来自 PR #13）：ColorOS 会把被划掉的模块强行停止，
-                    // 之后短信/通知进程唤醒它的 Provider 会被系统拦截。
-                    // 这里在 system_server 里放行「系统身份 → 本模块 Provider」这一种情况。
-                    // 非 ColorOS（没有那个扩展类）时内部直接跳过，HyperOS 上不产生任何行为。
-                    ColorOsProviderWake.install(lpparam.classLoader);
-                }
-            } else if (pkg.equals("com.android.providers.telephony")) {
-                hookSmsProvider(lpparam);             // S8：短信库写入兜底（网络短信也走这里）
-            } else if (unexpectedLogCount < 20) {
-                // 用户勾选了非目标应用：明确记录，方便诊断报告看出"作用域勾错"
-                unexpectedLogCount++;
-                log("SCOPE-NOT-TARGET: pkg=" + pkg + "（该应用不在 Hook 目标内，"
-                        + "若大量出现说明作用域勾错）");
-            }
+            int count = HookRuntime.hookAllMethods(Reflect.findClass(cls, loader), method,
+                    before ? HookRuntime.before(observer) : HookRuntime.after(observer));
+            ModuleLog.log("SMS hook " + cls + "#" + method + " count=" + count);
+            return count;
         } catch (Throwable t) {
-            log("hook setup err [" + pkg + "]: " + t);
+            ModuleLog.log("SMS hook unavailable " + cls + "#" + method + ": " + t.getClass().getSimpleName());
+            return 0;
         }
     }
 
-    /** 在模块自身 dataDir 写标记文件（v2.1.2）：诊断报告据此判断模块是否真的被 LSPosed 加载 */
-    private void writeSelfInjectMarker(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            if (lpparam.appInfo == null || lpparam.appInfo.dataDir == null) return;
-            java.io.File f = new java.io.File(lpparam.appInfo.dataDir, "files/pickup_injected.flag");
-            // v3.0.1 修复：files 目录可能尚未创建（App 还没启动过），
-            // 旧实现直接 return，导致标记永远写不上 → 体检误报「未注入，请重启手机」。
-            // 这里主动创建目录后再写。
-            java.io.File dir = f.getParentFile();
-            if (dir != null && !dir.exists()) dir.mkdirs();
-            if (dir != null && !dir.exists()) {
-                log("self-inject marker skipped: files dir not ready");
-                return;
-            }
-            java.io.FileWriter w = new java.io.FileWriter(f, false);
-            w.write(String.valueOf(System.currentTimeMillis()));
-            w.close();
-            log("self-inject marker written: " + f.getAbsolutePath());
-        } catch (Throwable t) {
-            log("self-inject marker err: " + t);
-        }
-    }
-
-    private static int unexpectedLogCount = 0;
-
-    /**
-     * 短信 Provider 进程：Hook insert/bulkInsert（唯一必经的入库点，兜底所有来源）
-     */
-    private void hookSmsProvider(XC_LoadPackage.LoadPackageParam lpparam) {
-        String[] candidates = {
-                "com.android.providers.telephony.SmsProvider",
-                "com.android.providers.telephony.MiuiTelephonyProviderImpl"
-        };
-        for (String cn : candidates) {
-            try {
-                Class<?> cls = XposedHelpers.findClass(cn, lpparam.classLoader);
-                XposedBridge.hookAllMethods(cls, "insert", new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        try { SmsBridge.processProviderInsert(param); } catch (Throwable t) { log("S8 err: " + t); }
-                    }
-                });
-                XposedBridge.hookAllMethods(cls, "bulkInsert", new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        try { SmsBridge.processProviderBulkInsert(param); } catch (Throwable t) { log("S8b err: " + t); }
-                    }
-                });
-                log("S8 OK (" + cn + ") @" + lpparam.packageName);
-            } catch (Throwable t) {
-                log("S8 NOT FOUND (" + cn + ") @" + lpparam.packageName + ": " + t);
-            }
-        }
-    }
-
-    /**
-     * 短信应用进程（com.android.mms）：Hook S2-S7 多点冗余
-     */
-    private void hookMmsApp(XC_LoadPackage.LoadPackageParam lpparam) {
-        // 入口一：服务层（低概率，保留）
-        try {
-            Class<?> cls = XposedHelpers.findClass(
-                    "com.android.mms.transaction.SmsReceiverService", lpparam.classLoader);
-            XposedBridge.hookAllMethods(cls, "onReceive", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try { SmsBridge.processArguments(param); } catch (Throwable t) { log("S3 err: " + t); }
-                }
+    private static void hookSmsProvider(ClassLoader loader) {
+        for (String cls : new String[]{"com.android.providers.telephony.SmsProvider",
+                "com.android.providers.telephony.MiuiTelephonyProviderImpl"}) {
+            observe(loader, cls, "insert", false, (receiver, args, result) -> {
+                if (result != null) SmsBridge.processProviderInsert(args);
             });
-            log("S3 OK (SmsReceiverService.onReceive) @" + lpparam.packageName);
-
-            XposedBridge.hookAllMethods(cls, "handleSmsMessage", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    try { SmsBridge.processArguments(param); } catch (Throwable t) { log("S2 err: " + t); }
-                }
+            observe(loader, cls, "bulkInsert", false, (receiver, args, result) -> {
+                if (result instanceof Integer && (Integer) result > 0) SmsBridge.processProviderBulkInsert(args);
             });
-            log("S2 OK (handleSmsMessage) @" + lpparam.packageName);
-
-            XposedBridge.hookAllMethods(cls, "handleSmsReceived", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    try { SmsBridge.processArguments(param); } catch (Throwable t) { log("S7 err: " + t); }
-                }
-            });
-            log("S7 OK (handleSmsReceived) @" + lpparam.packageName);
-        } catch (Throwable t) {
-            log("S2/S3/S7 NOT FOUND @" + lpparam.packageName + ": " + t);
         }
-
-        // 入口二：真正的广播接收器
-        hookReceiver(lpparam, "com.android.mms.transaction.SmsReceiver", "S4");
-        // S5：ColorOS / 新版 AOSP 的类名是 PrivilegedSmsReceiver（没有 "High" 前缀），
-        // 旧版 MIUI 用的是 HighPrivilegedSmsReceiver；两个都挂，命中即用。
-        hookReceiver(lpparam, "com.android.mms.transaction.PrivilegedSmsReceiver", "S5");
-        hookReceiver(lpparam, "com.android.mms.transaction.HighPrivilegedSmsReceiver", "S5H");
-        hookReceiver(lpparam, "com.android.mms.transaction.BeidouSmsReceiver", "S6");
-
-        // v3.1.1 新增：ColorOS（Oplus Mms）侧的短信接收器。
-        // 注意：com.android.mms.transaction.SmsReceiver 虽然类存在，但**不在 AndroidManifest 里**，
-        // 系统广播不会调用它；manifest 中真正注册的是 com.android.mms.receiver.SmsReceiver。
-        // 此前 ColorOS 上真正生效的只有 S8（SmsProvider）+ WAKE 兜底，这里补上正规入口。
-        hookReceiver(lpparam, "com.android.mms.receiver.SmsReceiver", "S9");
-        hookReceiver(lpparam, "com.android.mms.receiver.SmsDeliverReceiver", "S10");
-        hookReceiver(lpparam, "com.oplus.mms.datamodel.SmsReceivedReceiver", "S11");
     }
 
-    /**
-     * 荣耀「信息」进程（com.hihonor.mms，v4.1.0）。
-     *
-     * <p>荣耀独立后短信 App 换了包名，但内核仍是 EMUI 那套 Mms 的延续，
-     * 所以接收器类名大概率还叫 {@code com.android.mms.transaction.*}；
-     * 独立后又出现过 {@code com.hihonor.mms.*} 的重命名。两族都挂一遍，
-     * 找不到的自动跳过——**抓不到也不影响主通道**：S8 挂在 AOSP 的
-     * {@code SmsProvider.insert} 上，荣耀同样有这条路径。
-     *
-     * <p>这里额外补 {@code handleSmsMessage}：EMUI 系把真正的 PDU 解析放在
-     * {@code SmsReceiverService} 里，只挂 onReceive 时，某些机型上广播先到
-     * Receiver、短信正文却要到 Service 才成形。
-     */
-    private void hookHonorMms(XC_LoadPackage.LoadPackageParam lpparam) {
-        int ok = 0;
-        for (int i = 0; i < Honor.MMS_RECEIVER_CANDIDATES.length; i++) {
-            String cn = Honor.MMS_RECEIVER_CANDIDATES[i];
-            if (hookReceiverQuiet(lpparam, cn, "H" + i)) ok++;
+    private static void hookMmsApp(ClassLoader loader) {
+        String service = "com.android.mms.transaction.SmsReceiverService";
+        for (String method : new String[]{"onReceive", "handleSmsMessage", "handleSmsReceived"}) {
+            observe(loader, service, method, !"onReceive".equals(method),
+                    (receiver, args, result) -> SmsBridge.processArguments(args));
         }
-        for (String cn : new String[]{
-                "com.android.mms.transaction.SmsReceiverService",
+        for (String cls : new String[]{"com.android.mms.transaction.SmsReceiver",
+                "com.android.mms.transaction.PrivilegedSmsReceiver",
+                "com.android.mms.transaction.HighPrivilegedSmsReceiver",
+                "com.android.mms.transaction.BeidouSmsReceiver",
+                "com.android.mms.receiver.SmsReceiver", "com.android.mms.receiver.SmsDeliverReceiver",
+                "com.oplus.mms.datamodel.SmsReceivedReceiver"}) receiver(loader, cls);
+    }
+
+    private static void hookHonorMms(ClassLoader loader) {
+        for (String cls : Honor.MMS_RECEIVER_CANDIDATES) receiver(loader, cls);
+        for (String cls : new String[]{"com.android.mms.transaction.SmsReceiverService",
                 "com.hihonor.mms.transaction.SmsReceiverService"}) {
-            try {
-                Class<?> cls = XposedHelpers.findClass(cn, lpparam.classLoader);
-                XposedBridge.hookAllMethods(cls, "handleSmsMessage", new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        try { SmsBridge.processArguments(param); } catch (Throwable t) { log("H-SVC err: " + t); }
-                    }
-                });
-                log("H-SVC OK (handleSmsMessage) " + cn);
-                ok++;
-            } catch (Throwable t) {
-                log("H-SVC NOT FOUND " + cn + ": " + t);
-            }
-        }
-        log("HONOR mms hook done: " + ok + " 个入口 @" + lpparam.packageName);
-    }
-
-    /** 同 hookReceiver，但不刷 "NOT FOUND" 噪音（荣耀候选多，逐个报错会淹掉日志） */
-    private boolean hookReceiverQuiet(XC_LoadPackage.LoadPackageParam lpparam, String className, String tag) {
-        try {
-            Class<?> cls = XposedHelpers.findClass(className, lpparam.classLoader);
-            XposedBridge.hookAllMethods(cls, "onReceive", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try { SmsBridge.processArguments(param); } catch (Throwable t) { log(tag + " err: " + t); }
-                }
-            });
-            log(tag + " OK (" + className + ") @" + lpparam.packageName);
-            return true;
-        } catch (Throwable t) {
-            log(tag + " 跳过 (" + className + ")：类不存在");
-            return false;
+            observe(loader, cls, "handleSmsMessage", true,
+                    (receiver, args, result) -> SmsBridge.processArguments(args));
         }
     }
 
-    private void hookReceiver(XC_LoadPackage.LoadPackageParam lpparam, String className, String tag) {
-        try {
-            Class<?> cls = XposedHelpers.findClass(className, lpparam.classLoader);
-            XposedBridge.hookAllMethods(cls, "onReceive", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try { SmsBridge.processArguments(param); } catch (Throwable t) { log(tag + " err: " + t); }
-                }
-            });
-            log(tag + " OK (" + className + ") @" + lpparam.packageName);
-        } catch (Throwable t) {
-            log(tag + " NOT FOUND (" + className + ") @" + lpparam.packageName + ": " + t);
-        }
+    private static void hookTelephony(ClassLoader loader) {
+        receiver(loader, "com.android.internal.telephony.InboundSmsHandler$SmsBroadcastReceiver");
+        receiver(loader, "com.android.internal.telephony.SmsBroadcastReceiver");
     }
 
-    /**
-     * 电话/框架进程：Hook S1（系统级短信广播接收器）
-     *
-     * v3.1.1：Android 12+ / ColorOS 把短信接收器改成了 InboundSmsHandler 的**内部类**
-     * （com.android.internal.telephony.InboundSmsHandler$SmsBroadcastReceiver，
-     * 实测存在于 /system/framework/telephony-common.jar），
-     * 旧版顶层类 com.android.internal.telephony.SmsBroadcastReceiver 已不存在，
-     * 因此此前 S1 在 ColorOS 上必然 NOT FOUND（ColorOS 的 TeleService.apk 里
-     * 除语音信箱 VvmSmsReceiver 外没有任何短信接收器，短信接收全在 framework + Mms 侧）。
-     * 两个候选都试，命中即挂，互不冲突。
-     */
-    private void hookTelephony(XC_LoadPackage.LoadPackageParam lpparam) {
-        String[] candidates = {
-                // Android 12+ / ColorOS：接收器是 InboundSmsHandler 的内部类
-                "com.android.internal.telephony.InboundSmsHandler$SmsBroadcastReceiver",
-                // 旧版 AOSP / 部分 ROM 的顶层类
-                "com.android.internal.telephony.SmsBroadcastReceiver"
-        };
-        boolean anyHit = false;
-        for (String cn : candidates) {
-            try {
-                Class<?> cls = XposedHelpers.findClass(cn, lpparam.classLoader);
-                XposedBridge.hookAllMethods(cls, "onReceive", new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        try { SmsBridge.processArguments(param); } catch (Throwable t) { log("S1 err: " + t); }
-                    }
-                });
-                log("S1 OK (" + cn + ".onReceive) @" + lpparam.packageName);
-                anyHit = true;
-            } catch (Throwable t) {
-                log("S1 NOT FOUND (" + cn + ") @" + lpparam.packageName + ": " + t);
-            }
-        }
-        if (!anyHit) {
-            log("S1 候选全部未命中 @" + lpparam.packageName
-                    + "（该 ROM 的短信接收器可能位于别处，请反馈 ROM 与类名）");
-        }
-    }
-
-    static void log(String msg) {
-        try { XposedBridge.log(TAG + ": " + msg); } catch (Throwable ignored) { }
-        try { Log.i(TAG, msg); } catch (Throwable ignored) { }
+    private static void receiver(ClassLoader loader, String cls) {
+        observe(loader, cls, "onReceive", false, (receiver, args, result) -> SmsBridge.processArguments(args));
     }
 }

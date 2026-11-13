@@ -44,25 +44,13 @@
 
     <!-- Target apps must resolve the exported provider without modifying their manifests. -->
     <application
+        android:name=".PickupApplication"
+        android:description="@string/module_description"
         android:label="取件码助手"
         android:icon="@mipmap/ic_launcher"
         android:forceQueryable="true"
         android:allowBackup="false"
         android:supportsRtl="true">
-
-        <!-- Xposed/LSPosed 模块声明 -->
-        <meta-data
-            android:name="xposedmodule"
-            android:value="true" />
-        <meta-data
-            android:name="xposeddescription"
-            android:value="自动提取快递取件码，写入待办（小米笔记 / ColorOS 日历·便签 / 荣耀日历待办，自动识别）" />
-        <meta-data
-            android:name="xposedminversion"
-            android:value="82" />
-        <meta-data
-            android:name="xposedscope"
-            android:resource="@array/xposed_scope" />
 
         <!-- 跨进程事实入口：Hook 进程通过 ContentResolver.call 唤醒模块 App；
              调用方由 CallerPolicy 按 UID/包名校验，见 TodoProvider.java -->
@@ -72,6 +60,7 @@
             android:exported="true" />
 
         <receiver android:name=".NotificationDoneReceiver" android:exported="false" />
+        <receiver android:name=".RearReminderReceiver" android:exported="false" />
 
         <!-- v3.0.0：全部页面使用无系统标题栏主题，避免与页面自绘头部重复 -->
         <activity
@@ -138,6 +127,11 @@
                 android:resource="@xml/pickup_xiaomi_widget_info" />
         </receiver>
 
+        <!-- Only an authorised widget host can bind the local parcel list factory. -->
+        <service android:name=".WidgetCollectionService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
         <!-- 小组件动作入口：exported=false -->
         <!--
           v4.0.1：原先用 Activity 承接（WidgetActionActivity），点一下打勾就会把 App
@@ -182,6 +176,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>

@@ -11,3 +11,6 @@ com.android.providers.telephony
 # 可选：App 内包裹提取
 com.cainiao.wireless
 com.xunmeng.pinduoduo
+
+# 小米背屏：仅放行本模块的待取卡片
+com.xiaomi.subscreencenter

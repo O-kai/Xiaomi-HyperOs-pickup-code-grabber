@@ -200,6 +200,19 @@ public final class AppParcelDataTest {
         check("missing UID packages rejected", !CallerPolicy.matchesAppParcelPackages(AppParcelData.CAINIAO, null));
         check("target apps still denied SMS endpoint", !CallerPolicy.isTrustedSmsPackage(AppParcelData.CAINIAO)
                 && !CallerPolicy.isTrustedSmsPackage(AppParcelData.PINDUODUO));
+        JSONObject pickupSite = new JSONObject().put("status", 3).put("code", "12-3-4567")
+                .put("address", "").put("cnInOutBound", new JSONObject().put("address", "  测试驿站 · 测试路  "));
+        check("PDD cabinet falls back to explicit cnInOutBound address", "测试驿站 · 测试路".equals(
+                AppParcelData.pinduoduo(new JSONObject().put("result", pickupSite).toString()).get(0).place));
+        pickupSite.put("address", "主取件站");
+        check("PDD cabinet primary site address wins", "主取件站".equals(
+                AppParcelData.pinduoduo(new JSONObject().put("result", pickupSite).toString()).get(0).place));
+        pickupSite.put("address", JSONObject.NULL);
+        check("PDD null address still uses nested pickup site", "测试驿站 · 测试路".equals(
+                AppParcelData.pinduoduo(new JSONObject().put("result", pickupSite).toString()).get(0).place));
+        pickupSite.put("cnInOutBound", new JSONObject().put("address", 1234));
+        check("PDD never converts numeric site data to an address", "—".equals(
+                AppParcelData.pinduoduo(new JSONObject().put("result", pickupSite).toString()).get(0).place));
         System.out.println("AppParcelDataTest TOTAL: PASS=" + passed + " FAIL=0");
     }
 }

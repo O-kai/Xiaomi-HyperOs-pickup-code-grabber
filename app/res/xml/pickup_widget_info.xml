@@ -20,12 +20,12 @@
   结果 MIUI 的「添加小部件」列表里直接查不到本 App。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:initialLayout="@layout/widget_pickup_v5"
+    android:initialLayout="@layout/widget_pickup_list"
     android:previewLayout="@layout/widget_pickup_preview"
     android:previewImage="@drawable/widget_preview"
     android:description="@string/widget_description"
     android:minWidth="250dp"
-    android:minHeight="110dp"
+    android:minHeight="180dp"
     android:minResizeWidth="200dp"
     android:minResizeHeight="110dp"
     android:maxResizeWidth="480dp"
