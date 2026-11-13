@@ -15,7 +15,7 @@ import java.util.List;
  *
  * <p>跑法（不需要 Android SDK，HonorSql 是纯 Java）：
  * <pre>
- *   javac -encoding UTF-8 -d out app/src/io/github/okaidev/pickupcode/HonorSql.java test/HonorSqlTest.java
+ *   javac -encoding UTF-8 -d out app/src/io/github/okaidev/pickupcode/{TodoMatch,HonorSql}.java test/HonorSqlTest.java
  *   java -cp out HonorSqlTest
  * </pre>
  * 想连真实 sqlite 一起验（推荐）：
@@ -177,9 +177,10 @@ public class HonorSqlTest {
         String eIns = HonorSql.insertSql(esc, "O'Brien 100%_test", "x");
         check("转义: 单引号变两个", eIns != null && eIns.contains("O''Brien"), String.valueOf(eIns));
         String eEx = HonorSql.existsSql(esc, "1%2_3");
-        check("转义: % 被转义", eEx != null && eEx.contains("1\\%2"), String.valueOf(eEx));
-        check("转义: _ 被转义", eEx != null && eEx.contains("2\\_3"), null);
-        check("转义: 带 ESCAPE 子句", eEx != null && eEx.contains("ESCAPE"), null);
+        check("非法码: 通配符不会参与查询", eEx != null && eEx.contains("AND 0;"), String.valueOf(eEx));
+        String eDone = HonorSql.doneSql(esc, "1%2_3");
+        check("非法码: 不会完成任何待办", eDone != null && eDone.contains("AND 0;"), eDone);
+        check("完整码: 不使用子串 LIKE", !HonorSql.doneSql(esc, "1-2-3456").contains("LIKE"), null);
         check("转义: escape() 处理 null", "".equals(HonorSql.escape(null)), null);
 
         // ---------- 探针解析 ----------
@@ -215,7 +216,7 @@ public class HonorSqlTest {
     static void write(File dir, String name, HonorSql.Schema s, String content, String code)
             throws Exception {
         put(dir, name + ".insert.sql", HonorSql.insertSql(s, content, "com.hihonor.calendar"));
-        put(dir, name + ".done.sql", HonorSql.doneSql(s, code));
+        put(dir, name + ".done.sql", "escape".equals(name) ? HonorSql.doneSql(s, code) : HonorSql.doneSqlForTarget(s, 1, content));
         put(dir, name + ".exists.sql", HonorSql.existsSql(s, code));
         put(dir, name + ".columns.txt", s.describe());
     }

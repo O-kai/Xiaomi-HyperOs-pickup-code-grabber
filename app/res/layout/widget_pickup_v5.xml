@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/widget_bg">
+ <LinearLayout android:id="@+id/widget_root_v2" android:orientation="vertical" android:gravity="top|start" android:layout_width="match_parent" android:layout_height="match_parent" android:paddingHorizontal="16dp" android:paddingVertical="6dp">
+  <FrameLayout android:id="@+id/widget_header" android:layout_width="match_parent" android:layout_height="20dp">
+   <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center_vertical" android:orientation="horizontal">
+    <ImageView android:layout_width="4dp" android:layout_height="12dp" android:layout_marginEnd="8dp" android:background="@drawable/widget_marker" android:importantForAccessibility="no"/>
+    <TextView android:id="@+id/widget_title" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:fontFamily="sans-serif-medium" android:text="取件码" android:textSize="15sp" android:includeFontPadding="false" android:textColor="@color/widget_ink" android:singleLine="true" android:ellipsize="end"/>
+    <TextView android:id="@+id/widget_count" android:layout_width="wrap_content" android:layout_height="20dp" android:layout_marginStart="8dp" android:paddingHorizontal="7dp" android:gravity="center" android:text="0 件待取" android:textSize="10sp" android:includeFontPadding="false" android:maxLines="1" android:ellipsize="end" android:textColor="@color/widget_accent" android:background="@drawable/widget_count_bg"/>
+    <ImageView android:id="@+id/widget_open_icon" android:layout_width="14dp" android:layout_height="14dp" android:layout_marginStart="10dp" android:src="@drawable/ic_widget_open" android:tint="@color/widget_muted" android:importantForAccessibility="no"/>
+   </LinearLayout>
+  </FrameLayout>
+  <TextView android:id="@+id/widget_empty" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:gravity="center" android:text="都取完了，轻松出门" android:textSize="13sp" android:textColor="@color/widget_muted" android:visibility="gone"/>
+  <LinearLayout android:id="@+id/widget_list" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical">
+   <LinearLayout android:id="@+id/widget_row_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_1" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_1" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_1" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_2" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_2" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_2" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_3" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_3" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_3" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_4" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_4" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_4" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_4" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_5" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_5" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_5" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_5" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_6" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_6" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_6" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_6" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_7" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_7" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_7" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_7" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_8" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_8" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_8" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_8" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_9" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_9" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_9" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_9" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_10" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_10" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_10" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_10" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_11" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_11" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_11" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_11" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+   <LinearLayout android:id="@+id/widget_row_12" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="44dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingVertical="2dp" android:layout_marginEnd="10dp">
+     <TextView android:id="@+id/widget_code_12" android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical" android:fontFamily="sans-serif" android:fontFeatureSettings="tnum" android:textSize="22sp" android:singleLine="true" android:includeFontPadding="false" android:textColor="@color/widget_code_ink"/>
+     <TextView android:id="@+id/widget_place_12" android:layout_width="match_parent" android:layout_height="16dp" android:gravity="center_vertical" android:includeFontPadding="false" android:textSize="11sp" android:singleLine="true" android:ellipsize="end" android:textColor="@color/widget_muted"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/widget_done_12" android:layout_width="44dp" android:layout_height="44dp" android:padding="9dp" android:src="@drawable/ic_widget_done" android:tint="@color/widget_action" android:contentDescription="标记已取件"/>
+   </LinearLayout>
+  </LinearLayout>
+ </LinearLayout>
+</FrameLayout>

@@ -2,6 +2,7 @@
 .gradle/
 # Gradle 构建输出（根目录的 build/ 是构建脚本源码，必须保留）
 app/build/
+/build/reports/
 !gradle/wrapper/gradle-wrapper.jar
 
 # ---------- Android Studio / IntelliJ ----------

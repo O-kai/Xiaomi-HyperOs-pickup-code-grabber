@@ -680,7 +680,7 @@ public class LauncherActivity extends Activity {
      * 并给一个直达 LSPosed 的按钮。不改任何系统配置，只做提醒和指路。
      */
     private void maybeGuideMissingScope() {
-        if (scopeGuideStarted) return;
+        if (scopeGuideStarted || !FrameworkClient.connected()) return;
         scopeGuideStarted = true;
         final int cur = AppVersion.code(this);
         if (cur <= 0) return;
@@ -697,8 +697,11 @@ public class LauncherActivity extends Activity {
             }
             // 只有「库读到了、模块已启用、确实缺项」才提示；
             // 读不到配置库不等于没勾，按既有原则不据此断言。
-            if (!st.dbReadable || !st.moduleEnabled || st.missingScope == null
-                    || st.missingScope.trim().isEmpty()) {
+            if (!st.scopeReadable || !st.moduleEnabled) {
+                scopeGuideStarted = false;
+                return;
+            }
+            if (st.missingScope == null || st.missingScope.trim().isEmpty()) {
                 sp.edit().putInt(KEY_SCOPE_GUIDE_VER, cur).apply();
                 return;
             }
@@ -725,7 +728,7 @@ public class LauncherActivity extends Activity {
                     .append("**系统框架**（英文 system）是让模块进入系统进程的那一项，")
                     .append("短信、通知都从那里经过；新版 LSPosed 把它置顶并标了「推荐应用」。\n")
                     .append("如果你的列表里还有一个「Android 系统」（英文 android），")
-                    .append("它和「系统框架」指的是同一个进程，勾任何一个都行，不用两个都勾。\n");
+                    .append("API 102 请勾选 system；android 只代表系统应用进程。\n");
         } else {
             sb.append("\n")
                     .append("这些项在作用域列表里都能搜到；漏勾时模块会显示已激活、但对应功能不生效。\n");
@@ -763,11 +766,11 @@ public class LauncherActivity extends Activity {
     /** 包名转成人话；认不出的原样显示，总比不提示强 */
     private String friendlyScopeName(String pkg) {
         // 截图里能看到两条：置顶的「系统框架」(system) 与列表里的「Android 系统」(android)。
-        // 它们指的是同一个进程（system_server），勾任意一条即可；
+        // API 102 的系统进程作用域必须为 system。
         // 新版 LSPosed 认 system，且会给它打「推荐应用」标记。
         if ("system".equals(pkg)) return "系统框架（置顶那一项，带推荐标记）";
         // 只在「框架项缺失」时才会显示到这一行——优先让用户勾带推荐标记的那个
-        if ("android".equals(pkg)) return "系统框架（置顶、带推荐标记；旧版显示为「Android 系统」）";
+        if ("android".equals(pkg)) return "Android 系统应用（不能替代系统框架）";
         if ("com.android.phone".equals(pkg)) return "电话";
         if ("com.android.mms".equals(pkg)) return "短信";
         if (Honor.PKG_MMS.equals(pkg)) return "信息（荣耀）";
@@ -1323,7 +1326,7 @@ public class LauncherActivity extends Activity {
 
         LinearLayout notiCard = UiKit.card(this, P);
         notiSwitchOn = isNotiHookFlagOn();
-        verifyNotiFlagIfRootReady();
+        syncNotiConfiguration();
         notiSw = new UiKit.Switch(this, P, notiSwitchOn);
         notiSw.setOnToggle(this::onNotiToggle);
         // v4.4：去掉「多平台」可点击（弹窗已移除），副标题改为说明这个开关的作用
@@ -1875,6 +1878,8 @@ public class LauncherActivity extends Activity {
         modeRow.setOnClickListener(v -> showModeSwitchDialog());
         perCard.addView(modeRow);
         perCard.addView(UiKit.divider(this, P));
+        perCard.addView(buildAppParcelRow());
+        perCard.addView(UiKit.divider(this, P));
 
         // 4.0：桌面小组件外观设置（改为二级页入口；右侧不再重复报「字号 · 条数」）
         // v4.0.3 第二轮：内部记录关着时不出现——组件读的就是那份记录，
@@ -1921,6 +1926,11 @@ public class LauncherActivity extends Activity {
                 reminderSw);
         reminderRow.setOnClickListener(v -> pickReminderTime());
         perCard.addView(reminderRow);
+
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(buildAppParcelRow());
+        perCard.addView(UiKit.divider(this, P));
+        perCard.addView(buildXiaomiSurfacesRow());
 
         // 4.0：检查更新（自动开关与手动检查合并为一行）
         perCard.addView(UiKit.divider(this, P));
@@ -2440,6 +2450,11 @@ public class LauncherActivity extends Activity {
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.VERTICAL);
 
+        wrap.addView(buildAppParcelRow());
+        wrap.addView(UiKit.divider(this, P));
+        wrap.addView(buildXiaomiSurfacesRow());
+        wrap.addView(UiKit.divider(this, P));
+
         wrap.addView(toolRow(R.drawable.ic_heart, "打赏作者",
                 "纯自愿，不影响任何功能",
                 v -> startActivity(new Intent(this, DonateActivity.class))));
@@ -2459,6 +2474,26 @@ public class LauncherActivity extends Activity {
                 "更多规则、来源与设置", v -> showModeSwitchDialog()));
 
         UiKit.dialog(this, P, R.drawable.ic_grid, "更多选项", null, wrap, 0);
+    }
+
+    private View buildAppParcelRow() {
+        UiKit.Switch toggle = new UiKit.Switch(this, P,
+                getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(TodoProvider.APP_PARCEL_PREF, false));
+        toggle.setOnToggle(on -> {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putBoolean(TodoProvider.APP_PARCEL_PREF, on).apply();
+            ProcessSync.push(this);
+            Toast.makeText(this, on
+                    ? "请在 LSPosed 作用域勾选菜鸟、拼多多，然后重新打开对应 App"
+                    : "已关闭 App 内包裹提取", Toast.LENGTH_LONG).show();
+        });
+        return UiKit.row(this, P, R.drawable.ic_box, "App 内包裹提取",
+                "随 App 加载提取，不定时轮询 · 拼多多仅保存待取且有明确取件码的包裹", toggle);
+    }
+
+    private View buildXiaomiSurfacesRow() {
+        return toolRow(R.drawable.ic_bell, "超级岛与背屏",
+                "通知设置、HyperCeiler 解锁与背屏显示说明", v -> XiaomiSurfaces.prompt(this));
     }
 
     // ================================================================
@@ -2665,13 +2700,7 @@ public class LauncherActivity extends Activity {
 
     private void onSdwToggle(boolean next) {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SYS_DIRECT, next).apply();
-        new Thread(() -> {
-            String flag = Repair.TARGET_DIR + "/enable_sys_direct_write";
-            try {
-                Diagnostics.suExecPublic("mkdir -p " + Repair.TARGET_DIR + "; "
-                        + "echo " + (next ? "1" : "0") + " > " + flag + "; chmod 644 " + flag, 15);
-            } catch (Throwable ignored) { }
-        }).start();
+        ProcessSync.push(this);
         if (next) {
             Toast.makeText(this, "已开启冻结免疫直写 ✓\n还需两步：\n"
                     + "1. Magisk/KernelSU 给「com.android.providers.telephony」（短信存储）授权 root\n"
@@ -2700,13 +2729,7 @@ public class LauncherActivity extends Activity {
         if (!sp.contains(KEY_SYS_DIRECT)) {
             sdwOn = true;
             sp.edit().putBoolean(KEY_SYS_DIRECT, true).apply();
-            new Thread(() -> {
-                String flag = Repair.TARGET_DIR + "/enable_sys_direct_write";
-                try {
-                    Diagnostics.suExecPublic("mkdir -p " + Repair.TARGET_DIR + "; "
-                            + "echo 1 > " + flag + "; chmod 644 " + flag, 15);
-                } catch (Throwable ignored) { }
-            }).start();
+            ProcessSync.push(this);
         } else {
             sdwOn = sp.getBoolean(KEY_SYS_DIRECT, true);
         }
@@ -3065,110 +3088,19 @@ public class LauncherActivity extends Activity {
     //  通知取件开关的真实可用状态（v3.1.1 逻辑原样保留）
     // ================================================================
 
-    /**
-     * 通知开关的当前状态。
-     *
-     * <p>v4.0.2 第八轮（来自 PR #14）：<b>不再直接读标志文件</b>。
-     * App 沙箱根本进不去 /data/local/tmp（属主 shell:shell，权限 0771），
-     * 旧实现每次 `f.exists()` 都是 false —— 于是<b>开关永远显示为「已关闭」</b>，
-     * 哪怕通知通道其实是开着的。这正是 PR 里报的那个现象。
-     *
-     * <p>现在以本地偏好为准（开关每次改动都会同步写偏好，两者本来就是一起写的），
-     * 再由 {@link #verifyNotiFlagIfRootReady()} 在有 root 会话时静默校对一次。
-     */
+    /** Local preferences are persisted first, then mirrored to framework preferences. */
     private boolean isNotiHookFlagOn() {
         return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("noti_hook", false);
     }
 
-    /**
-     * 有常驻 root 通道时，顺手把标志文件的真实值读回来校对（不额外唤 su）。
-     *
-     * <p>为什么不在页面渲染时直接跑 su：那会让用户每次打开设置都看到一次
-     * Magisk 的「已授予超级用户权限」提示——正是上一轮刚清掉的东西。
-     * 这里只在「本进程已经有 root 通道」时读，属于搭便车。
-     */
-    private void verifyNotiFlagIfRootReady() {
-        if (!RootShell.isReady()) return;
-        new Thread(() -> {
-            String out;
-            try {
-                out = RootShell.exec("cat " + Repair.TARGET_DIR + "/enable_noti_hook 2>/dev/null",
-                        5000);
-            } catch (Throwable t) {
-                return;
-            }
-            if (out == null) return;
-            String v = out.trim();
-            if (!"0".equals(v) && !"1".equals(v)) return;
-            final boolean actual = "1".equals(v);
-            final boolean cached = isNotiHookFlagOn();
-            if (actual == cached) return;
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                    .putBoolean("noti_hook", actual).apply();
-            runOnUiThread(() -> {
-                notiSwitchOn = actual;
-                if (notiSw != null) notiSw.setChecked(actual);
-                renderNotiSwitchUi();
-            });
-            android.util.Log.i("PICKUPDEBUG", "noti flag corrected from file: " + actual);
-        }, "pickup-noti-flag-verify").start();
-    }
+    private void syncNotiConfiguration() { ProcessSync.push(this); }
 
     private void toggleNotiHookFlag(boolean on) {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("noti_hook", on).apply();
-        new Thread(() -> {
-            String flag = Repair.TARGET_DIR + "/enable_noti_hook";
-            try {
-                // 写完立刻回读：写入失败（没 root / 被拒绝）时不留「界面显示开着、
-                // 实际没生效」的假象。回读结果同时作为界面的真实状态。
-                String[] r = Diagnostics.suExecPublic("mkdir -p " + Repair.TARGET_DIR + "; "
-                        + "echo " + (on ? "1" : "0") + " > " + flag + "; chmod 644 " + flag
-                        + ProcessSync.readableConfigCommand(flag)
-                        + "; cat " + flag + " 2>/dev/null", 15);
-                String v = r != null && r.length > 0 && r[0] != null ? r[0].trim() : "";
-                boolean actual = v.contains("1") && !v.contains("0");
-                if (!v.isEmpty() && actual != on) {
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                            .putBoolean("noti_hook", actual).apply();
-                    runOnUiThread(() -> {
-                        notiSwitchOn = actual;
-                        if (notiSw != null) notiSw.setChecked(actual);
-                        renderNotiSwitchUi();
-                    });
-                }
-            } catch (Throwable ignored) { }
-        }).start();
+        ProcessSync.push(this);
     }
 
-    /**
-     * 后台核对 LSPosed 作用域里有没有勾框架那一项（系统框架 system / 旧版 Android 系统 android）。
-     *
-     * 复用现成能力，不自己重写查库逻辑：Diagnostics.checkScope 内部就是调
-     * Repair.lsposedStatus(ctx)（root 跑 sqlite3 读 /data/adb/lspd/config/modules_config.db），
-     * 但它是 private 且需要先知道 root 是否可用；这里直接用底层的公开方法
-     * Repair.lsposedStatus，拿它已经算好的 missingScope 即可。
-     *
-     * 取舍（简化版）：**只在开关为「已开启」时才查**——
-     *  ① 作用域检查要 root + sqlite3，约 2-5 秒，不能同步跑在按钮初始化里（界面必须秒开）；
-     *  ② 开关默认关闭，对绝大多数用户这次查库毫无意义，白白多一次 su；
-     *  ③ 「缺 android」这个结论只在开关打开时才有意义，关着时按钮本来就显示「已关闭」。
-     * 另外：配置库读不到（没 root / 没装 LSPosed）或模块未启用时不下结论，
-     * 保持标志文件的原始显示——这两种情况由上方「🔍 排查问题」向导负责。
-     *
-     * @param force true=忽略节流强制复查（开关刚被切换时用）
-     */
-    /**
-     * 通知作用域检查。
-     *
-     * <p>v4.0.1：这一步要读 LSPosed 配置库，走的是 su ——于是每次回到前台
-     * 都会触发一次 Magisk 的「已授予超级用户权限」提示。
-     * 用户反馈这个提示「没有价值、没有意义」。
-     *
-     * <p>改法：默认<b>不自动检查</b>。它要回答的是「通知提取能不能用」，
-     * 而这个问题的答案在用户打开「通知提取」页时才有意义——
-     * 所以改成：进入那一页时才查一次（并缓存结果），
-     * 以及用户主动打开通知开关时才查。
-     */
+    /** Query the framework service on demand; no root or private LSPosed database. */
     private void checkNotiHookScopeAsync(boolean force) {
         long now = System.currentTimeMillis();
         if (!force && now - lastNotiScopeCheck < NOTI_SCOPE_CHECK_INTERVAL) return;
@@ -3181,7 +3113,7 @@ public class LauncherActivity extends Activity {
         new Thread(() -> {
             boolean blocked = false;
             try {
-                blocked = androidMissingFromScope(Repair.lsposedStatus(this));
+                blocked = systemMissingFromScope(Repair.lsposedStatus(this));
             } catch (Throwable ignored) { }
             final boolean b = blocked;
             runOnUiThread(() -> {
@@ -3192,12 +3124,12 @@ public class LauncherActivity extends Activity {
         }).start();
     }
 
-    private boolean androidMissingFromScope(Repair.LsposedStatus st) {
+    private boolean systemMissingFromScope(Repair.LsposedStatus st) {
         if (st == null) return false;
-        if (!st.dbReadable || !st.moduleEnabled) return false;
+        if (!st.scopeReadable || !st.moduleEnabled) return false;
         if (st.missingScope == null) return false;
         for (String p : st.missingScope.split("[、,，]")) {
-            if ("android".equals(p.trim())) return true;
+            if ("system".equals(p.trim())) return true;
         }
         return false;
     }
@@ -3312,21 +3244,21 @@ public class LauncherActivity extends Activity {
             heroTitle.setTextColor(P.heroWarnInk);
             heroSub.setTextColor(P.heroWarnSubInk);
         } else if (allOk) {
-            heroTitle.setText("一切正常 · 已激活");
+            heroTitle.setText("模块已激活");
             if (full) {
                 // 项数不再写死：体检项增加时（这轮加了「配置快照」）文案会自己跟上，
                 // 否则会出现「清单里 7 项、副标题说 6 项」这种自相矛盾。
                 int n = checks == null ? 0 : checks.size();
                 heroSub.setText(n > 0
-                        ? "LSPosed 已注入 · " + n + " 项体检全部通过"
-                        : "LSPosed 已注入 · 体检全部通过");
+                        ? "LSPosed 服务已连接 · " + n + " 项体检全部通过"
+                        : "LSPosed 服务已连接 · 体检全部通过");
             } else {
                 // v4.0.2：轻量体检只覆盖 2 项，措辞必须准确——
                 // 说「全部通过」会让用户以为跑过完整检测，那是骗人。
                 //
                 // v4.0.2 第三轮：点击语义变了（现在是展开清单，不是跑体检），
                 // 文案跟着改，否则会误导用户以为点一下就会弹 root 授权。
-                heroSub.setText("LSPosed 已注入 · 点此查看校验清单");
+                heroSub.setText("LSPosed 服务已连接 · 点此查看校验清单");
                 heroSub.setMaxLines(1);
                 heroSub.setEllipsize(android.text.TextUtils.TruncateAt.END);
             }
@@ -3523,9 +3455,22 @@ public class LauncherActivity extends Activity {
         recordManager.onActivityResult(requestCode, resultCode, data);
     }
 
+    private final Runnable frameworkChanged = () -> runOnUiThread(() -> {
+        lastHealthAt = 0;
+        refreshHealth(false);
+        checkNotiHookScopeAsync(true);
+        maybeGuideMissingScope();
+    });
+
+    @Override protected void onPause() {
+        FrameworkClient.removeListener(frameworkChanged);
+        super.onPause();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        FrameworkClient.addListener(frameworkChanged);
         // 首启模式选择 / 简洁模式跳转时没有建界面，此时不能碰任何视图
         if (!uiReady) return;
         // v4.0.2：启动时自动清理过期记录。
@@ -3542,7 +3487,7 @@ public class LauncherActivity extends Activity {
         refreshPickupCard();
         refreshHealth();
         notiSwitchOn = isNotiHookFlagOn();
-        verifyNotiFlagIfRootReady();
+        syncNotiConfiguration();
         if (notiSw != null) notiSw.setChecked(notiSwitchOn, false);
         renderNotiSwitchUi();
         // v4.0.1：不再在这里自动查 LSPosed 作用域——那一步要走 su，
@@ -3871,7 +3816,7 @@ public class LauncherActivity extends Activity {
                 showTroubleshootDialog("排查异常：" + t.getMessage(), null, null);
                 return;
             }
-            Diagnostics.Check inject = findCheck(checks, "LSPosed 注入");
+            Diagnostics.Check inject = findCheck(checks, "LSPosed 服务");
             Diagnostics.Check root = findCheck(checks, "root 授权");
             Diagnostics.Check scope = findCheck(checks, "LSPosed 作用域");
             Diagnostics.Check notif = findCheck(checks, "通知权限");

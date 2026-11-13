@@ -4,9 +4,6 @@ import android.app.Notification;
 import android.content.Context;
 import android.os.Bundle;
 
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,15 +21,12 @@ import java.util.List;
  *  2) 文本拼合（title + text + bigText）后喂给 PickupExtractor 动态规则引擎；
  *  3) 提取成功 → 与短信通道共用「码+地点」指纹去重 → 写入待办（与短信双通道无缝合并）；
  *  4) 提取为空但含特征词 → 记入疑似漏抓错题本（与短信同一闭环）；
- *  5) 开关：设置页「通知取件提取」（默认关；开启后 Hook 生效，无需重启）。
- *     开关状态经 /data/local/tmp/pickup_sqlite/enable_noti_hook 标志文件同步
- *     （system_server 读不到模块 SharedPreferences，与冻结免疫直写同一套机制）。
+ *  5) 开关和规则通过框架远程偏好同步，默认关闭，无需 root 配置文件。
  */
 public class NotiHook {
 
     private static final String TAG = "PICKUPDEBUG";
     /** 开关文件路径统一由 RuntimePaths 提供（App 侧写完会一起 chcon） */
-    private static final String FLAG_FILE = RuntimePaths.FLAG_FILE;
 
     /**
      * 快递/电商通知白名单（v1：主流大厂，按需热扩）
@@ -92,11 +86,11 @@ public class NotiHook {
     /** 模块入口调用：在 system_server 注册通知管线钩子 */
     public static void install(ClassLoader sysCl) {
         try {
-            // v3.0.0：system_server 冷启动时先加载用户规则（从 root 同步文件读）
+            // v3.0.0：system_server 冷启动时先加载用户规则（从框架远程偏好读）
             // v3.1.0：同时加载「官方规则集 + 黑名单/模板偏好」快照（ProcessSync），
             // 否则通知通道会用编译内置旧规则跑，出现「短信已修好、通知还在漏抓」的组合债
             try {
-                ProcessSync.State st = ProcessSync.load();
+                ProcessSync.State st = ProcessSync.decode(HookConfig.snapshot());
                 PickupExtractor.initForSystemProcess(st != null ? st.rulesJson : null);
                 PickupExtractor.loadUserRules(null, UserRules.loadForSystemProcess());
                 if (st != null && st.notiPkgs != null && !st.notiPkgs.trim().isEmpty()) {
@@ -113,34 +107,26 @@ public class NotiHook {
                         }
                     }
                 }
-                XposedBridge.log(TAG + ": user rules loaded: " + PickupExtractor.userRuleCount()
+                ModuleLog.log(TAG + ": user rules loaded: " + PickupExtractor.userRuleCount()
                         + " / official rules v" + PickupExtractor.getActiveRulesVersion());
             } catch (Throwable t) {
-                XposedBridge.log(TAG + ": load rules skipped: " + t);
+                ModuleLog.log(TAG + ": load rules skipped: " + t);
             }
 
-            Class<?> nms = XposedHelpers.findClass(
+            Class<?> nms = Reflect.findClass(
                     "com.android.server.notification.NotificationManagerService", sysCl);
-            XposedBridge.hookAllMethods(nms, "enqueueNotificationInternal", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                    try {
-                        handleEnqueue(param);
-                    } catch (Throwable t) {
-                        XposedBridge.log(TAG + ": NotiHook err: " + t);
-                    }
-                }
-            });
-            XposedBridge.log(TAG + ": NotiHook installed on NotificationManagerService");
+            int count = HookRuntime.hookAllMethods(nms, "enqueueNotificationInternal",
+                    HookRuntime.after((receiver, args, result) -> handleEnqueue(receiver, args)));
+            if (count == 0) throw new NoSuchMethodException("enqueueNotificationInternal");
+            ModuleLog.log(TAG + ": NotiHook installed on NotificationManagerService");
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": NotiHook install FAILED: " + t);
+            ModuleLog.log(TAG + ": NotiHook install FAILED: " + t);
         }
     }
 
     /** 单条通知处理：白名单 → 文本拼合 → 引擎提取 → 指纹去重 → 转发写入 */
-    private static void handleEnqueue(XC_MethodHook.MethodHookParam param) {
+    private static void handleEnqueue(Object receiver, Object[] args) {
         try {
-            Object[] args = param.args;
             // 参数形态：enqueueNotificationInternal(String pkg, String opPkg, int uid, ...)
             //
             // v4.0.2 第八轮（来自 PR #14）：原来要求 args.length >= 10。
@@ -181,7 +167,7 @@ public class NotiHook {
             if (codes.isEmpty()) {
                 // 提取为空：仅在「含特征词」时才记错题本，避免把纯广告通知也记进去
                 if (PickupExtractor.hasFeatureWords(notiSender, text)) {
-                    NotiRelay.relayMissed(param, pkg, text);
+                    NotiRelay.relayMissed(receiver, pkg, text);
                 }
                 return;
             }
@@ -191,11 +177,11 @@ public class NotiHook {
                 return;
             }
             // 提取成功：转发模块 App（与短信通道共用 TodoWriter.handle 的去重与写入）
-            NotiRelay.relayHit(param, pkg, text, codes);
+            NotiRelay.relayHit(receiver, pkg, text, codes);
         } catch (Throwable t) {
             // 以前这里是 catch (Throwable ignored){}：
             // system_server 里出错完全不留痕，排查时只能靠猜。现在记一行。
-            XposedEntry.log("NotiHook handle err: " + t);
+            ModuleLog.log("NotiHook handle err: " + t);
         }
     }
 
@@ -207,110 +193,27 @@ public class NotiHook {
 
     // ==================== 配置热重载（v4.0.2，来自 PR #14） ====================
 
-    private static long nextRefresh;
-    private static long configStamp = Long.MIN_VALUE;
-    /** 开关文件读到的值（null = 还没成功读过） */
-    private static volatile Boolean flagOn = null;
-    /** 配置读不到时不要每隔 30 秒刷一行日志 */
-    private static long lastUnreadableLogAt;
+    private static String configSnapshot;
+    private static volatile boolean flagOn;
 
-    /**
-     * 每 30 秒按文件 mtime 决定要不要重载「官方规则 / 用户规则 / 通知白名单」，
-     * 同时把通知开关的缓存刷新一遍。
-     *
-     * <p>为什么需要：system_server 只在开机时加载一次配置，用户在设置页
-     * 改完规则或加完白名单后，必须重启手机才生效——很容易被当成「功能坏了」。
-     * 这里用 mtime 做变更检测，改完最多 30 秒自动生效，不需要重启。
-     *
-     * <p><b>v4.0.2 第十轮修正</b>：原先只要 mtime 变了就打「config reloaded」，
-     * 哪怕 {@code load()} 返回 null（读不到）也照打——日志看着正常、实际用的还是
-     * 编译内置规则，排查时会被这条假日志带偏。现在把两种情况分开记，
-     * 并且<b>读失败时不更新 stamp</b>，下个周期会重试（比如权限/标签刚被修好）。
-     */
+    /** Remote preferences update through framework IPC; no root file polling. */
     private static synchronized void refreshConfig() {
-        long now = android.os.SystemClock.elapsedRealtime();
-        if (now < nextRefresh) return;
-        nextRefresh = now + 30_000L;
-
-        // ① 开关文件：每 30 秒读一次并缓存。
-        //    原来每条通知都开一次文件（system_server 的通知入队线程上），
-        //    量大了纯属浪费；而且文件读不到时没有留痕。
-        Boolean flag = readFlagFile();
-        if (flag != null) flagOn = flag;
-
-        try {
-            java.io.File f = new java.io.File(ProcessSync.SYNC_FILE);
-            long stamp = f.lastModified();
-            if (stamp <= 0L) {
-                logUnreadable("mtime=0（文件不存在或不可 stat）");
-                return;
+        String snapshot = HookConfig.snapshot();
+        if (snapshot.equals(configSnapshot)) return;
+        ProcessSync.State st = ProcessSync.decode(snapshot);
+        PickupExtractor.initForSystemProcess(st.rulesJson);
+        PickupExtractor.loadUserRules(null, UserRules.systemRules(snapshot));
+        synchronized (PKG_WHITELIST) {
+            PKG_WHITELIST.clear();
+            PKG_WHITELIST.addAll(java.util.Arrays.asList(BUILTIN_PKGS));
+            for (String pkg : st.notiPkgs.split("[,，\\s]+")) {
+                if (!pkg.trim().isEmpty()) PKG_WHITELIST.add(pkg.trim());
             }
-            if (stamp == configStamp) return;
-
-            ProcessSync.State st = ProcessSync.load();
-            if (st == null) {
-                // 读不到：保持现有规则不动，也不更新 stamp → 下个周期重试
-                logUnreadable("load() 返回 null（SELinux 标签 / 目录权限？）mtime=" + stamp);
-                return;
-            }
-            int rulesLen = st.rulesJson == null ? 0 : st.rulesJson.length();
-            PickupExtractor.initForSystemProcess(st.rulesJson);
-            PickupExtractor.loadUserRules(null, UserRules.loadForSystemProcess());
-            int pkgCount;
-            synchronized (PKG_WHITELIST) {
-                PKG_WHITELIST.clear();
-                PKG_WHITELIST.addAll(java.util.Arrays.asList(BUILTIN_PKGS));
-                if (st.notiPkgs != null) {
-                    for (String p : st.notiPkgs.split("[,，\\s]+")) {
-                        String t = p.trim();
-                        if (!t.isEmpty()) PKG_WHITELIST.add(t);
-                    }
-                }
-                pkgCount = PKG_WHITELIST.size();
-            }
-            configStamp = stamp;
-            XposedBridge.log(TAG + ": config reloaded (mtime=" + stamp
-                    + ", rules=" + rulesLen + "B, pkgs=" + pkgCount + ")");
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": config reload skipped: " + t);
         }
+        flagOn = st.notiHook;
+        configSnapshot = snapshot;
     }
-
-    /** 读不到配置时节流记一行——要有痕迹，但不能刷屏 */
-    private static void logUnreadable(String why) {
-        long now = android.os.SystemClock.elapsedRealtime();
-        if (now - lastUnreadableLogAt < 5 * 60_000L) return;
-        lastUnreadableLogAt = now;
-        XposedBridge.log(TAG + ": config NOT readable -> " + why);
-    }
-
-    /** 直读开关文件；读不到返回 null（区别于「读到 0」） */
-    private static Boolean readFlagFile() {
-        try {
-            java.io.File f = new java.io.File(FLAG_FILE);
-            if (!f.exists()) return Boolean.FALSE;
-            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
-            String line = r.readLine();
-            r.close();
-            return line != null && line.trim().equals("1");
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    /**
-     * 标志文件开关（默认关；设置页经 su 写入 1/0 同步）。
-     *
-     * <p>优先用 {@link #refreshConfig()} 每 30 秒刷新的缓存值；
-     * 还没读到过（开机后第一条通知）才直读一次。
-     */
-    private static boolean isFlagOn() {
-        Boolean cached = flagOn;
-        if (cached != null) return cached;
-        Boolean v = readFlagFile();
-        if (v != null) flagOn = v;
-        return v != null && v;
-    }
+    private static boolean isFlagOn() { return flagOn; }
 
     /** 在参数数组里找 Notification 对象 */
     private static Notification findNotification(Object[] args) {

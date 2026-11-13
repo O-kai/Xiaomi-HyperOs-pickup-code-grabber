@@ -61,11 +61,15 @@ public final class HonorWriter {
 
     /** 新增一条待办（模块进程）：Provider 优先，失败回落 root 直写 */
     public static boolean write(Context ctx, String backend, String content, String title) {
+        return write(ctx, backend, null, content, title);
+    }
+
+    static boolean write(Context ctx, String backend, String code, String content, String title) {
         if (content == null || content.trim().isEmpty()) return false;
         String providerWhy;
         if (Honor.hasCalendarPermission(ctx)) {
             try {
-                if (insertViaProvider(ctx, content)) {
+                if (insertViaProvider(ctx, backend, code, content)) {
                     lastDiag = "OK（待办 Provider，已通知系统刷新）";
                     Log.i(TAG, "HONOR write: " + lastDiag);
                     return true;
@@ -78,7 +82,9 @@ public final class HonorWriter {
             providerWhy = "未授予日历权限";
         }
         boolean ok = writeWithFactory(
-                db -> sql -> TodoWriter.runSqlForPath(ctx, backend, db, sql), content);
+                db -> sql -> TodoWriter.runSqlForPath(ctx, backend, db, sql), content,
+                (db, schema, id) -> TodoLinks.remember(ctx, backend, code, db, schema.table,
+                        schema.textColumn(), id, content));
         if (ok) {
             // 直写不会触发 ContentObserver：补一次变更通知，桌面小组件才会跟着刷新
             notifyTasksChanged(ctx);
@@ -89,7 +95,15 @@ public final class HonorWriter {
     }
 
     /** 系统进程（冻结兜底）用：调用方自带 su 通道，只走直写 */
+    private interface Receipt {
+        void inserted(String db, HonorSql.Schema schema, long id);
+    }
+
     public static boolean writeWithFactory(RunnerFactory f, String content) {
+        return writeWithFactory(f, content, null);
+    }
+
+    private static boolean writeWithFactory(RunnerFactory f, String content, Receipt receipt) {
         if (f == null || content == null || content.trim().isEmpty()) return false;
         StringBuilder tried = new StringBuilder();
         for (String db : Honor.todoDbCandidates()) {
@@ -99,7 +113,7 @@ public final class HonorWriter {
                 tried.append(db).append("：").append(s.describe()).append("；");
                 continue;
             }
-            String out = f.forDb(db).run(".timeout 5000\n" + sql);
+            String out = f.forDb(db).run(".bail on\n.timeout 5000\n" + sql);
             if (out == null) {
                 // v4.1.0：这里原来只写「su 通道不可用」，把真正的失败原因
                 // （NOT NULL constraint failed / no such column / database is locked）
@@ -108,6 +122,7 @@ public final class HonorWriter {
                 continue;
             }
             if (out.contains(HonorSql.OK)) {
+                if (receipt != null) receipt.inserted(db, s, TodoMatch.insertedRow(out));
                 lastDiag = "OK（su 直写 " + db + " / " + s.table + "）";
                 Log.i(TAG, "HONOR write: " + lastDiag);
                 return true;
@@ -123,6 +138,10 @@ public final class HonorWriter {
     /** 标记已取件（模块进程）：Provider 优先，失败回落直写 */
     public static boolean markDone(Context ctx, String backend, String code) {
         if (code == null || code.trim().isEmpty()) return false;
+        if (!TodoLinks.hasReceipt(ctx, backend, code)) {
+            lastDiag = "缺少目标待办回执，跳过系统待办修改";
+            return false;
+        }
         if (Honor.hasCalendarPermission(ctx)) {
             try {
                 ContentValues v = new ContentValues();
@@ -131,8 +150,7 @@ public final class HonorWriter {
                 v.put("modify_time", System.currentTimeMillis());
                 v.put("dirty", 1);
                 int n = ctx.getContentResolver().update(TASKS_URI, v,
-                        "title LIKE ? AND complete=0 AND delete_flag=0",
-                        new String[]{"%" + code + "%"});
+                        providerCompletionMatch(ctx, backend, code) + " AND complete=0 AND delete_flag=0", null);
                 if (n > 0) {
                     lastDiag = "OK（待办 Provider 标记完成 " + n + " 条）";
                     return true;
@@ -142,18 +160,26 @@ public final class HonorWriter {
             }
         }
         boolean ok = markDoneWithFactory(
-                db -> sql -> TodoWriter.runSqlForPath(ctx, backend, db, sql), code);
+                db -> sql -> TodoWriter.runSqlForPath(ctx, backend, db, sql), code, ctx, backend);
         if (ok) notifyTasksChanged(ctx);
         return ok;
     }
 
-    public static boolean markDoneWithFactory(RunnerFactory f, String code) {
+    /** A code alone cannot establish ownership of a system task. */
+    @Deprecated public static boolean markDoneWithFactory(RunnerFactory f, String code) {
+        return false;
+    }
+
+    private static boolean markDoneWithFactory(RunnerFactory f, String code, Context ctx, String backend) {
         if (f == null || code == null || code.trim().isEmpty()) return false;
         for (String db : Honor.todoDbCandidates()) {
             HonorSql.Schema s = schema(f, db);
-            String sql = HonorSql.doneSql(s, code);
+            String owned = ctx == null ? null : TodoLinks.where(ctx, backend, code, db,
+                    s.table, s.textColumn(), "rowid");
+            if ("0".equals(owned)) continue;
+            String sql = HonorSql.doneSql(s, code, owned);
             if (sql == null) continue;
-            String out = f.forDb(db).run(".timeout 5000\n" + sql);
+            String out = f.forDb(db).run(".bail on\n.timeout 5000\n" + sql);
             if (out == null) continue;
             // 0 行也算成功：库里可能本来就没有这条待办（用户已手动删掉）
             lastDiag = "OK（标记完成 " + db + " / " + s.table + "）";
@@ -170,8 +196,7 @@ public final class HonorWriter {
             Cursor c = null;
             try {
                 c = ctx.getContentResolver().query(TASKS_URI, new String[]{"_id"},
-                        "title LIKE ? AND complete=0 AND delete_flag=0",
-                        new String[]{"%" + code + "%"}, null);
+                        providerMatch(ctx, backend, code) + " AND complete=0 AND delete_flag=0", null, null);
                 if (c != null && c.getCount() > 0) return true;
             } catch (Throwable t) {
                 Log.w(TAG, "HONOR exists provider: " + t);
@@ -209,8 +234,7 @@ public final class HonorWriter {
             Cursor c = null;
             try {
                 c = ctx.getContentResolver().query(TASKS_URI, new String[]{"_id"},
-                        "title LIKE ? AND delete_flag=0",
-                        new String[]{"%" + code + "%"}, null);
+                        providerMatch(ctx, backend, code) + " AND delete_flag=0", null, null);
                 if (c != null && c.getCount() > 0) return true;
             } catch (Throwable t) {
                 Log.w(TAG, "HONOR existsAlive provider: " + t);
@@ -269,7 +293,17 @@ public final class HonorWriter {
      * 行字段仍然自己填（和直写同一套），填完再按 uuid 查回来确认真的落库——
      * Provider 悄悄丢列时不会报错，只会「插入成功但查不到」。
      */
-    private static boolean insertViaProvider(Context ctx, String content) {
+    private static String providerMatch(Context ctx, String backend, String code) {
+        String owned = TodoLinks.where(ctx, backend, code, Honor.DB_TASK, "Tasks", "title", "_id");
+        return owned == null ? TodoMatch.legacyClause("title", code) : owned;
+    }
+
+    private static String providerCompletionMatch(Context ctx, String backend, String code) {
+        String owned = TodoLinks.where(ctx, backend, code, Honor.DB_TASK, "Tasks", "title", "_id");
+        return owned == null ? "0" : owned;
+    }
+
+    private static boolean insertViaProvider(Context ctx, String backend, String code, String content) {
         ContentResolver cr = ctx.getContentResolver();
         String uuid = HonorSql.dollarUuid();
         long now = System.currentTimeMillis();
@@ -305,11 +339,16 @@ public final class HonorWriter {
         Uri u = cr.insert(TASKS_URI, v);
         if (u == null) return false;
         // 校验：Provider 可能把 uuid 换成自己的，也可能悄悄丢列。先按返回的 Uri 查，
-        // 查不到再按标题查——两条都查不到才认为失败，避免「Provider 写成功又回落直写」造成重复待办。
+        // 查不到再按本次生成的 uuid 和正文查，不能把同名的其他待办认领为自己的。
         Cursor c = null;
         try {
-            c = cr.query(u, new String[]{"_id"}, null, null, null);
-            if (c != null && c.getCount() > 0) return true;
+            long returnedId = android.content.ContentUris.parseId(u);
+            c = cr.query(u, new String[]{"_id", "title"}, null, null, null);
+            if (returnedId > 0 && c != null && c.getCount() == 1 && c.moveToFirst()
+                    && c.getLong(0) == returnedId && content.equals(c.getString(1))) {
+                TodoLinks.remember(ctx, backend, code, Honor.DB_TASK, "Tasks", "title", c.getLong(0), content);
+                return true;
+            }
         } catch (Throwable t) {
             Log.w(TAG, "HONOR verify by uri: " + t);
         } finally {
@@ -317,8 +356,10 @@ public final class HonorWriter {
         }
         c = null;
         try {
-            c = cr.query(TASKS_URI, new String[]{"_id"}, "title=?", new String[]{content}, null);
-            return c != null && c.getCount() > 0;
+            c = cr.query(TASKS_URI, new String[]{"_id"}, "uuid=? AND title=?", new String[]{uuid, content}, null);
+            if (c == null || !c.moveToFirst()) return false;
+            TodoLinks.remember(ctx, backend, code, Honor.DB_TASK, "Tasks", "title", c.getLong(0), content);
+            return true;
         } finally {
             if (c != null) c.close();
         }

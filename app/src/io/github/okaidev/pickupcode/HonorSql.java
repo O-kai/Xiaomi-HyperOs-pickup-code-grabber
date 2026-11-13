@@ -333,6 +333,7 @@ public final class HonorSql {
                 .append(" (").append(cols).append(") VALUES (").append(vals).append(");\n")
                 .append("SELECT CASE WHEN changes() > 0 THEN '").append(OK)
                 .append("' ELSE '").append(NOOP).append("' END;\n");
+        out.append(TodoMatch.CAPTURE_ROW_SQL);
         // 日历时间轴：真机每条待办都有一条 Instances，缺了可能列表里有、日历里看不见
         if (hasUuid && s.has("due_date") && s.tables.contains("Instances")) {
             out.append("INSERT INTO Instances (task_id, task_uuid, begin, end, startDay, endDay,")
@@ -350,7 +351,19 @@ public final class HonorSql {
      * <p>完成语义按列自适应：{@code finish_time}（ColorOS 系）→ {@code completed}（AOSP）
      * → {@code complete}（荣耀真机，另写 {@code date_completed}）→ {@code status}。
      */
-    public static String doneSql(Schema s, String code) {
+    /** Without a target receipt, generate a no-op instead of touching matching user tasks. */
+    @Deprecated public static String doneSql(Schema s, String code) {
+        return doneSql(s, code, null);
+    }
+
+    /** For a verified row receipt; callers must supply the actual inserted target ID/content. */
+    public static String doneSqlForTarget(Schema s, long rowId, String content) {
+        if (s == null || !s.usable() || s.textColumn() == null || rowId <= 0 || content == null) return null;
+        return doneSql(s, null, "(rowid=" + rowId + " AND " + s.textColumn()
+                + "=" + TodoMatch.quote(content) + ")");
+    }
+
+    static String doneSql(Schema s, String code, String ownedWhere) {
         if (s == null || !s.usable()) return null;
         String text = s.textColumn();
         String done = s.doneColumn();
@@ -380,7 +393,7 @@ public final class HonorSql {
         else if ("completed".equals(done)) where.append("completed=0 AND ");
         else if ("complete".equals(done)) where.append("complete=0 AND ");
 
-        String like = likeClause(text, code);
+        String like = ownedWhere == null ? "0" : ownedWhere;
         if (like == null) return null;
         return "UPDATE " + s.table + " SET " + set + " WHERE " + where + like + ";\n";
     }
@@ -396,7 +409,7 @@ public final class HonorSql {
         if (s.has("finish_time")) where.append("finish_time IS NULL AND ");
         else if (s.has("completed")) where.append("completed=0 AND ");
         else if (s.has("complete")) where.append("complete=0 AND ");
-        String like = likeClause(text, code);
+        String like = TodoMatch.legacyClause(text, code);
         if (like == null) return null;
         return "SELECT COUNT(*) FROM " + s.table + " WHERE " + where + like + ";\n";
     }
@@ -431,11 +444,6 @@ public final class HonorSql {
         String d = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA)
                 .format(new java.util.Date());
         return "others_" + t + "_" + d + "_10FF03FF";
-    }
-
-    private static String likeClause(String column, String code) {
-        if (column == null) return null;
-        return column + " LIKE '%" + likeEscape(escape(code)) + "%' ESCAPE '\\'";
     }
 
     private static int add(StringBuilder cols, StringBuilder vals, int n,

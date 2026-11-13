@@ -38,22 +38,6 @@ public class SystemDirectWriter {
     private static final String SQLITE = RuntimePaths.SQLITE;
 
     /** 开关标志文件（可变副本，设置页写入）：/data/local/tmp/pickup_sqlite/enable_sys_direct_write */
-    private static final String FLAG_TMP = "/data/local/tmp/pickup_sqlite/enable_sys_direct_write";
-    /** APK 内只读默认值文件（构建产物，内容恒为 "0" 或不存在 = 关） */
-    private static final String FLAG_ASSET = "enable_sys_direct_write";
-
-    /**
-     * 开关探测缓存。
-     *
-     * <p>v4.0.6：原来「每进程一次」——用户在设置里改了开关，必须重启才生效。
-     * 现在改成短 TTL（5 秒）+ 直接读文件优先：先试普通文件读（system_server 有
-     * /data/local/tmp 的执行位、文件 644，能直接读），读不到才回落 su。
-     * 改开关最多 5 秒生效，也不会每条短信都起一个 su。
-     */
-    private static volatile Boolean enabledCache = null;
-    private static volatile long enabledCacheAt = 0L;
-    private static final long FLAG_TTL_MS = 5_000L;
-
     /** 黑名单默认词（无模块 App 偏好可用时按此过滤；唯一来源在 TodoWriter） */
     private static final String[] DEFAULT_BLACKLIST =
             TodoWriter.DEFAULT_BLACKLIST.split("[,，、;；\\s]+");
@@ -62,81 +46,18 @@ public class SystemDirectWriter {
     private static volatile String lastFingerprint = "";
     private static volatile long lastWriteAt = 0L;
 
-    /**
-     * v3.1.0：跨进程配置快照（官方规则 / 黑名单 / 模板 / 写入目标）的进程内缓存。
-     * 兜底通道每条短信都会走到本方法，若每次都读文件 + 重新解析 + 重跑 21 条冒烟用例会明显拖慢，
-     * 故做缓存。但【不能永久缓存】——com.android.providers.telephony 是长驻进程，
-     * 可存活数天，用户改了设置后不重启就永远读不到新值。
-     * 因此改为：按 TTL 过期（30 分钟）后重读，既避免每次开销，又不会长期吃陈旧配置。
-     */
-    private static volatile ProcessSync.State stateCache = null;
-    private static volatile long stateCacheAt = 0L;
-    private static final long STATE_CACHE_TTL_MS = 30L * 60 * 1000;
-
-    /** v3.1.0：读取并缓存跨进程配置快照（按 TTL 过期，见 stateCache 注释） */
-    private static ProcessSync.State loadStateOnce() {
-        ProcessSync.State c = stateCache;
-        if (c != null && System.currentTimeMillis() - stateCacheAt < STATE_CACHE_TTL_MS) {
-            return c;
-        }
-        synchronized (SystemDirectWriter.class) {
-            if (stateCache == null
-                    || System.currentTimeMillis() - stateCacheAt >= STATE_CACHE_TTL_MS) {
-                stateCache = ProcessSync.load();
-                stateCacheAt = System.currentTimeMillis();
-            }
+    /** Cache by the framework snapshot, so disabled switches apply on the next event. */
+    private static ProcessSync.State stateCache;
+    private static String stateSnapshot;
+    private static synchronized ProcessSync.State loadStateOnce() {
+        String snapshot = HookConfig.snapshot();
+        if (stateCache == null || !snapshot.equals(stateSnapshot)) {
+            stateCache = ProcessSync.decode(snapshot);
+            stateSnapshot = snapshot;
         }
         return stateCache;
     }
-
-    /** 兜底写入总开关（见类注释）：读 /data/local/tmp 标志，回落 APK assets 默认值 */
-    public static boolean enabled(Context ctx) {
-        Boolean c = enabledCache;
-        if (c != null && System.currentTimeMillis() - enabledCacheAt < FLAG_TTL_MS) return c;
-        synchronized (SystemDirectWriter.class) {
-            if (enabledCache != null
-                    && System.currentTimeMillis() - enabledCacheAt < FLAG_TTL_MS) {
-                return enabledCache;
-            }
-            boolean v = readFlag(ctx);
-            if (enabledCache == null || enabledCache != v) {
-                Log.i(TAG, "SYS-WRITE enabled=" + v + " (切换已生效，无需重启)");
-            }
-            enabledCache = v;
-            enabledCacheAt = System.currentTimeMillis();
-            return v;
-        }
-    }
-
-    private static boolean readFlag(Context ctx) {
-        // 1) 直接读文件：不经过 su，5 秒一次的探测足够便宜
-        java.io.File f = new java.io.File(FLAG_TMP);
-        try {
-            if (f.isFile() && f.canRead()) {
-                byte[] buf = new byte[8];
-                try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
-                    int n = in.read(buf);
-                    if (n > 0) {
-                        String v = new String(buf, 0, n,
-                                java.nio.charset.StandardCharsets.UTF_8).trim();
-                        if (v.equals("1")) return true;
-                        if (v.equals("0")) return false;
-                    }
-                }
-            } else if (!f.exists()) {
-                return false;   // 文件不存在 = 没开过，语义就是「关」
-            }
-        } catch (Throwable ignored) { }
-
-        // 2) 读不到再问 su
-        try {
-            String[] r = runShortCmd(ctx, "cat " + FLAG_TMP, 8);
-            if (r != null && r[0] != null && r[0].trim().equals("1")) return true;
-            if (r != null && r[0] != null && r[0].trim().equals("0")) return false;
-        } catch (Throwable ignored) { }
-        // 3) 都不行：维持「关」。读不到状态时绝不放行直写通道
-        return false;
-    }
+    public static boolean enabled(Context ctx) { return loadStateOnce().sysDirectWrite; }
 
     public static void fallback(Context ctx, String sender, String body) {
         try {
@@ -209,7 +130,7 @@ public class SystemDirectWriter {
             String fp = sender + "|" + body.hashCode();
             long now = System.currentTimeMillis();
             if (fp.equals(lastFingerprint) && now - lastWriteAt < 10000L) {
-                XposedEntry.log("SYS-WRITE throttle skip: " + fp);
+                ModuleLog.log("SYS-WRITE throttle skip: " + fp);
                 return;
             }
 
@@ -231,7 +152,7 @@ public class SystemDirectWriter {
             }
             if (targets.isEmpty()) {
                 // 一个待办目标都没有：兜底通道也不能偷偷写
-                XposedEntry.log("SYS-WRITE skip: empty target list");
+                ModuleLog.log("SYS-WRITE skip: empty target list");
                 return;
             }
             String source = TodoWriter.resolveSource(sender, body);
@@ -251,7 +172,7 @@ public class SystemDirectWriter {
                     HonorWriter.RunnerFactory f = d -> sql -> runSqlForOutput(ctx, d, sql);
                     for (String code : codes) {
                         if (HonorWriter.existsWithFactory(f, code)) {
-                            XposedEntry.log("SYS-WRITE dedup skip: " + backend + " " + code);
+                            ModuleLog.log("SYS-WRITE dedup skip: " + backend + " " + code);
                             continue;
                         }
                         String content = TodoWriter.buildContent(mode, customTpl, code, source, place, time);
@@ -260,7 +181,7 @@ public class SystemDirectWriter {
                         }
                     }
                     totalWrote += wrote;
-                    XposedEntry.log("SYS-WRITE honor backend=" + backend + " codes=" + wrote
+                    ModuleLog.log("SYS-WRITE honor backend=" + backend + " codes=" + wrote
                             + " diag=" + HonorWriter.getLastDiag());
                     continue;
                 }
@@ -270,7 +191,7 @@ public class SystemDirectWriter {
                     String content = TodoWriter.buildContent(mode, customTpl, code, source, place, time);
                     String title = TodoWriter.buildTitle(code, content);
                     if (exists(ctx, backend, db, code)) {
-                        XposedEntry.log("SYS-WRITE dedup skip: " + backend + " " + code);
+                        ModuleLog.log("SYS-WRITE dedup skip: " + backend + " " + code);
                         continue;
                     }
                     sql.append(NotesBackend.insertSqlOf(backend, content, title));
@@ -279,14 +200,14 @@ public class SystemDirectWriter {
                 if (wrote == 0) continue;
                 int rc = runSqlFile(ctx, sql.toString(), backend);
                 totalWrote += wrote;
-                XposedEntry.log("SYS-WRITE backend=" + backend + " codes=" + wrote + " rc=" + rc);
+                ModuleLog.log("SYS-WRITE backend=" + backend + " codes=" + wrote + " rc=" + rc);
             }
             if (totalWrote == 0) return;
 
             lastFingerprint = fp;
             lastWriteAt = now;
         } catch (Throwable t) {
-            XposedEntry.log("SYS-WRITE err: " + t);
+            ModuleLog.log("SYS-WRITE err: " + t);
         }
     }
 
@@ -315,7 +236,7 @@ public class SystemDirectWriter {
             String effBackend = (backend == null || backend.trim().isEmpty())
                     ? NotesBackend.propsBackend() : backend.trim();
             String db = NotesBackend.dbPathOf(effBackend);
-            XposedEntry.log("SYS-WRITE backend=" + effBackend + " db=" + db);
+            ModuleLog.log("SYS-WRITE backend=" + effBackend + " db=" + db);
             for (String suBin : suBins) {
                 String cmd = suBin + " -M -c \"id; " + NotesBackend.chmodCmdOf(effBackend)
                         + "LD_LIBRARY_PATH=" + LIBS + " " + SQLITE + " " + db

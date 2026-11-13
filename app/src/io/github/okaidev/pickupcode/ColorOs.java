@@ -11,10 +11,7 @@ import java.util.Set;
 /**
  * ColorOS / OPPO 系机型的识别与定位（v4.0.3）。
  *
- * <p><b>为什么单独一个类</b>：{@link ColorOsProviderWake} 里引用了 LSPosed 的
- * {@code XposedHelpers}，那个类只在注入环境里存在。App 自己的进程要判断
- * 「我是不是 ColorOS」时不能碰它，否则 App 一启动就 {@code NoClassDefFoundError}。
- * 所以把「纯判断」抽到这里，谁都能用。
+ * <p>ROM 探测不加载仅由框架提供的 Hook API，可安全用于普通 App 进程。
  *
  * <p><b>为什么要判断</b>：ColorOS 的 Provider 启动门禁是它独有的实现，
  * 其他系统根本没有这个类。体检里如果对所有人都加一项「ColorOS 唤醒」，

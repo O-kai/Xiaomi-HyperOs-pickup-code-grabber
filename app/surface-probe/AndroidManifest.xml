@@ -1,0 +1,17 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application android:label="取件卡片测试" tools:replace="android:label">
+        <receiver android:name=".SurfacePreviewActivity$DismissReceiver" android:exported="false" />
+        <meta-data android:name="com.xiaomi.xms.BUILD_TYPE_DEBUG" android:value="true" />
+        <provider android:name=".TodoProvider" android:enabled="false" android:exported="false"
+            tools:replace="android:exported" />
+        <activity android:name=".LauncherActivity" android:enabled="false" />
+        <activity android:name=".SurfacePreviewActivity" android:exported="true"
+            android:theme="@style/AppTheme.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

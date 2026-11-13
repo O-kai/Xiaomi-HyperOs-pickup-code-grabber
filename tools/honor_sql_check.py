@@ -10,7 +10,7 @@
 
     # 1) 生成几种表结构的 SQL（HonorSql 是纯 Java，不需要 Android SDK）
     javac -encoding UTF-8 -d out \\
-        app/src/io/github/okaidev/pickupcode/HonorSql.java test/HonorSqlTest.java
+        app/src/io/github/okaidev/pickupcode/{TodoMatch,HonorSql}.java test/HonorSqlTest.java
     java -cp out HonorSqlTest --dump /tmp/honor-sql
 
     # 2) 用真实 sqlite 逐条执行并断言
@@ -68,6 +68,7 @@ SCENARIOS = {
             " task_uuid TEXT, begin INTEGER NOT NULL DEFAULT 0, end INTEGER NOT NULL DEFAULT 0,"
             " startDay INTEGER NOT NULL DEFAULT 0, endDay INTEGER NOT NULL DEFAULT 0,"
             " startMinute INTEGER NOT NULL DEFAULT 0, endMinute INTEGER NOT NULL DEFAULT 0)",
+            "INSERT INTO Instances(_id,task_id) VALUES(9,999)",
             "CREATE TABLE Tasks(_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, uuid TEXT NOT NULL,"
             " title TEXT, body TEXT, html_content TEXT, search_content TEXT, complete INTEGER NOT NULL DEFAULT 0,"
             " folder_uuid TEXT, account_uuid TEXT, dirty INTEGER NOT NULL DEFAULT 0,"
@@ -109,12 +110,12 @@ def split_sql(text):
 
 
 def run(db, script):
-    """逐条执行，返回最后一条 SELECT 的结果（模拟 sqlite3 CLI 的批处理）"""
-    result = None
+    """逐条执行并汇总 SELECT 结果（与 sqlite3 CLI 连续输出相同）。"""
+    result = []
     for stmt in split_sql(script):
         cur = db.execute(stmt)
         if cur.description:
-            result = cur.fetchall()
+            result.extend(cur.fetchall())
     return result
 
 
@@ -141,8 +142,9 @@ def main(directory):
         check(ins != "NULL", "生成了 INSERT")
         check("INSERT INTO %s " % table in ins, "打到正确的表 %s" % table)
         marker = run(db, ins)
-        check(marker is not None and marker[-1][0] == "PICKUP_OK",
-              "changes() 标记为 PICKUP_OK：%r" % (marker,))
+        check(("PICKUP_OK",) in marker, "changes() 标记为 PICKUP_OK：%r" % (marker,))
+        rowid = db.execute("SELECT rowid FROM %s" % table).fetchone()[0]
+        check(("PICKUP_ROW:%s" % rowid,) in marker, "回执定位待办行，不是 Instances 行")
         check(db.execute("SELECT COUNT(*) FROM %s" % table).fetchone()[0] == 1, "恰好写入 1 行")
         got = db.execute("SELECT %s FROM %s" % (text_col, table)).fetchone()[0]
         check(got == CONTENT, "正文完整（含引号 / 百分号 / 下划线）")
@@ -167,16 +169,16 @@ def main(directory):
     check(read(directory, "no_table", "done") == "NULL", "拒绝生成 DONE")
     check(read(directory, "no_table", "exists") == "NULL", "拒绝生成 EXISTS")
 
-    print("== LIKE 转义（取件码里带 % 和 _）")
+    print("== 非法取件码拒绝（含 % 和 _）")
     db = build("escape")
     db.execute("INSERT INTO Tasks(content, completed, deleted) VALUES('1x2y3', 0, 0)")
     db.execute("INSERT INTO Tasks(content, completed, deleted) VALUES('1%2_3 真码', 0, 0)")
-    check(run(db, read(directory, "escape", "exists"))[-1][0] == 1,
-          "通配符不当真：只匹配字面量那条")
+    check(run(db, read(directory, "escape", "exists"))[-1][0] == 0,
+          "非法码不会用于查找待办")
     run(db, read(directory, "escape", "done"))
     rows = db.execute("SELECT content, completed FROM Tasks ORDER BY _id").fetchall()
     check(rows[0][1] == 0, "1x2y3 未被误标完成")
-    check(rows[1][1] == 1, "字面量那条被正确标记完成")
+    check(rows[1][1] == 0, "非法码不会完成任何一条待办")
 
     print()
     if FAIL:

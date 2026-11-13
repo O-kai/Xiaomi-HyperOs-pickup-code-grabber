@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/O-kai/Xiaomi-HyperOs-pickup-code-grabber?style=flat-square)](https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases)
 [![Android](https://img.shields.io/badge/Android-9.0%2B-3ddc84?style=flat-square&logo=android)](#环境要求)
-![Version](https://img.shields.io/badge/version-V4.0.3-5b6b8c?style=flat-square)
+![Version](https://img.shields.io/badge/version-V4.4.9-5b6b8c?style=flat-square)
 
 一个跑在 **LSPosed** 上的取件码聚合模块：从短信和 App 通知里认出取件码，
 存进本地库，顺手同步到系统待办，并给桌面一个小部件。
@@ -38,6 +38,13 @@
 
 ## 它到底解决什么
 
+开发版补充：[菜鸟 / 拼多多 App 包裹数据采集](docs/app-parcel-hooks.md)，用于 App 不发送取件码通知的情况。
+默认关闭，版本与覆盖范围见适配说明。
+
+4.2.0 已全面迁到 **libxposed API 102**，旧框架需先升级。[入口、配置、构建和升级说明](docs/modern-xposed.md)。
+
+4.3.0 可在“取件记录 → 推送上岛”多选待取包裹；背屏独立显示全部待取件，全部取完后自动撤下。拼多多加载“取快递”汇总或柜机详情时补齐明确的驿站地址。[推送与背屏逻辑](docs/pending-reminders.md)。
+
 取件短信散在驿站、快递柜、电商平台各自的通道里，格式五花八门（`12-3-4567`、`A88123`……），
 翻找费劲，过期了才发现。这个模块做三件事：
 
@@ -55,8 +62,8 @@
 |---|---|
 | 系统 | HyperOS / MIUI、ColorOS 16（一加 / OPPO / realme），或荣耀 MagicOS 7+；Android 9 及以上 |
 | Root | Magisk 或 KernelSU（需要 `su`；写入系统待办依赖 root。荣耀侧给日历权限后可不 root 写入） |
-| 框架 | LSPosed 或兼容实现（Vector 等） |
-| 作用域 | 必勾 4 项：**系统框架**（LSPosed 2.x 叫「系统框架 / system」，旧版叫「Android 系统 / android」，两者等价，勾一个即可）、**电话**、**短信**（小米/一加是 `com.android.mms`，荣耀是 `com.hihonor.mms`）、**电话和短信存储**（`com.android.providers.telephony`）。；「小米笔记」和重复的「Android 系统」不再推荐勾选（勾着也不影响） |
+| 框架 | 提供现代 libxposed API 102 的 LSPosed 或兼容实现 |
+| 作用域 | 必勾 4 项：**系统框架（system）**，API 102 中普通包 `android` 不能替代它、**电话**、**短信**（小米/一加是 `com.android.mms`，荣耀是 `com.hihonor.mms`）、**电话和短信存储**（`com.android.providers.telephony`）。；「小米笔记」和重复的「Android 系统」不再推荐勾选（勾着也不影响） |
 
 > ⚠️ 作用域里的**框架那一项**（新版叫「系统框架」、旧版叫「Android 系统」）最容易被漏掉——
 > 漏勾它，模块会显示已激活却什么都抓不到。勾完必须**重启手机**。
@@ -84,9 +91,16 @@
 **取件记录** —— 全部 / 待取 / 已取三种筛选 + 搜索。超过一天没取的标「滞留 N 天」，
 超过七天写「滞留 7 天以上」——只是提醒，**绝不自动删除**。
 
-**桌面小组件** —— 每行固定高度、一行一条，内容少时下面留白（不会把一条拉高撑满整个组件）。
+**桌面小组件** —— 大字取件码、第二行地点、独立完成按钮，自动适配浅色/深色与组件尺寸。内容少时保留留白。
+提供「桌面标准」和「负一屏紧凑」两种：桌面版按高度展示完整记录，在 172dp 高度、标准字号下显示三条；紧凑版保留两条窗口。其余记录可以滑动查看。负一屏组件仍需小米小部件中心收录或测试环境，声明尺寸不等于已支持实际添加。
 外观设置里「显示取件码」是上级开关：关掉后整行收起，只显示「N 个待取 · M 个已取」；
 「显示取件地点」在它下面，码不显示时这一项自动失效（保留你的选择，重新打开码就恢复）。点标题进 App。
+
+开发版加入小米超级岛标准通知与负一屏小部件注册，按系统能力兼容 OS2 / OS3 / OS4；17 Pro Max 的 OS4 实机已验证正面上岛、独立背屏卡片与息屏件数页。设置中「超级岛与背屏」提供通知设置、HyperCeiler 解锁说明及 root 开启本应用背屏的入口；实际展示还取决于权限、鉴权与背屏开关，详见 [接入条件与验证结果](docs/xiaomi-surfaces.md)。
+
+**App 内包裹提取** —— 菜鸟、拼多多自己加载物流数据时提取，没有定时轮询；App 没加载新数据就不会更新。拼多多仅保存待取且有明确有效取件码的包裹，跳过空码、手机号、掩码和其他物流状态。在「更多选项」或进阶设置开启，并在 LSPosed 勾选对应 App 后重启对应 App。
+
+**4.4.9 数据修复** —— 入库去重和插入使用同一事务；已取事件采用固定 24 小时重放窗口，之后允许相同取件码的新事件入库。新写入的系统待办按目标 ID 和正文完成；旧版本或冻结兜底写入的系统待办缺少关联 ID，需要在系统待办中手动完成，App 内标记已取仍正常。详见 [去重策略与历史兼容限制](docs/audit-data-integrity.md)。
 
 **简洁模式** —— 首页只有待取件、规则集、写入目标与格式、链路测试，外加一个「更多选项」入口。
 适合只想「看码、取件」的人：不用在四个 Tab 之间找东西。
