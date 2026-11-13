@@ -7,7 +7,6 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/O-kai/Xiaomi-HyperOs-pickup-code-grabber?style=flat-square)](https://github.com/O-kai/Xiaomi-HyperOs-pickup-code-grabber/releases)
 [![Android](https://img.shields.io/badge/Android-9.0%2B-3ddc84?style=flat-square&logo=android)](#环境要求)
-![Version](https://img.shields.io/badge/version-V4.0.3-5b6b8c?style=flat-square)
 
 一个跑在 **LSPosed** 上的取件码聚合模块：从短信和 App 通知里认出取件码，
 存进本地库，顺手同步到系统待办，并给桌面一个小部件。
