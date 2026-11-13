@@ -96,7 +96,7 @@ public class WidgetDiagActivity extends Activity {
         // ---- 检查 1：布局能否 inflate ----
         Throwable layoutErr = null;
         try {
-            RemoteViews bare = new RemoteViews(getPackageName(), R.layout.widget_pickup_v4);
+            RemoteViews bare = new RemoteViews(getPackageName(), R.layout.widget_pickup_list);
             View v = bare.apply(this, new FrameLayout(this));
             layoutErr = null;
             Log.i(TAG, "自检: 裸布局 apply 成功 view=" + (v == null ? "null" : v.getClass().getName()));
@@ -112,7 +112,7 @@ public class WidgetDiagActivity extends Activity {
         String actionMsg = "内容与交互正常";
         try {
             RemoteViews full = PickupWidgetProvider.buildForDiag(this, null);
-            full.apply(this, new FrameLayout(this));
+            PickupWidgetProvider.applyPreview(this, full);
             Log.i(TAG, "自检: 完整 build apply 成功");
         } catch (Throwable t) {
             actionErr = t;
@@ -157,7 +157,7 @@ public class WidgetDiagActivity extends Activity {
 
     /** 用真实布局渲染一份小组件出来看看 */
     private void addLivePreview(UiKit.Palette P) {
-        TextView title = UiKit.text(this, "真实渲染（模拟 3 排格子高度）", 14.5f, P.navInk);
+        TextView title = UiKit.text(this, "真实布局预览（示例包裹）", 14.5f, P.navInk);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -172,9 +172,8 @@ public class WidgetDiagActivity extends Activity {
             RemoteViews rv = PickupWidgetProvider.buildForDiag(this, null);
             // apply() 用的是与桌面同一套受限制的 inflater（所以它能抓到
             // 「不允许 inflate 的控件」这类错误），并会真实执行所有 action。
-            // 容器固定 280dp 高 → 根布局 match_parent 撑满 → 行按权重均分，
-            // 于是「行高自适应、填满组件」的效果在这里能直接看到。
-            View v = rv.apply(this, host);
+            // Fixed viewport, top-aligned rows; the remaining parcels stay scrollable.
+            View v = PickupWidgetProvider.applyPreview(this, rv);
             if (v != null) {
                 host.addView(v, new android.widget.FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -186,9 +185,8 @@ public class WidgetDiagActivity extends Activity {
 
         // 说明
         TextView note = UiKit.text(this,
-                "每一行固定 40dp，一个一个往下排：内容少时下面留白，不会把行拉高；"
-                        + "组件更高时则多显示几行。放不下的整行直接不显示，"
-                        + "不会只显示半个取件码。",
+                "每一行至少 56dp，一个一个往下排：内容少时下面留白，不会把行拉高；"
+                        + "组件更高时则多显示几行，桌面和负一屏可以上下滑动查看其余包裹。",
                 12f, P.muteInk);
         note.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(
@@ -236,7 +234,7 @@ public class WidgetDiagActivity extends Activity {
     private String findBannedClasses() {
         String xml;
         try {
-            java.io.InputStream in = getResources().openRawResource(R.layout.widget_pickup_v4);
+            java.io.InputStream in = getResources().openRawResource(R.layout.widget_pickup_list);
             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
             byte[] buf = new byte[8192];
             int n;

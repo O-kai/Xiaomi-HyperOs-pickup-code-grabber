@@ -26,6 +26,18 @@ public final class WidgetPresence {
     public static final String PROVIDER_CLASS =
             "io.github.okaidev.pickupcode.PickupWidgetProvider";
 
+    public static final String XIAOMI_PROVIDER_CLASS =
+            "io.github.okaidev.pickupcode.XiaomiPickupWidgetProvider";
+
+    static int[] ids(Context context) {
+        AppWidgetManager manager = AppWidgetManager.getInstance(context);
+        int[] nativeIds = manager.getAppWidgetIds(new ComponentName(context.getPackageName(), PROVIDER_CLASS));
+        int[] xiaomiIds = manager.getAppWidgetIds(new ComponentName(context.getPackageName(), XIAOMI_PROVIDER_CLASS));
+        int[] ids = java.util.Arrays.copyOf(nativeIds, nativeIds.length + xiaomiIds.length);
+        System.arraycopy(xiaomiIds, 0, ids, nativeIds.length, xiaomiIds.length);
+        return ids;
+    }
+
     /**
      * 桌面上还有没有本模块的小组件。
      *
@@ -35,9 +47,7 @@ public final class WidgetPresence {
     public static boolean has(Context context) {
         if (context == null) return false;
         try {
-            AppWidgetManager mgr = AppWidgetManager.getInstance(context);
-            int[] ids = mgr.getAppWidgetIds(
-                    new ComponentName(context.getPackageName(), PROVIDER_CLASS));
+            int[] ids = ids(context);
             return ids != null && ids.length > 0;
         } catch (Throwable t) {
             return false;
@@ -58,11 +68,13 @@ public final class WidgetPresence {
     public static boolean setEnabled(Context context, boolean enabled) {
         if (context == null) return false;
         try {
-            ComponentName cn = new ComponentName(context.getPackageName(), PROVIDER_CLASS);
-            context.getPackageManager().setComponentEnabledSetting(cn,
-                    enabled ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                            : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                    android.content.pm.PackageManager.DONT_KILL_APP);
+            for (String provider : new String[]{PROVIDER_CLASS, XIAOMI_PROVIDER_CLASS}) {
+                ComponentName cn = new ComponentName(context.getPackageName(), provider);
+                context.getPackageManager().setComponentEnabledSetting(cn,
+                        enabled ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                                : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        android.content.pm.PackageManager.DONT_KILL_APP);
+            }
             return true;
         } catch (Throwable t) {
             return false;

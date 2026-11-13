@@ -135,12 +135,56 @@ public class PickupListActivity extends Activity {
         countView = UiKit.text(this, "", 12, UiKit.INK3);
         header.addView(countView);
 
+        TextView push = UiKit.text(this, "推送上岛", 13, p.accentInk);
+        push.setPadding(dp(12), dp(8), 0, dp(8));
+        push.setMinHeight(dp(44));
+        push.setGravity(Gravity.CENTER);
+        push.setOnClickListener(v -> chooseNotificationParcels());
+        header.addView(push);
+
         TextView manage = UiKit.text(this, "管理", 13, p.accentInk);
         manage.setPadding(dp(12), dp(8), 0, dp(8));
         manage.setOnClickListener(v -> records.showManageDialog());
         header.addView(manage);
 
         return header;
+    }
+
+    private void chooseNotificationParcels() {
+        PickupRepository.get(this).pendingAsync(Integer.MAX_VALUE, pending -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (pending.isEmpty()) {
+                Toast.makeText(this, "暂无待取件", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            java.util.Set<String> chosen = NotificationSelection.ids(this);
+            boolean manual = NotificationSelection.manual(this);
+            String[] labels = new String[pending.size()];
+            boolean[] checked = new boolean[pending.size()];
+            for (int i = 0; i < pending.size(); i++) {
+                PickupRecord item = pending.get(i);
+                labels[i] = item.code + " · " + (empty(item.place) || "—".equals(item.place)
+                        ? item.source : item.place);
+                checked[i] = !manual || chosen.contains(Long.toString(item.id));
+            }
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("选择上岛包裹")
+                    .setMultiChoiceItems(labels, checked, (dialog, which, enabled) -> checked[which] = enabled)
+                    .setPositiveButton("推送所选", (dialog, which) -> {
+                        java.util.Set<String> ids = new java.util.HashSet<>();
+                        for (int i = 0; i < pending.size(); i++) if (checked[i]) ids.add(Long.toString(pending.get(i).id));
+                        NotificationSelection.save(this, ids);
+                        Notifier.pushSelected(this);
+                        Toast.makeText(this, ids.isEmpty() ? "已停止上岛，背屏仍显示全部待取件"
+                                : "已推送所选包裹，背屏仍显示全部待取件", Toast.LENGTH_SHORT).show();
+                    })
+                    .setNeutralButton("自动推送全部", (dialog, which) -> {
+                        NotificationSelection.automatic(this);
+                        Notifier.pushSelected(this);
+                        Toast.makeText(this, "已恢复自动推送全部待取件", Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton("取消", null).show();
+        });
     }
 
     /** 重建筛选分段（全部 / 待取 / 已取） */

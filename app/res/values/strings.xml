@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">取件码助手</string>
     <string name="widget_description">显示待取件码，可复制或标记已取件</string>
+    <string name="module_description">自动提取快递取件码，写入待办与小组件；支持小米超级岛和背屏</string>
 </resources>

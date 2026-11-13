@@ -4,7 +4,7 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 
-import de.robv.android.xposed.XposedBridge;
+
 
 /**
  * 通知转发桥（v2.9.0，4.0 Stage 0 改造）：
@@ -19,28 +19,35 @@ import de.robv.android.xposed.XposedBridge;
 public class NotiRelay {
 
     private static final String TAG = "PICKUPDEBUG";
+    private static final java.util.concurrent.ThreadPoolExecutor IO = new java.util.concurrent.ThreadPoolExecutor(
+            0, 1, 30, java.util.concurrent.TimeUnit.SECONDS,
+            new java.util.concurrent.ArrayBlockingQueue<>(16), runnable -> {
+                Thread thread = new Thread(runnable, "pickup-noti-relay");
+                thread.setDaemon(true);
+                return thread;
+            }, new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
     private static final Uri PROVIDER_URI =
             Uri.parse("content://io.github.okaidev.pickupcode.provider");
 
     /** 从 NMS 服务对象里反射取 system Context（调用 Provider 用） */
     private static Context nmsContext(Object svc) {
         try {
-            return (Context) de.robv.android.xposed.XposedHelpers.getObjectField(svc, "mContext");
+            return (Context) Reflect.getObjectField(svc, "mContext");
         } catch (Throwable t) {
             return null;
         }
     }
 
     /** 提取成功：伪短信上报（与短信同链路去重写入） */
-    public static void relayHit(de.robv.android.xposed.XC_MethodHook.MethodHookParam param,
+    public static void relayHit(Object service,
                                 String pkg, String text, java.util.List<String> codes) {
-        relayAsync(param, pkg, text, false, "NOTI-HIT codes=" + codes);
+        relayAsync(service, pkg, text, false, "NOTI-HIT count=" + codes.size());
     }
 
     /** 提取为空但含特征词：错题本上报（Provider 侧记录） */
-    public static void relayMissed(de.robv.android.xposed.XC_MethodHook.MethodHookParam param,
+    public static void relayMissed(Object service,
                                    String pkg, String text) {
-        relayAsync(param, pkg, text, true, "NOTI-MISSED");
+        relayAsync(service, pkg, text, true, "NOTI-MISSED");
     }
 
     /**
@@ -56,17 +63,17 @@ public class NotiRelay {
      * <p>改成后台线程后，通知照常显示，取件码稍后异步写入。
      * 代价是拿不到同步回执——所以结果只写日志，不影响功能。
      */
-    private static void relayAsync(de.robv.android.xposed.XC_MethodHook.MethodHookParam param,
+    private static void relayAsync(Object service,
                                    final String pkg, final String text,
                                    final boolean miss, final String logTag) {
-        final Object svc = param == null ? null : param.thisObject;
+        final Object svc = service;
         try {
-            new Thread(() -> {
+            IO.execute(() -> {
                 Bundle result = relay(svc, pkg, text, miss);
-                XposedBridge.log(TAG + ": " + logTag + " from " + pkg + " result=" + result);
-            }, "pickup-noti-relay").start();
+                ModuleLog.log(TAG + ": " + logTag + " from " + pkg + " accepted=" + (result != null && result.getInt("rc", -1) == 0));
+            });
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": relay thread err: " + t);
+            ModuleLog.log("Notification relay unavailable: " + t.getClass().getSimpleName());
         }
     }
 
@@ -74,7 +81,7 @@ public class NotiRelay {
         try {
             Context ctx = nmsContext(svc);
             if (ctx == null) {
-                XposedBridge.log(TAG + ": noti relay skip: no NMS context");
+                ModuleLog.log(TAG + ": noti relay skip: no NMS context");
                 return null;
             }
             Bundle extras = new Bundle();
@@ -84,7 +91,7 @@ public class NotiRelay {
             extras.putLong("ts", System.currentTimeMillis());
             return ctx.getContentResolver().call(PROVIDER_URI, "onSms", null, extras);
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": noti relay err: " + t);
+            ModuleLog.log("Notification relay failed: " + t.getClass().getSimpleName());
             return null;
         }
     }

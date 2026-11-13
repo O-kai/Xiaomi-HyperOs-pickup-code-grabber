@@ -448,58 +448,53 @@ public class NotesBackend {
                 + " 0, 1, 0, 0, 0, " + now + ", " + now + ");\n";
     }
 
-    /**
-     * LIKE 模式里的字面量转义（v3.1.0 新增）。
-     *
-     * 单引号转义（sqlEscapePub）只处理 '，但 LIKE 还有两个元字符：%（任意长）_（任意单字符）。
-     * 此前 markDone 入参未校验，传 % 就变成 LIKE '%%'，会批量标记该用户全部未完成待办。
-     * SQLite 用 ESCAPE 指定转义符，此处统一用反斜杠。
-     */
-    static String escapeLike(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    /** 标记已取件：只允许修改有目标回执的待办/笔记。 */
+    public static String markDoneSql(Context ctx, String code) {
+        String backend = detect(ctx);
+        return markDoneSqlOf(backend, code, TodoLinks.notesWhere(ctx, backend, code));
     }
 
-    /** LIKE 条件统一片段 */
-    private static String likeOf(String code) {
-        return " LIKE '%" + escapeLike(TodoWriter.sqlEscapePub(code)) + "%' ESCAPE '\\'";
+    /** A code alone is insufficient: retained as a safe no-op for old diagnostic callers. */
+    @Deprecated public static String markDoneSqlOf(String b, String code) {
+        return markDoneSqlOf(b, code, null);
     }
 
-    /** 标记已取件：按取件码定位未完成的待办/笔记 */
-    public static String markDoneSql(Context ctx, String code) { return markDoneSqlOf(detect(ctx), code); }
-
-    public static String markDoneSqlOf(String b, String code) {
+    static String markDoneSqlOf(String b, String code, String ownedWhere) {
         requireHonorWriter(b, "标记完成 SQL");
-        String pat = likeOf(code);
+        String match = ownedWhere == null ? "0" : ownedWhere;
         if (BACKEND_COLOROS_NOTE.equals(b)) {
             return "UPDATE rich_notes SET text = text || '（已取件）',"
                     + " summary_content = summary_content || '（已取件）',"
                     + " top_time = 0, update_time = strftime('%s','now')*1000"
-                    + " WHERE deleted = 0 AND text" + pat
+                    + " WHERE deleted = 0 AND " + match
                     + " AND text NOT LIKE '%已取件%';\n";
         }
         if (BACKEND_COLOROS_TODO.equals(b)) {
             return "UPDATE Tasks SET finish_time = strftime('%s','now')*1000,"
                     + " update_time = strftime('%s','now')*1000"
-                    + " WHERE deleted = 0 AND finish_time IS NULL AND content" + pat + ";\n";
+                    + " WHERE deleted = 0 AND finish_time IS NULL AND " + match + ";\n";
         }
         return "UPDATE todo SET is_finish=1, mark_finish_time=strftime('%s','now')*1000 "
-                + "WHERE is_finish=0 AND content" + pat + ";";
+                + "WHERE is_finish=0 AND " + match + ";";
     }
 
-    /** 体检/兜底用：目标表里是否已存在包含 code 的未完成待办（进程外去重） */
+    /** 体检/兜底用：目标表里是否已存在同一完整取件码的未完成待办（进程外去重） */
     public static String existsSqlOf(String b, String code) {
+        return existsSqlOf(b, code, null);
+    }
+
+    static String existsSqlOf(String b, String code, String ownedWhere) {
         requireHonorWriter(b, "去重查询");
-        String pat = likeOf(code);
+        String match = ownedWhere == null ? TodoMatch.legacyClause(TodoLinks.column(b), code) : ownedWhere;
         if (BACKEND_COLOROS_TODO.equals(b)) {
             return "SELECT COUNT(*) FROM Tasks WHERE deleted=0 AND finish_time IS NULL"
-                    + " AND content" + pat + ";";
+                    + " AND " + match + ";";
         }
         if (BACKEND_COLOROS_NOTE.equals(b)) {
-            return "SELECT COUNT(*) FROM rich_notes WHERE deleted=0 AND text" + pat
+            return "SELECT COUNT(*) FROM rich_notes WHERE deleted=0 AND " + match
                     + " AND text NOT LIKE '%已取件%';";
         }
-        return "SELECT COUNT(*) FROM todo WHERE is_finish=0 AND content" + pat + ";";
+        return "SELECT COUNT(*) FROM todo WHERE is_finish=0 AND " + match + ";";
     }
 
     /** 体检用：目标表存在性/count 探针 SQL */

@@ -4,10 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.InputStreamReader;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -114,6 +112,10 @@ public class TodoWriter {
      * 需要跨进程回执或区分「去重 / 失败」时用这个。
      */
     public static HandleResult handleDetailed(Context ctx, String sender, String body) {
+        return handleDetailed(ctx, sender, body, java.util.Collections.emptyList());
+    }
+
+    static HandleResult handleDetailed(Context ctx, String sender, String body, List<String> completedReplays) {
         // v3.0.0：记录发送方，供用户规则的 senderContains 过滤使用
         // v3.0.0：发送方以显式参数一路传递到提取引擎（避免并发串号）
         // 黑名单预检（12306/银行/广告等）
@@ -121,7 +123,12 @@ public class TodoWriter {
             Log.i(TAG, "blacklist skip: len=" + body.length());
             return new HandleResult(new ArrayList<>(), 0, 0, 0, "blacklisted", "");
         }
-        List<String> codes = PickupExtractor.extract(sender, body);
+        List<String> codes = new ArrayList<>(PickupExtractor.extract(sender, body));
+        int parsedCount = codes.size();
+        codes.removeAll(completedReplays);
+        if (parsedCount > 0 && codes.isEmpty()) {
+            return new HandleResult(codes, parsedCount, parsedCount, 0, "completed_replay", "");
+        }
         if (codes.isEmpty()) {
             // v4.1.0：错题本只收「有码形 token 但没认出来」的短信。
             //
@@ -138,6 +145,21 @@ public class TodoWriter {
             return new HandleResult(codes, 0, 0, 0, "no_code", "");
         }
 
+        return handleParsedDetailed(ctx, codes, resolveSource(sender, body), extractPlace(sender, body));
+    }
+
+    /** Structured app data already contains a code and place; do not reparse it as SMS. */
+    static HandleResult handleAppParcel(Context ctx, String pkg, AppParcelData.Event event) {
+        String body = "取件码 " + event.code + "｜" + event.place;
+        if (isBlacklisted(ctx, body)) {
+            return new HandleResult(new ArrayList<>(), 0, 0, 0, "blacklisted", "");
+        }
+        return handleParsedDetailed(ctx, java.util.Collections.singletonList(event.code),
+                AppParcelData.label(pkg), event.place);
+    }
+
+    private static HandleResult handleParsedDetailed(Context ctx, List<String> codes,
+                                                     String source, String place) {
         String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date());
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         // v4.0.3 第二轮：写入目标 = 系统待办 + 软件内部记录。
@@ -147,8 +169,6 @@ public class TodoWriter {
         final boolean noTodo = todoTargets.isEmpty();
 
         List<String> wrote = new ArrayList<>();
-        String place = extractPlace(sender, body);
-        String source = resolveSource(sender, body);
         StringBuilder dedupBuf = new StringBuilder();
         int dedupCount = 0;
         int failedCount = 0;
@@ -200,7 +220,7 @@ public class TodoWriter {
                 // 两个库各写一次；任何一个失败都算这次写入不完全成功。
                 ok = true;
                 for (String target : todoTargets) {
-                    if (!writeTodoFor(ctx, target, content, buildTitle(code, content))) {
+                    if (!writeTodoFor(ctx, target, code, content, buildTitle(code, content))) {
                         ok = false;
                     }
                 }
@@ -260,7 +280,7 @@ public class TodoWriter {
                 if (NotesBackend.BACKEND_HONOR_TODO.equals(t)) {
                     if (HonorWriter.existsAlive(ctx, t, code)) return true;
                 } else {
-                    String out = runSqlForOutput(ctx, t, NotesBackend.existsSqlOf(t, code));
+                    String out = runSqlForOutput(ctx, t, NotesBackend.existsSqlOf(t, code, TodoLinks.notesWhere(ctx, t, code)));
                     if (out != null && out.trim().matches("\\d+") && !out.trim().equals("0")) return true;
                 }
             } catch (Throwable e) {
@@ -278,17 +298,6 @@ public class TodoWriter {
      * 挂死还会连带锁死后续所有短信处理。
      */
     private static final long SU_TIMEOUT_MS = 15_000L;
-
-    /** 超时销毁进程后读取残余输出（此时流随时会 EOF，不能再阻塞等） */
-    private static void drainQuietly(java.io.InputStream in, StringBuilder sb) {
-        try {
-            java.io.BufferedReader br = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(in, "UTF-8"));
-            String line;
-            int n = 0;
-            while ((line = br.readLine()) != null && n++ < 40) sb.append(line).append("\n");
-        } catch (Throwable ignored) { }
-    }
 
     /** 按模板构建待办内容 */
     public static String buildContent(int mode, String customTpl, String code, String source, String place, String time) {
@@ -386,45 +395,41 @@ public class TodoWriter {
             String[] suBins = {"su", "/product/bin/su", "/system/bin/su", "/sbin/su", "/su/bin/su"};
             String trace = "";
             for (String suBin : suBins) {
-                String cmd = suBin + " -M -c \"id; " + buildSuCmd(ctx, backend, dbPath, sqlFile) + "\"";
                 Log.i(TAG, "su attempt(" + suBin + ")");
-                Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd});
-                StringBuilder out = new StringBuilder();
-                StringBuilder err = new StringBuilder();
-                // v3.1.0：这里必须超时。
-                //  ① 无超时且 drain() 在 waitFor() 之前 —— su 卡在 Magisk/KernelSU 授权弹窗时
-                //     流不关闭、drain 不返回、waitFor 永远等不到，调用线程会被永久挂死。
-                //  ② 写库发生在 DEDUP_LOCK 内，一旦挂死锁永不释放，
-                //     后续所有短信全部阻塞（Receiver 在主线程 → App ANR；Provider 在 Binder 线程 → 短信入库卡住）。
-                final Process proc = p;
-                final boolean[] done = {false};
-                Thread killer = new Thread(() -> {
-                    try { proc.waitFor(); } catch (Throwable ignored) { }
-                    done[0] = true;
-                });
-                killer.start();
-                killer.join(SU_TIMEOUT_MS);
-                if (!done[0]) {
-                    try { p.destroyForcibly(); } catch (Throwable ignored) { }
-                    drainQuietly(p.getInputStream(), out);
-                    drainQuietly(p.getErrorStream(), err);
+                // Keep query stdout clean: an `id` prefix breaks numeric/schema results.
+                Process p;
+                try {
+                    p = Runtime.getRuntime().exec(new String[]{suBin, "-M", "-c",
+                            buildSuCmd(ctx, backend, dbPath, sqlFile)});
+                } catch (java.io.IOException e) {
+                    trace += "su=" + suBin + " unavailable；";
+                    lastWriteDiag = "全部 su 路径失败 → " + trace;
+                    continue;
+                }
+                ProcessOutput.Result result = ProcessOutput.collect(p, SU_TIMEOUT_MS);
+                if (result.timedOut) {
                     lastWriteDiag = "写入超时（" + (SU_TIMEOUT_MS / 1000) + "秒）：可能是 root 未授权或授权弹窗未处理";
                     Log.e(TAG, "su attempt(" + suBin + ") timed out " + SU_TIMEOUT_MS + "ms");
                     continue;
                 }
-                int code = p.exitValue();
-                Log.i(TAG, "sqlite exit=" + code + " out=" + out.toString().trim()
-                        + " err=" + err.toString().trim());
+                int code = result.code;
+                String out = result.out;
+                String err = result.err;
+                Log.i(TAG, "sqlite exit=" + code);
                 if (code == 0) {
-                    lastWriteDiag = "OK（su=" + suBin + "）" + (err.length() > 0
-                            ? " stderr=" + tail(err.toString(), 160) : "");
-                    return out.toString();
+                    lastWriteDiag = "OK（su=" + suBin + "）" + (!err.isEmpty()
+                            ? " stderr=" + tail(err, 160) : "");
+                    return out;
                 }
                 trace += "su=" + suBin + " exit=" + code
-                        + " err=" + tail(err.toString(), 160) + "；";
+                        + " err=" + tail(err, 160) + "；";
                 // 未授权的 su 会输出 "not found"/"Permission denied" —— 记录下来便于诊断
                 lastWriteDiag = "全部 su 路径失败 → " + trace;
             }
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            lastWriteDiag = "SQL 执行已中断";
             return null;
         } catch (Throwable t) {
             lastWriteDiag = "runSqlForOutput 异常: " + t;
@@ -555,6 +560,7 @@ public class TodoWriter {
      * @return 成功写入的目标数；0 表示没有待办目标或全部失败
      */
     public static int markDoneAll(Context ctx, String code) {
+        synchronized (DEDUP_LOCK) {
         java.util.List<String> targets = NotesBackend.todoTargets(ctx);
         int ok = 0;
         for (String t : targets) {
@@ -564,12 +570,15 @@ public class TodoWriter {
                     if (HonorWriter.markDone(ctx, t, code)) ok++;
                     continue;
                 }
-                if (runSql(ctx, t, NotesBackend.markDoneSqlOf(t, code)) == 0) ok++;
+                String owned = TodoLinks.notesWhere(ctx, t, code);
+                if (owned == null || "0".equals(owned)) continue;
+                if (runSql(ctx, t, NotesBackend.markDoneSqlOf(t, code, owned)) == 0) ok++;
             } catch (Throwable e) {
                 Log.w(TAG, "markDone(" + t + ") failed: " + e);
             }
         }
         return ok;
+        }
     }
 
     /**
@@ -579,16 +588,26 @@ public class TodoWriter {
      * 不再读全局的「当前后端」。
      */
     private static synchronized boolean writeTodoFor(Context ctx, String backend,
-                                                     String content, String title) {
+                                                     String code, String content, String title) {
         // v4.1.0：荣耀侧先走 CalendarProvider、失败再按表结构直写，逻辑在 HonorWriter 里
         if (NotesBackend.BACKEND_HONOR_TODO.equals(backend)) {
-            boolean ok = HonorWriter.write(ctx, backend, content, title);
+            boolean ok = HonorWriter.write(ctx, backend, code, content, title);
             if (ok) lastWriteDiag = "OK（荣耀）" + HonorWriter.getLastDiag();
             else lastWriteDiag = "荣耀写入失败：" + HonorWriter.getLastDiag();
             return ok;
         }
-        String sql = ".timeout 5000\n" + NotesBackend.insertSqlOf(backend, content, title);
-        return runSql(ctx, backend, sql) == 0;
+        String sql = ".bail on\n.timeout 5000\n" + NotesBackend.insertSqlOf(backend, content, title)
+                + TodoMatch.CAPTURE_ROW_SQL;
+        String output = runSqlForOutput(ctx, backend, sql);
+        if (output == null) return false;
+        long rowId = TodoMatch.insertedRow(output);
+        if (rowId <= 0) {
+            lastWriteDiag = "待办写入缺少目标行 ID";
+            return false;
+        }
+        TodoLinks.remember(ctx, backend, code, NotesBackend.dbPathOf(backend),
+                TodoLinks.table(backend), TodoLinks.column(backend), rowId, content);
+        return true;
     }
 
     /**
@@ -632,16 +651,6 @@ public class TodoWriter {
         return NotesBackend.chmodCmdOf(backend)
                 + "LD_LIBRARY_PATH=" + LIBS + " " + SQLITE + " "
                 + dbPath + " < " + sqlFile.getAbsolutePath();
-    }
-
-    private static void drain(java.io.InputStream in, StringBuilder sb) {
-        try {
-            byte[] buf = new byte[1024];
-            int n;
-            while ((n = in.read(buf)) != -1) {
-                sb.append(new String(buf, 0, n, "UTF-8"));
-            }
-        } catch (Throwable ignored) { }
     }
 
     private static String sqlEscape(String s) {

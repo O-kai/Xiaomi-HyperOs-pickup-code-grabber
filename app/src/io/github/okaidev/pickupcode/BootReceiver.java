@@ -15,6 +15,10 @@ public class BootReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
+        PendingResult pending = goAsync();
+        Notifier.refreshExisting(context.getApplicationContext(), () -> {
+            if (pending != null) pending.finish();
+        });
         try {
             if (Reminder.isEnabled(context)) {
                 Reminder.schedule(context);

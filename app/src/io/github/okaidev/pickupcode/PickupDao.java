@@ -16,6 +16,9 @@ public interface PickupDao {
     @Query("SELECT * FROM pickup_records WHERE event_hash = :hash LIMIT 1")
     PickupRecord findByEventHash(String hash);
 
+    @Query("UPDATE pickup_records SET event_hash = :retiredHash WHERE id = :id")
+    void retireEventHash(long id, String retiredHash);
+
     @Query("SELECT * FROM pickup_records WHERE code = :code "
             + "AND COALESCE(place, '') = COALESCE(:place, '') "
             + "AND status = 'PENDING' AND is_test = 0 "

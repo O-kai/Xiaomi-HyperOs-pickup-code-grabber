@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#1E6FE8</color>
+    <color name="ic_launcher_background">#00000000</color>
 
     <!-- 深色主题的窗口底色：与「雾霾蓝」深色变体的页面底接近，避免冷启动闪白 -->
     <color name="window_bg_dark">#101216</color>

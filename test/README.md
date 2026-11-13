@@ -58,6 +58,12 @@ Android `Build`/`Log` 用最小替身；真正被测的是 `ColorOs.containsGate
 
 ## 一键跑完全部回归
 
+数据完整性审计回归：`./gradlew :app:testDebugUnitTest --tests '*AuditDataRegressionTest' --tests '*HonorProviderSafetyTest' --tests '*ProcessOutputTest'`。
+覆盖误完成其他待办、目标 ID 与正文校验、自定义模板、并发入库、旧短信重放、取件码复用以及 root 输出/超时；策略与历史记录兼容限制见 [审计修复说明](../docs/audit-data-integrity.md)。
+
+新增的 App 数据采集测试：`ANDROID_JAR=/path/to/android.jar bash tools/test_app_parcel.sh`。
+真实 Provider 的开关、来源校验测试：`./gradlew :app:testDebugUnitTest --tests '*AppParcelProviderTest'`。
+
 ```bash
 bash tools/run_all_tests.sh
 ```
@@ -129,7 +135,8 @@ java RulesRegression
 cd test
 mkdir -p out-security
 javac -encoding UTF-8 -cp "$ANDROID_JAR" -d out-security \
-  ../app/src/io/github/okaidev/pickupcode/CallerPolicy.java CallerPolicyTest.java
+  ../app/src/io/github/okaidev/pickupcode/CallerPolicy.java \
+  ../app/src/io/github/okaidev/pickupcode/AppParcelData.java CallerPolicyTest.java
 java -cp out-security io.github.okaidev.pickupcode.CallerPolicyTest
 ```
 

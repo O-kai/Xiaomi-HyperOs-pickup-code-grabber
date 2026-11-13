@@ -26,17 +26,21 @@ public final class PickupRepository {
 
     private static final String TAG = "PICKUPDEBUG";
     private static final String DEFAULT_UNKNOWN = "—";
+    // Without a parcel ID, suppress immediate replays but allow a code to be reused later.
+    static final long COMPLETED_REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000L;
 
     private static volatile PickupRepository INSTANCE;
 
     private final PickupDao dao;
+    private final PickupDatabase database;
     private final ExecutorService io;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Context appContext;
 
     private PickupRepository(Context context) {
         this.appContext = context.getApplicationContext();
-        this.dao = PickupDatabase.get(context).pickupDao();
+        this.database = PickupDatabase.get(context);
+        this.dao = database.pickupDao();
         this.io = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "pickup-db");
             t.setDaemon(true);
@@ -58,10 +62,18 @@ public final class PickupRepository {
     public static final class IngestResult {
         public final int inserted;
         public final int touched;
+        final boolean placeChanged;
+        final List<String> completedReplays;
 
         IngestResult(int inserted, int touched) {
+            this(inserted, touched, false, Collections.emptyList());
+        }
+
+        IngestResult(int inserted, int touched, boolean placeChanged, List<String> completedReplays) {
             this.inserted = inserted;
             this.touched = touched;
+            this.placeChanged = placeChanged;
+            this.completedReplays = Collections.unmodifiableList(new ArrayList<>(completedReplays));
         }
 
         public boolean hasNew() {
@@ -100,6 +112,7 @@ public final class PickupRepository {
     }
 
     private void notifyChanged() {
+        Notifier.refreshExisting(appContext);
         if (LISTENERS.isEmpty()) return;
         main.post(() -> {
             for (ChangeListener listener : LISTENERS) {
@@ -116,16 +129,41 @@ public final class PickupRepository {
     public IngestResult ingest(String sender, String body,
                                List<String> codes, String source, String place,
                                boolean isTest) {
+        return ingest(sender, body, codes, source, place, isTest, System.currentTimeMillis());
+    }
+
+    public IngestResult ingest(String sender, String body,
+                               List<String> codes, String source, String place,
+                               boolean isTest, long eventTime) {
         if (codes == null || codes.isEmpty()) {
             return new IngestResult(0, 0);
         }
         long now = System.currentTimeMillis();
+        long receivedAt = eventTime > 0 ? Math.min(eventTime, now) : now;
+        // Binder calls bypass the repository's async executor. The entire read/modify/insert
+        // sequence must be serialized by SQLite, including rotation of a completed event hash.
+        IngestResult result = database.runInTransaction(() ->
+                ingestTransaction(sender, body, codes, source, place, isTest, receivedAt, now));
+        if (result.inserted > 0 || result.placeChanged) {
+            Log.i(TAG, "LOCAL DB: inserted=" + result.inserted + " touched=" + result.touched);
+            PickupWidgetProvider.refreshAsync(appContext);
+            notifyChanged();
+            autoPurgeIfNeeded(appContext);
+        }
+        return result;
+    }
+
+    private IngestResult ingestTransaction(String sender, String body, List<String> codes,
+                                          String source, String place, boolean isTest,
+                                          long receivedAt, long now) {
         String sourceVal = emptyToUnknown(source);
         String placeVal = emptyToUnknown(place);
         String base = sha256((sender == null ? "" : sender) + "\u0000"
                 + (body == null ? "" : body));
         int inserted = 0;
         int touched = 0;
+        boolean placeChanged = false;
+        List<String> completedReplays = new ArrayList<>();
 
         for (String code : codes) {
             if (code == null || code.trim().isEmpty()) {
@@ -135,7 +173,21 @@ public final class PickupRepository {
             String eventHash = sha256(base + "\u0000" + normalizedCode);
 
             PickupRecord existing = dao.findByEventHash(eventHash);
+            if (existing != null && !existing.isPending()
+                    && receivedAt - Math.max(existing.receivedAt, existing.pickedAt)
+                    >= COMPLETED_REPLAY_WINDOW_MS) {
+                // Keep history while freeing the unique event hash for the new occurrence.
+                // lastSeenAt is deliberately excluded: repeatedly loading old data must not
+                // extend this window forever. An SMS replay keeps its original event time.
+                dao.retireEventHash(existing.id, eventHash + ":" + existing.id);
+                existing = null;
+            }
             if (existing != null) {
+                if (!existing.isPending()) completedReplays.add(normalizedCode);
+                if (DEFAULT_UNKNOWN.equals(existing.place) && !DEFAULT_UNKNOWN.equals(placeVal)) {
+                    dao.updatePlace(existing.id, placeVal);
+                    placeChanged = true;
+                }
                 dao.touch(existing.id, now);
                 touched++;
                 continue;
@@ -149,6 +201,7 @@ public final class PickupRepository {
                 // 后到的来源若给出更完整的地点，补进去；已有真地点就不覆盖
                 if (DEFAULT_UNKNOWN.equals(active.place) && !DEFAULT_UNKNOWN.equals(placeVal)) {
                     dao.updatePlace(active.id, placeVal);
+                    placeChanged = true;
                 }
                 dao.touch(active.id, now);
                 touched++;
@@ -159,7 +212,7 @@ public final class PickupRepository {
             record.code = normalizedCode;
             record.source = sourceVal;
             record.place = placeVal;
-            record.receivedAt = now;
+            record.receivedAt = receivedAt;
             record.createdAt = now;
             record.lastSeenAt = now;
             record.status = PickupRecord.STATUS_PENDING;
@@ -173,16 +226,7 @@ public final class PickupRepository {
                 touched++;
             }
         }
-        if (inserted > 0) {
-            Log.i(TAG, "LOCAL DB: inserted=" + inserted + " touched=" + touched);
-            PickupWidgetProvider.refreshAsync(appContext);
-            notifyChanged();
-            // v4.0.2：写入后顺带做一次过期清理。
-            // 用户要求「过了日期立马就清掉」，那清理就不能只发生在用户点按钮时——
-            // 每新增一条记录正是最容易发现「有旧记录该清了」的时刻。
-            autoPurgeIfNeeded(appContext);
-        }
-        return new IngestResult(inserted, touched);
+        return new IngestResult(inserted, touched, placeChanged, completedReplays);
     }
 
     public PickupRecord getByIdSync(long id) {

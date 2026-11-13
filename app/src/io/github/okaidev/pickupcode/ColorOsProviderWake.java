@@ -3,9 +3,6 @@ package io.github.okaidev.pickupcode;
 import android.content.pm.ProviderInfo;
 import android.os.SystemClock;
 
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 
 /**
  * ColorOS：放行系统进程唤醒已冻结的模块 Provider（v4.0.2 第八轮，来自 PR #13）。
@@ -33,7 +30,7 @@ import de.robv.android.xposed.XposedHelpers;
  * 时才返回 false 放行；其余调用一律保持系统原判定，不扩大任何权限。
  *
  * <p><b>HyperOS 上如何</b>：找不到 {@code ContentProviderHelperExtImpl} 这个类，
- * {@link XposedHelpers#findClassIfExists} 返回 null，直接跳过并记一行日志。
+ * {@link Reflect#findClassIfExists} 返回 null，直接跳过并记一行日志。
  * 小米系统上本类完全不参与，行为与未合入时完全一致。
  *
  * <p><b>进程活着但被 Hans 冻结的情况不用处理</b>：Binder 事务会触发内核侧解冻。
@@ -58,7 +55,7 @@ public class ColorOsProviderWake {
 
     /** 在 system_server 进程调用一次。 */
     public static void install(ClassLoader sysCl) {
-        Class<?> ext = XposedHelpers.findClassIfExists(EXT_CLASS, sysCl);
+        Class<?> ext = Reflect.findClassIfExists(EXT_CLASS, sysCl);
         if (ext == null) {
             // 非 ColorOS：正常路径，不是错误
             log("WAKE skip: " + EXT_CLASS + " not found (non-ColorOS)");
@@ -67,7 +64,7 @@ public class ColorOsProviderWake {
         int hooked = 0;
         for (String name : GATES) {
             try {
-                hooked += XposedBridge.hookAllMethods(ext, name, GATE_HOOK).size();
+                hooked += HookRuntime.hookAllMethods(ext, name, GATE_HOOK);
             } catch (Throwable t) {
                 log("WAKE hook err " + name + ": " + t);
             }
@@ -75,28 +72,21 @@ public class ColorOsProviderWake {
         log("WAKE OK: " + hooked + " provider gate(s) hooked");
     }
 
-    private static final XC_MethodHook GATE_HOOK = new XC_MethodHook() {
-        @Override
-        protected void beforeHookedMethod(MethodHookParam param) {
-            try {
-                // 只处理返回 boolean 的方法：这几个拦截点都是布尔开关。
-                // 万一某个 ROM 把同名方法改成 void，setResult 会破坏系统调用，
-                // 所以先看返回类型，不是 boolean 就完全不碰。
-                java.lang.reflect.Member m = param.method;
-                Class<?> ret = (m instanceof java.lang.reflect.Method)
-                        ? ((java.lang.reflect.Method) m).getReturnType() : null;
-                if (ret != boolean.class && ret != Boolean.class) return;
-
-                if (!targetsModule(param.args)) return;
-                String caller = callingPackage(param.args);
-                int uid = callingUid(param.args);
-                if (!isSystemCaller(uid, caller)) return;
-                param.setResult(Boolean.FALSE);
-                logAllowed(param.method.getName(), caller, uid);
-            } catch (Throwable t) {
-                log("WAKE gate err: " + t);
+    private static final io.github.libxposed.api.XposedInterface.Hooker GATE_HOOK = chain -> {
+        boolean allow = false;
+        try {
+            java.lang.reflect.Method method = (java.lang.reflect.Method) chain.getExecutable();
+            Class<?> ret = method.getReturnType();
+            Object[] args = chain.getArgs().toArray();
+            if ((ret == boolean.class || ret == Boolean.class) && targetsModule(args)) {
+                String caller = callingPackage(args);
+                int uid = callingUid(args);
+                allow = isSystemCaller(uid, caller);
+                if (allow) logAllowed(method.getName(), caller, uid);
             }
-        }
+        } catch (Throwable t) { log("WAKE gate err: " + t.getClass().getSimpleName()); }
+        // Never catch/retry the original call; preserve its result and exception.
+        return allow ? Boolean.FALSE : chain.proceed();
     };
 
     private static boolean targetsModule(Object[] args) {
@@ -145,6 +135,6 @@ public class ColorOsProviderWake {
     }
 
     private static void log(String msg) {
-        try { XposedBridge.log(TAG + ": " + msg); } catch (Throwable ignored) { }
+        ModuleLog.log(msg);
     }
 }

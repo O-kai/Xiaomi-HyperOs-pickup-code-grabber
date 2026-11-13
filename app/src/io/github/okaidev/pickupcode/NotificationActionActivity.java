@@ -17,7 +17,8 @@ import android.widget.Toast;
  * 现在：
  *  - 本 Activity exported=false，只能由本 App 的 PendingIntent 启动；
  *  - copy：前台剪贴板 + 打开目标待办 App；
- *  - done：校验码形 → 后台执行标记 → 提示结果 → 打开目标 App；
+ *  - done：保留旧通知 PendingIntent 的兼容入口；新通知通过
+ *    {@link NotificationDoneReceiver} 直接在后台标记，不启动页面；
  *  - LauncherActivity 不再读取这两个 extra。
  */
 public class NotificationActionActivity extends Activity {
@@ -57,7 +58,7 @@ public class NotificationActionActivity extends Activity {
 
     private void handleDone(String code) {
         boolean valid = code.length() <= 20
-                && code.indexOf('-') > 0
+                && code.length() >= 3
                 && code.matches("[A-Za-z0-9-]+");
         if (!valid) {
             Toast.makeText(this, "无效的取件码", Toast.LENGTH_SHORT).show();
@@ -68,7 +69,7 @@ public class NotificationActionActivity extends Activity {
             String msg;
             if (localChanged <= 0 && backendRc != 0) {
                 msg = "标记失败";
-            } else if (backendRc == 0) {
+            } else if (backendRc == 0 || NotesBackend.todoTargets(this).isEmpty()) {
                 msg = "已标记已取件：" + code;
             } else {
                 msg = "已在本机标记，系统待办同步失败";
@@ -84,7 +85,9 @@ public class NotificationActionActivity extends Activity {
     private void openTarget() {
         try {
             Intent notes = getPackageManager().getLaunchIntentForPackage(NotesBackend.targetPkg(this));
-            if (notes != null) {
+            if (notes == null || NotesBackend.localSelected(this)) {
+                startActivity(new Intent(this, PickupListActivity.class));
+            } else {
                 notes.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(notes);
             }
