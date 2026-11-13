@@ -27,6 +27,22 @@ public class WidgetSettingsActivity extends Activity {
     /** 预览的外框：主题/透明度变化时要换背景 */
     private LinearLayout previewBox;
     private TextView previewTitle;
+
+    /**
+     * 挑颜色时的临时配色：只影响预览，不写盘。
+     *
+     * <p>用户点一个色块先看效果，点「确定」才真正保存 —— 否则每点一下组件就变一下，
+     * 退出后桌面还留着他不要的颜色。
+     */
+    private String tempPalette;
+    private int tempColor;
+
+    /** 配色展开区的容器与箭头 */
+    private LinearLayout paletteBox;
+    private LinearLayout settingsCard;
+    private LinearLayout bgSeg;
+    private TextView paletteArrow;
+    private boolean paletteOpen;
     private TextView previewCount;
     private UiKit.Switch placeSwitch;
     private UiKit.Switch codeSwitch;
@@ -236,129 +252,12 @@ public class WidgetSettingsActivity extends Activity {
     }
 
     /**
-     * 配色选择（v4.2）：彩色主题的按钮**本身就是那套渐变色**。
+     * 单色挑选（原来的「自定义」并进来了）。
      *
-     * <p>彩色主题不用色点：按钮整体铺开，一眼就是「雨后彩虹」「夏日夕阳」的样子。
-     * 单色相反 —— 它只有白/黑，必须放一个色点才看得出是什么颜色。
+     * <p>点色块**只改预览**，点「确定」才写配置：用户可以来回试几个颜色，
+     * 不会每点一下桌面组件就跟着变一次，退出后还留着一个他不要的色。
      */
-    private void showPaletteDialog() {
-        final String[] keys = {"single", "rainbow", "sunset", "aurora", "sakura", "custom"};
-        final String[] names = {"单色", "雨后彩虹", "夏日夕阳", "极光夜空", "樱花初雪", "自定义"};
-        final int[][] grad = {
-                null,
-                {0xFFFF9EC4, 0xFFC6A8FF},
-                {0xFFFFB067, 0xFFFFD54A},
-                {0xFF7BE0A6, 0xFFC9A2FF},
-                {0xFFFFC2D8, 0xFFDCC6EC},
-                null,
-        };
-        final int cur = paletteIndex();
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-
-        final android.app.Dialog[] holder = new android.app.Dialog[1];
-        for (int i = 0; i < keys.length; i++) {
-            final int idx = i;
-
-            LinearLayout btn = new LinearLayout(this);
-            btn.setOrientation(LinearLayout.HORIZONTAL);
-            btn.setGravity(Gravity.CENTER_VERTICAL);
-            btn.setPadding(dp(16), 0, dp(16), 0);
-
-            android.graphics.drawable.GradientDrawable bg =
-                    new android.graphics.drawable.GradientDrawable();
-            bg.setCornerRadius(dp(14));
-            // 单色按钮直接画成「组件实底的样子」：深色主题就是深灰底白字，
-            // 浅色主题就是白底黑字。放在白色弹窗上时，白底那块要补一圈细边，
-            // 否则按钮会「消失」在白底里。
-            boolean isCustom = i == 5;
-            int labelColor;
-            if (isCustom) {
-                // 「自定义」用当前选中的主色画渐变，一眼知道现在是哪个色
-                int[] ramp = PickupWidgetProvider.customRamp(
-                        WidgetPrefs.customColor(this));
-                bg.setOrientation(
-                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT);
-                bg.setColors(new int[]{ramp[0], ramp[2]});
-                labelColor = 0xFFFFFFFF;
-            } else if (grad[i] == null) {
-                // 「单色」不是一个颜色（深色主题是白、浅色主题是墨），
-                // 所以不画成实心色块 —— 那样总有一种主题下文字会糊掉。
-                // 用浅灰底 + 正文色 + 一个墨色圆点，弹窗在什么主题下都清楚。
-                bg.setColor(0x11000000);
-                bg.setStroke(Math.max(1, dp(1)), 0x22888888);
-                labelColor = P.navInk;
-            } else {
-                bg.setOrientation(
-                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT);
-                bg.setColors(grad[i]);
-                labelColor = 0xFFFFFFFF;
-            }
-            if (i == cur) bg.setStroke(dp(2), P.accentInk);
-            btn.setBackground(bg);
-
-            if (grad[i] == null) {
-                View dot = new View(this);
-                android.graphics.drawable.GradientDrawable dotBg =
-                        new android.graphics.drawable.GradientDrawable();
-                dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-                dotBg.setColor(P.navInk);
-                dotBg.setStroke(Math.max(1, dp(1)), 0x55FFFFFF);
-                dot.setBackground(dotBg);
-                LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(16), dp(16));
-                dlp.setMargins(0, 0, dp(12), 0);
-                btn.addView(dot, dlp);
-            }
-
-            TextView label = UiKit.text(this, names[i], 14.5f, labelColor);
-            // 樱花那几套本身很浅（#F0E2F5 之类），纯白字放上去几乎看不见；
-            // 一圈淡阴影能把字从渐变里「拎」出来，又不改变配色本身。
-            if (grad[i] != null || isCustom) {
-                label.setShadowLayer(Math.max(2f, dp(3)), 0, dp(1), 0x99000000);
-            }
-            btn.addView(label, new LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-            if (i == cur) {
-                TextView tick = UiKit.text(this, "✓", 15f,
-                        grad[i] == null ? P.accentInk : 0xFFFFFFFF);
-                if (grad[i] != null) {
-                    tick.setShadowLayer(Math.max(2f, dp(3)), 0, dp(1), 0x99000000);
-                }
-                btn.addView(tick);
-            }
-
-            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
-            blp.setMargins(0, dp(5), 0, dp(5));
-
-            btn.setOnClickListener(v -> {
-                if ("custom".equals(keys[idx])) {
-                    if (holder[0] != null) holder[0].dismiss();
-                    showCustomColorDialog();
-                    return;
-                }
-                WidgetPrefs.setPalette(this, keys[idx]);
-                applyToWidget();
-                if (holder[0] != null) holder[0].dismiss();
-                recreate();
-            });
-            box.addView(btn, blp);
-        }
-
-        holder[0] = UiKit.dialog(this, P, R.drawable.ic_palette, "配色", null, box,
-                UiKit.ghost("取消", () -> { }));
-    }
-
-    /**
-     * 自定义配色：只选一个主色。
-     *
-     * <p>不要求用户挑满五色——那是设计活。选一个主色之后，
-     * 组件按它的色相自动排五档深浅（见 {@code customRamp}），
-     * 几行之间既有区分，又是一整套。
-     */
-    private void showCustomColorDialog() {
+    private void showColorPicker() {
         final int[] colors = {
                 0xFFFFFFFF, 0xFFE5E5EA, 0xFFC7C7CC, 0xFF8E8E93, 0xFF3A3A3C, 0xFF1C1C1E,
                 0xFFFFC2D8, 0xFFFF9EC4, 0xFFFF8A80, 0xFFFF6B6B, 0xFFE64980, 0xFFBE4BDB,
@@ -366,9 +265,12 @@ public class WidgetSettingsActivity extends Activity {
                 0xFF8FC7FF, 0xFF4DABF7, 0xFF5C7CFA, 0xFFC6A8FF, 0xFF845EF7, 0xFFA9A2FF,
         };
 
+        tempPalette = "custom";
+        tempColor = WidgetPrefs.customColor(this);
+
+        final java.util.List<View> cells = new java.util.ArrayList<>();
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
-        final android.app.Dialog[] holder = new android.app.Dialog[1];
 
         for (int r = 0; r < 4; r++) {
             LinearLayout row = new LinearLayout(this);
@@ -376,30 +278,47 @@ public class WidgetSettingsActivity extends Activity {
             for (int c = 0; c < 6; c++) {
                 final int color = colors[r * 6 + c];
                 View cell = new View(this);
-                android.graphics.drawable.GradientDrawable cb =
-                        new android.graphics.drawable.GradientDrawable();
-                cb.setCornerRadius(dp(10));
-                cb.setColor(color);
-                cb.setStroke(Math.max(1, dp(1)), 0x22888888);
-                cell.setBackground(cb);
-                LinearLayout.LayoutParams lp =
-                        new LinearLayout.LayoutParams(0, dp(40), 1f);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1f);
                 lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+                cell.setTag(color);
+                cells.add(cell);
                 cell.setOnClickListener(v -> {
-                    WidgetPrefs.setCustomColor(this, color);
-                    WidgetPrefs.setPalette(this, "custom");
-                    applyToWidget();
-                    if (holder[0] != null) holder[0].dismiss();
-                    recreate();
+                    tempColor = color;
+                    paintColorCells(cells, tempColor);
+                    refreshPreview();          // 只动预览，不落盘
                 });
                 row.addView(cell, lp);
             }
             grid.addView(row);
         }
+        paintColorCells(cells, tempColor);
 
-        holder[0] = UiKit.dialog(this, P, R.drawable.ic_palette, "自定义配色",
-                "选一个主色，组件按它自动排五档深浅", grid,
-                UiKit.ghost("取消", () -> { }));
+        UiKit.dialog(this, P, R.drawable.ic_palette, "单色",
+                "点一个颜色先看效果，确定后才会保存", grid,
+                UiKit.ghost("取消", () -> {
+                    tempPalette = null;
+                    refreshPreview();
+                }),
+                UiKit.primary("确定", () -> {
+                    WidgetPrefs.setCustomColor(this, tempColor);
+                    WidgetPrefs.setPalette(this, "custom");
+                    tempPalette = null;
+                    applyToWidget();
+                    recreate();
+                }));
+    }
+
+    private void paintColorCells(java.util.List<View> cells, int selected) {
+        for (View v : cells) {
+            int color = (int) v.getTag();
+            android.graphics.drawable.GradientDrawable d =
+                    new android.graphics.drawable.GradientDrawable();
+            d.setCornerRadius(dp(10));
+            d.setColor(color);
+            if (color == selected) d.setStroke(dp(3), P.accentInk);
+            else d.setStroke(Math.max(1, dp(1)), 0x22888888);
+            v.setBackground(d);
+        }
     }
 
     /** 七段色阶条：每块直接用该档的底色画出来，点到哪块就是哪档 */
@@ -408,6 +327,16 @@ public class WidgetSettingsActivity extends Activity {
         strip.setOrientation(LinearLayout.HORIZONTAL);
         int cur = WidgetPrefs.alphaIndex(this);
         int[] steps = WidgetPrefs.ALPHA_STEPS;
+
+        // 浅色主题下色块是白的，铺在白页面上从实底到全透几乎没差别（真机反馈）。
+        // 给整条铺一块**与主题相反**的底色，透明度差异立刻能看出来。
+        boolean lightUi = PickupWidgetProvider.isLightTheme(this);
+        android.graphics.drawable.GradientDrawable trough =
+                new android.graphics.drawable.GradientDrawable();
+        trough.setCornerRadius(dp(13));
+        trough.setColor(lightUi ? 0xFF3A3A3E : 0xFFE8E8EC);
+        strip.setBackground(trough);
+        strip.setPadding(dp(4), dp(4), dp(4), dp(4));
 
         for (int i = 0; i < steps.length; i++) {
             boolean on = i == cur;
@@ -473,7 +402,6 @@ public class WidgetSettingsActivity extends Activity {
             case 2: return "夏日夕阳";
             case 3: return "极光夜空";
             case 4: return "樱花初雪";
-            case 5: return "自定义";
             default: return "单色";
         }
     }
@@ -587,31 +515,35 @@ public class WidgetSettingsActivity extends Activity {
     private View buildSettingsCard() {
         LinearLayout card = UiKit.card(this, P);
         card.setPadding(dp(16), dp(12), dp(16), dp(14));
+        settingsCard = card;
 
-        // ---- 配色 ----
-        card.addView(UiKit.row(this, P, R.drawable.ic_palette, "配色",
-                paletteLabel(), UiKit.chevron(this, P)));
-        card.getChildAt(card.getChildCount() - 1).setOnClickListener(v -> showPaletteDialog());
+        // ---- 配色：点一下就地展开，不弹窗 ----
+        LinearLayout paletteHead = UiKit.row(this, P, R.drawable.ic_palette, "配色",
+                paletteLabel(), UiKit.chevron(this, P));
+        paletteHead.setOnClickListener(v -> togglePalette());
+        card.addView(paletteHead);
+
+        paletteBox = new LinearLayout(this);
+        paletteBox.setOrientation(LinearLayout.VERTICAL);
+        paletteBox.setVisibility(View.GONE);
+        paletteBox.addView(buildPaletteChips());
+        card.addView(paletteBox);
+
+        // ---- 组件背景色（原来是「主题」，放在透明度上面）----
+        card.addView(UiKit.divider(this, P));
+        card.addView(sectionHead("组件背景色", null));
+        bgSeg = new LinearLayout(this);
+        bgSeg.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.setMargins(0, 0, 0, dp(4));
+        card.addView(bgSeg, blp);
 
         // ---- 透明度 ----
         card.addView(UiKit.divider(this, P));
         card.addView(sectionHead("透明度",
                 WidgetPrefs.ALPHA_NAMES[WidgetPrefs.alphaIndex(this)]));
         card.addView(buildAlphaStrip());
-
-        // ---- 主题 ----
-        card.addView(UiKit.divider(this, P));
-        card.addView(UiKit.row(this, P, R.drawable.ic_grid, "主题",
-                themeLabel(), UiKit.chevron(this, P)));
-        card.getChildAt(card.getChildCount() - 1).setOnClickListener(v ->
-                UiKit.chooser(this, P, R.drawable.ic_grid, "主题",
-                        new CharSequence[]{"深色", "浅色", "跟随系统"},
-                        themeIndex(), idx -> {
-                            WidgetPrefs.setTheme(this,
-                                    idx == 0 ? "dark" : idx == 1 ? "light" : "system");
-                            applyToWidget();
-                            recreate();
-                        }));
 
         // ---- 字号 ----
         card.addView(UiKit.divider(this, P));
@@ -661,6 +593,86 @@ public class WidgetSettingsActivity extends Activity {
         return card;
     }
 
+    /** 展开/收起配色区，带一次高度过渡，不做成弹窗 */
+    private void togglePalette() {
+        paletteOpen = !paletteOpen;
+        if (settingsCard != null) {
+            android.transition.TransitionManager.beginDelayedTransition(
+                    settingsCard, new android.transition.AutoTransition()
+                            .setDuration(180));
+        }
+        paletteBox.setVisibility(paletteOpen ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * 配色按钮行：单色（含自定义）+ 四套彩色。
+     *
+     * <p>一行五个太挤时按权重让「单色」窄一点（它只有两个字），
+     * 四套彩色各占一份 —— 4 个字刚好放得下。
+     */
+    private View buildPaletteChips() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(2), 0, dp(8));
+
+        String cur = WidgetPrefs.palette(this);
+        boolean single = "single".equals(cur) || "custom".equals(cur);
+        addPaletteChip(row, "单色", null, single, 0.72f, this::showColorPicker);
+        addPaletteChip(row, "雨后彩虹", new int[]{0xFFFF9EC4, 0xFFC6A8FF},
+                "rainbow".equals(cur), 1f, () -> selectPalette("rainbow"));
+        addPaletteChip(row, "夏日夕阳", new int[]{0xFFFFB067, 0xFFFFD54A},
+                "sunset".equals(cur), 1f, () -> selectPalette("sunset"));
+        addPaletteChip(row, "极光夜空", new int[]{0xFF7BE0A6, 0xFFC9A2FF},
+                "aurora".equals(cur), 1f, () -> selectPalette("aurora"));
+        addPaletteChip(row, "樱花初雪", new int[]{0xFFFFC2D8, 0xFFDCC6EC},
+                "sakura".equals(cur), 1f, () -> selectPalette("sakura"));
+        return row;
+    }
+
+    private void addPaletteChip(LinearLayout row, String label, int[] gradient,
+                                boolean selected, float weight, Runnable onClick) {
+        LinearLayout chip = new LinearLayout(this);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(0, dp(11), 0, dp(11));
+
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp(11));
+        int labelColor;
+        if (gradient == null) {
+            bg.setColor(0x11000000);
+            bg.setStroke(Math.max(1, dp(1)), 0x22888888);
+            labelColor = P.navInk;
+        } else {
+            bg.setOrientation(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT);
+            bg.setColors(gradient);
+            labelColor = 0xFFFFFFFF;
+        }
+        if (selected) bg.setStroke(dp(2), P.accentInk);
+        chip.setBackground(bg);
+
+        TextView t = UiKit.text(this, label, 10f, labelColor);
+        t.setGravity(Gravity.CENTER);
+        t.setMaxLines(1);
+        if (gradient != null) {
+            t.setShadowLayer(Math.max(2f, dp(2)), 0, dp(1), 0x99000000);
+        }
+        chip.addView(t);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, weight);
+        lp.setMargins(dp(1.5f), 0, dp(1.5f), 0);
+        chip.setOnClickListener(v -> onClick.run());
+        row.addView(chip, lp);
+    }
+
+    /** 四套预设：点一下直接生效，不需要再确认 */
+    private void selectPalette(String key) {
+        WidgetPrefs.setPalette(this, key);
+        applyToWidget();
+        recreate();
+    }
+
     /** 分段小标题：左标题、右当前值（都为正文色，靠字号区分层级） */
     private View sectionHead(String title, String value) {
         LinearLayout h = new LinearLayout(this);
@@ -696,6 +708,25 @@ public class WidgetSettingsActivity extends Activity {
      * <p>右上角只有一个动作：有组件是「重新对齐」（重测位置 + 重抓背景），
      * 没组件是「添加到桌面」。位置信息不再单独占一行。
      */
+    /**
+     * 预览用的行颜色：优先取「正在挑但还没确定」的配色。
+     *
+     * <p>和 {@code PickupWidgetProvider.rowColor} 同一套规则，区别只在于数据源。
+     */
+    private int previewRowColor(int index, int alpha) {
+        String key = tempPalette != null ? tempPalette : WidgetPrefs.palette(this);
+        int custom = tempPalette != null && "custom".equals(tempPalette)
+                ? tempColor : WidgetPrefs.customColor(this);
+        int[] pal = PickupWidgetProvider.rampOf(key, custom);
+        int rgb;
+        if (pal == null) {
+            rgb = PickupWidgetProvider.isLightTheme(this) ? 0x1C1C1E : 0xFFFFFF;
+        } else {
+            rgb = pal[((index % pal.length) + pal.length) % pal.length];
+        }
+        return (alpha << 24) | (rgb & 0xFFFFFF);
+    }
+
     private View buildPreviewDock(WidgetPlacement pl, boolean onDesktop,
                                   int screenW, int screenH) {
 
@@ -940,7 +971,7 @@ public class WidgetSettingsActivity extends Activity {
         CharSequence codeLabel = picked
                 ? PickupWidgetProvider.strikeText(codeText) : codeText;
         TextView code = UiKit.text(this, "", 17f * k,
-                PickupWidgetProvider.rowColor(this, index, picked ? 0x99 : 0xFF));
+                previewRowColor(index, picked ? 0x99 : 0xFF));
         code.setText(codeLabel);   // 保留 Html 的删除线 span
         code.setTypeface(Typeface.create("monospace", Typeface.BOLD));
         if (!showCode) code.setText("");
@@ -948,7 +979,7 @@ public class WidgetSettingsActivity extends Activity {
 
         // 以前这里写死白色：浅色主题下地点直接看不见（真机上发现）
         TextView place = UiKit.text(this, placeText, 11f * k,
-                PickupWidgetProvider.rowColor(this, index, picked ? 0x80 : 0xB3));
+                previewRowColor(index, picked ? 0x80 : 0xB3));
         place.setMaxLines(1);
         LinearLayout.LayoutParams plp2 = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -996,6 +1027,31 @@ public class WidgetSettingsActivity extends Activity {
                 applyToWidget();
             });
         }
+        if (bgSeg != null) {
+            bgSeg.removeAllViews();
+            String t = WidgetPrefs.theme(this);
+            addSeg(bgSeg, "深色", "dark".equals(t), () -> {
+                WidgetPrefs.setTheme(this, "dark");
+                rebuildSegments();
+                refreshPreview();
+                applyToWidget();
+                recreate();      // 背景图/文字色都要跟着换
+            });
+            addSeg(bgSeg, "浅色", "light".equals(t), () -> {
+                WidgetPrefs.setTheme(this, "light");
+                rebuildSegments();
+                refreshPreview();
+                applyToWidget();
+                recreate();
+            });
+            addSeg(bgSeg, "跟随系统", "system".equals(t), () -> {
+                WidgetPrefs.setTheme(this, "system");
+                rebuildSegments();
+                refreshPreview();
+                applyToWidget();
+                recreate();
+            });
+        }
         if (rowsSeg != null) {
             rowsSeg.removeAllViews();
             // v4.0.2：「显示内容」——待取件（默认）/ 全部信息（含已取件）
@@ -1039,8 +1095,8 @@ public class WidgetSettingsActivity extends Activity {
 
         // v4.1.0：背景是「抓下来的实景图」，不再由这里画底色，
         // 否则会把图片盖掉。文字色仍然按深浅主题走。
-        previewTitle.setTextColor(PickupWidgetProvider.rowColor(this, 0, 0xFF));
-        previewCount.setTextColor(PickupWidgetProvider.rowColor(this, 0, 0xB3));
+        previewTitle.setTextColor(previewRowColor(0, 0xFF));
+        previewCount.setTextColor(previewRowColor(0, 0xB3));
         previewTitle.setText(showAll ? "取件记录" : "待取件");
         previewCount.setText(showAll ? "2 待取 · 1 已取" : "2 个待取");
 
@@ -1051,7 +1107,7 @@ public class WidgetSettingsActivity extends Activity {
             previewCount.setText("");
             TextView sum = UiKit.text(this,
                     showAll ? "2 个待取 · 1 个已取" : "2 个待取",
-                    16f * previewScale, PickupWidgetProvider.rowColor(this, 0, 0xFF));
+                    16f * previewScale, previewRowColor(0, 0xFF));
             sum.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,

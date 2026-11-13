@@ -12,6 +12,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Html;
+import android.text.Spannable;
+import android.text.SpannableString;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
@@ -354,12 +356,21 @@ public class PickupWidgetProvider extends AppWidgetProvider {
 
     /** 当前配色对应的色板；单色返回 null */
     static int[] paletteOf(Context ctx) {
-        String p = WidgetPrefs.palette(ctx);
-        if ("rainbow".equals(p)) return PAL_RAINBOW;
-        if ("sunset".equals(p)) return PAL_SUNSET;
-        if ("aurora".equals(p)) return PAL_AURORA;
-        if ("sakura".equals(p)) return PAL_SAKURA;
-        if ("custom".equals(p)) return customRamp(WidgetPrefs.customColor(ctx));
+        return rampOf(WidgetPrefs.palette(ctx), WidgetPrefs.customColor(ctx));
+    }
+
+    /**
+     * 按配色名取色板（不看全局配置）。
+     *
+     * <p>设置页挑颜色时要「先看效果、确定才保存」，那一步不能读配置，
+     * 否则每点一下都得写一次盘、组件也跟着变一下。
+     */
+    static int[] rampOf(String key, int customColor) {
+        if ("rainbow".equals(key)) return PAL_RAINBOW;
+        if ("sunset".equals(key)) return PAL_SUNSET;
+        if ("aurora".equals(key)) return PAL_AURORA;
+        if ("sakura".equals(key)) return PAL_SAKURA;
+        if ("custom".equals(key)) return customRamp(customColor);
         return null;
     }
 
@@ -428,7 +439,15 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             }
             return sb.toString();
         }
-        return Html.fromHtml("<s>" + escapeHtml(text) + "</s>");
+        // 中文：组合字符会让字形变豆腐块，改用两个系统内置 span 叠出两条线 ——
+        // 删除线在字中间、下划线在字底，视觉上也是「划掉了」，而且跨进程安全
+        // （自定义 Span 到了桌面进程会认不出来）。
+        SpannableString sp = new SpannableString(text);
+        sp.setSpan(new android.text.style.StrikethroughSpan(), 0, text.length(),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+        sp.setSpan(new android.text.style.UnderlineSpan(), 0, text.length(),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return sp;
     }
 
     private static RemoteViews buildClosed(Context context) {
