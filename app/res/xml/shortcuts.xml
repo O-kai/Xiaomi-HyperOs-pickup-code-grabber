@@ -18,7 +18,7 @@
     <shortcut
         android:shortcutId="add_widget"
         android:enabled="true"
-        android:icon="@drawable/ic_grid"
+        android:icon="@drawable/ic_shortcut_widget"
         android:shortcutShortLabel="@string/shortcut_add_widget_short"
         android:shortcutLongLabel="@string/shortcut_add_widget_long"
         android:shortcutDisabledMessage="@string/shortcut_add_widget_disabled">

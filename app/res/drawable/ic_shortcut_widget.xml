@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  长按图标「添加小部件」快捷方式的图标（v4.2.1）。
+
+  为什么不复用 ic_grid：那个是纯白填充，给的是「彩色底上的白图标」场景；
+  桌面的长按菜单是浅底的，白图标等于看不见。这里做成自带底色的方块，
+  深浅两种菜单里都清楚。
+  四周留 4dp：MIUI 可能给快捷方式图标套圆形/圆角遮罩，留边才不会被切掉角。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- 底：雾霾蓝（与界面主色一致），圆角 8 -->
+    <path
+        android:fillColor="#3D5C8A"
+        android:pathData="M12,4 h24 a8,8 0 0 1 8,8 v24 a8,8 0 0 1 -8,8 h-24 a8,8 0 0 1 -8,-8 v-24 a8,8 0 0 1 8,-8 z" />
+
+    <!-- 四宫格：代表「小组件」 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12.5,12.5h10v10h-10z M25.5,12.5h10v10h-10z M12.5,25.5h10v10h-10z M25.5,25.5h10v10h-10z" />
+</vector>
