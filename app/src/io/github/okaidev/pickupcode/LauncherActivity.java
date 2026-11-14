@@ -214,6 +214,18 @@ public class LauncherActivity extends Activity {
         UiKit.applyTheme(this);
         super.onCreate(savedInstanceState);
         P = UiKit.palette(this);
+
+        // v4.2.1：长按图标 →「添加小部件」走的是静态快捷方式（res/xml/shortcuts.xml），
+        // 它只能指向一个已导出的 Activity，所以先落到本页，再转交给小组件页。
+        // 不 finish()：返回键回到主界面，比直接退出 App 自然。
+        if (savedInstanceState == null && getIntent() != null
+                && WidgetPin.ACTION_ADD_WIDGET.equals(getIntent().getAction())) {
+            try {
+                startActivity(new Intent(this, WidgetSettingsActivity.class)
+                        .putExtra(WidgetPin.EXTRA_AUTO_PIN, true));
+            } catch (Throwable ignored) { }
+        }
+
         currentMode = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("todo_mode", TodoWriter.MODE_FULL);
         if (savedInstanceState != null) currentTab = savedInstanceState.getInt("tab", 0);
 
@@ -3502,6 +3514,15 @@ public class LauncherActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        // v4.2.1：长按图标的「添加小部件」快捷方式。桌面若复用了已有的任务，
+        // 走的是 onNewIntent 而不是 onCreate —— 两条路都要接住。
+        setIntent(intent);
+        if (intent != null && WidgetPin.ACTION_ADD_WIDGET.equals(intent.getAction())) {
+            try {
+                startActivity(new Intent(this, WidgetSettingsActivity.class)
+                        .putExtra(WidgetPin.EXTRA_AUTO_PIN, true));
+            } catch (Throwable ignored) { }
+        }
     }
 
     @Override

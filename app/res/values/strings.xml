@@ -4,4 +4,9 @@
     <string name="widget_description">显示待取件码，可复制或标记已取件</string>
     <string name="a11y_service_label">取件码助手 - 桌面位置读取</string>
     <string name="a11y_service_desc">只做一件事：读出「取件码助手」小组件在桌面上的实际位置和尺寸，让设置页里的预览和桌面完全对齐。只读取窗口结构，不读取其它应用的内容，也不代替你执行任何操作。</string>
+
+    <!-- 长按桌面图标时弹出的那条「添加小部件」快捷方式（v4.2.1） -->
+    <string name="shortcut_add_widget_short">添加小部件</string>
+    <string name="shortcut_add_widget_long">把「取件码」小组件添加到桌面</string>
+    <string name="shortcut_add_widget_disabled">取件码助手已停用</string>
 </resources>

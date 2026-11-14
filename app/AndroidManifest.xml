@@ -18,6 +18,8 @@
     <queries>
         <package android:name="com.coloros.note" />
         <package android:name="com.miui.notes" />
+        <!-- v4.2.1：长按图标的「添加小部件」快捷方式要判断桌面有没有小部件列表页 -->
+        <package android:name="com.miui.home" />
         <!-- v4.1.0：荣耀侧的目标 App（日历待办写入、信息抓取、备忘录诊断） -->
         <package android:name="com.hihonor.calendar" />
         <package android:name="com.hihonor.mms" />
@@ -73,6 +75,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!--
+              v4.2.1：长按图标 →「添加小部件」。
+              HyperOS 自带的那个「添加小部件」只对合作应用显示（服务端清单），
+              标准 AppWidget 第三方应用不会出现，也没有 manifest 字段能加进去；
+              静态快捷方式是唯一由 App 自己掌握、又落在同一张菜单里的入口。
+            -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- 通知动作受控入口：exported=false，只允许本 App 的 PendingIntent 启动 -->
@@ -135,8 +146,7 @@
                 android:resource="@xml/pickup_widget_info" />
         </receiver>
 
-        <!-- 小组件动作入口：exported=false -->
-        <!--
+        <!-- 小组件动作入口：exported=false -->        <!--
           v4.0.1：原先用 Activity 承接（WidgetActionActivity），点一下打勾就会把 App
           拉到前台——用户明确要求「在小组件上操作不该跳转」。
           现在改成广播：动作在后台完成，只更新小组件与本地库，不带起任何界面。
@@ -148,6 +158,18 @@
             <intent-filter>
                 <action android:name="io.github.okaidev.pickupcode.widget.COPY" />
                 <action android:name="io.github.okaidev.pickupcode.widget.DONE" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          v4.2.1：「组件已固定到桌面」的系统回调。
+          作用只是把「请求被系统吞掉」和「真的加上了」区分开（见 WidgetPin.quickPin）。
+        -->
+        <receiver
+            android:name=".WidgetPinReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="io.github.okaidev.pickupcode.action.WIDGET_PINNED" />
             </intent-filter>
         </receiver>
 

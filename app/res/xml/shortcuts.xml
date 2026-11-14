@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  长按桌面图标弹出的快捷方式（v4.2.1）。
+
+  为什么需要它：HyperOS 长按图标里的「添加小部件」是**桌面自己加的**，
+  只对它服务端清单里有合作的应用显示（飞书、Spotify 那种），
+  标准 AppWidget 第三方应用不会出现，也没有任何 manifest 字段能让它出现。
+  所以这里用系统自带的「静态快捷方式」把入口拿回来 —— 它和飞书的
+  「扫一扫 / 我的二维码」是同一个机制，长按图标就在同一张菜单里。
+
+  目标必须写死包名：res/xml 不参与 manifest 的 ${applicationId} 替换。
+  这里指向**已导出**的 LauncherActivity 再转交给小组件页，
+  比直接指向内部 Activity 稳（部分 ROM 的桌面用自己身份启动快捷方式，
+  非导出的 Activity 会被拒）。
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="add_widget"
+        android:enabled="true"
+        android:icon="@drawable/ic_grid"
+        android:shortcutShortLabel="@string/shortcut_add_widget_short"
+        android:shortcutLongLabel="@string/shortcut_add_widget_long"
+        android:shortcutDisabledMessage="@string/shortcut_add_widget_disabled">
+        <intent
+            android:action="io.github.okaidev.pickupcode.action.ADD_WIDGET"
+            android:targetPackage="io.github.okaidev.pickupcode"
+            android:targetClass="io.github.okaidev.pickupcode.LauncherActivity" />
+    </shortcut>
+
+</shortcuts>

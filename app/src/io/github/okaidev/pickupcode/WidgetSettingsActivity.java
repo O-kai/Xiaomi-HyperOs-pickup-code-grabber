@@ -166,9 +166,15 @@ public class WidgetSettingsActivity extends Activity {
         previewDock = buildPreviewDock(pl, onDesktop, screenW, screenH);
         root.addView(previewDock);
 
-        // v4.1.0：第一次进这个页面、还没有背景图时，自动抓一次。
-        // 不让用户先面对一块灰底发愣，也不用教他再点一次按钮。
-        if (onDesktop && !WidgetBackdrop.exists(this)) {
+        // v4.2.1：从长按图标的「添加小部件」快捷方式进来时，直接把添加请求发出去，
+        // 用户少点一次。这时也不自动抓背景 —— 两套界面（抓图页 + 系统添加页）会打架。
+        boolean autoPin = savedInstanceState == null && getIntent() != null
+                && getIntent().getBooleanExtra(WidgetPin.EXTRA_AUTO_PIN, false);
+        if (autoPin) {
+            root.postDelayed(() -> WidgetPin.quickPin(this), 600);
+        } else if (onDesktop && !WidgetBackdrop.exists(this)) {
+            // v4.1.0：第一次进这个页面、还没有背景图时，自动抓一次。
+            // 不让用户先面对一块灰底发愣，也不用教他再点一次按钮。
             root.postDelayed(this::captureBackdrop, 350);
         }
         box.addView(buildSettingsCard(), UiKit.cardLp(this, 10));
@@ -1088,7 +1094,9 @@ public class WidgetSettingsActivity extends Activity {
         if (onDesktop) {
             action.setOnClickListener(v -> realign());
         } else {
-            action.setOnClickListener(v -> WidgetPin.prompt(this));
+            // v4.2.1：先真的发一次「放到桌面」请求（HyperOS 常常静默吞掉，
+            // 所以 WidgetPin 会带回调 + 超时，失败再给手动步骤）
+            action.setOnClickListener(v -> WidgetPin.quickPin(this));
         }
         head.addView(action);
 
