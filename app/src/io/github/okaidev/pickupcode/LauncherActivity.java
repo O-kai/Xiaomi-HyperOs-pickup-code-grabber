@@ -2027,32 +2027,12 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * 本次更新说明（每次发版改这个数组）。
+     * 更新日志的数据与展示规则统一放在 {@link ReleaseNotes}（v4.2.0 起）。
      *
      * <p>只在「新安装」和「更新后第一次打开」弹一次：按 versionCode 记，
      * 同版本不再打扰；装回旧版本也不会重复弹（码不一样就会弹一次，
      * 这反而符合直觉——版本确实变了）。
      */
-    /**
-     * 历史版本（新的在上，每条一句话）。当前版本会自动跳过，不会和上面的要点重复。
-     * 发版时：把上一版的要点从 {@link #WHATS_NEW} 里挑一句挪到这里。
-     */
-    private static final String[][] VERSION_HISTORY = {
-            {"V4.1.0", "荣耀 MagicOS 适配：补齐第三家 ROM 的待办写入（社区 PR）"},
-            {"V4.0.6", "去重只认取件码；直写开关热生效；不再动不动让人重启"},
-            {"V4.0.5", "一条短信里的多个取件码；规则集 v10"},
-            {"V4.0.3", "升级提示、清理与卸载、配置可读性"},
-            {"V4.0.0", "本地取件库 + 桌面小组件 + 简洁 / 进阶双模式 + 深色主题"},
-    };
-
-    private static final String[] WHATS_NEW = {
-            "取件提醒准时了：改用系统精确闹钟，不再被省电策略推迟几分钟到几十分钟",
-            "一条短信里有多个取件码时，通知也按取件码分成多条，不再拼成一条",
-            "「添加小组件」两个入口合并：有权限直接回桌面添加，没权限才提示去开启",
-            "长按图标的「添加小部件」不再闪一下主界面，直接落到桌面",
-            "已取件的地址也会一起划掉，和取件码保持一致",
-            "提醒时间改成滚轮选择，点起来更快",
-    };
 
     private void maybeShowWhatsNew() {
         if (isFinishing() || isDestroyed()) return;
@@ -2073,7 +2053,9 @@ public class LauncherActivity extends Activity {
      *             两种都：点任意处关闭，点 QQ 群那一行复制群号。
      */
     private void showWhatsNew(boolean auto) {
-        String cur = AppVersion.label(this);   // 例如 V4.1.0
+        int code = AppVersion.code(this);
+        ReleaseNotes.Entry current = ReleaseNotes.current(code);
+        String cur = current != null ? current.version : AppVersion.label(this);
 
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.VERTICAL);
@@ -2094,34 +2076,48 @@ public class LauncherActivity extends Activity {
         head.addView(badge, blp);
         wrap.addView(head);
 
-        for (String n : WHATS_NEW) {
-            TextView t = UiKit.text(this, "· " + n, 13f, UiKit.INK2);
-            t.setLineSpacing(dp(4), 1f);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, dp(8), 0, 0);
-            wrap.addView(t, lp);
+        String[] bullets = current == null ? null : current.bullets;
+        if (bullets != null) {
+            for (String n : bullets) {
+                TextView t = UiKit.text(this, "· " + n, 13f, UiKit.INK2);
+                t.setLineSpacing(dp(4), 1f);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.setMargins(0, dp(8), 0, 0);
+                wrap.addView(t, lp);
+            }
         }
 
-        // ---- 历史版本：一句话一条，当前版本跳过 ----
-        boolean anyHistory = false;
-        for (String[] h : VERSION_HISTORY) {
-            if (h[0].equalsIgnoreCase(cur)) continue;   // 当前版本已经在上面讲过
-            if (!anyHistory) {
-                wrap.addView(UiKit.divider(this, P));
-                TextView t = UiKit.text(this, "历史版本", 12f, UiKit.INK3);
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                lp.setMargins(0, dp(12), 0, dp(4));
-                wrap.addView(t, lp);
-                anyHistory = true;
-            }
-            TextView t = UiKit.text(this, h[0] + "　" + h[1], 12.5f, UiKit.INK3);
+        // ---- 历史版本：一句话一条，最多 5 条，更早的折叠成一句 ----
+        int currentCode = current == null ? 0 : current.code;
+        java.util.List<ReleaseNotes.Entry> history = ReleaseNotes.history(currentCode);
+        if (!history.isEmpty()) {
+            wrap.addView(UiKit.divider(this, P));
+            TextView t = UiKit.text(this, "历史版本", 12f, UiKit.INK3);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(0, dp(12), 0, dp(4));
+            t.setLayoutParams(lp);
+            wrap.addView(t);
+        }
+        for (ReleaseNotes.Entry h : history) {
+            TextView t = UiKit.text(this, h.version + "　" + h.headline, 12.5f, UiKit.INK3);
             t.setLineSpacing(dp(3), 1f);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(0, dp(6), 0, 0);
-            wrap.addView(t, lp);
+            t.setLayoutParams(lp);
+            wrap.addView(t);
+        }
+        int older = ReleaseNotes.olderCount(currentCode);
+        if (older > 0) {
+            TextView t = UiKit.text(this, "更早的 " + older + " 个版本：规则与稳定性持续改进",
+                    11.5f, UiKit.INK3);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(0, dp(8), 0, 0);
+            t.setLayoutParams(lp);
+            wrap.addView(t);
         }
 
         // ---- QQ 群 ----
