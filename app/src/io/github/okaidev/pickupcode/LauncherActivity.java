@@ -2076,13 +2076,22 @@ public class LauncherActivity extends Activity {
 
             TextView detail = UiKit.text(this, h[1], 12.5f, UiKit.INK2);
             detail.setLineSpacing(dp(3), 1f);
-            detail.setPadding(dp(14), dp(3), 0, 0);
+            detail.setPadding(0, dp(4), 0, 0);
             item.addView(detail);
 
             LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            ilp.setMargins(0, dp(11), 0, 0);
+            ilp.setMargins(0, dp(10), 0, 0);
             wrap.addView(item, ilp);
+
+            if (h != ReleaseNotes.HIGHLIGHTS[ReleaseNotes.HIGHLIGHTS.length - 1]) {
+                View sep = new View(this);
+                sep.setBackgroundColor(P.line);
+                LinearLayout.LayoutParams splp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, 1);
+                splp.setMargins(0, dp(9), 0, 0);
+                wrap.addView(sep, splp);
+            }
         }
 
         final android.app.Dialog[] holder = new android.app.Dialog[1];
@@ -2139,7 +2148,9 @@ public class LauncherActivity extends Activity {
                 int[] a = new int[2], b = new int[2];
                 if (headerSub != null) headerSub.getLocationOnScreen(a);
                 card[0].getLocationOnScreen(b);
-                float verX = a[0] + (headerSub == null ? 0 : headerSub.getWidth() / 2f);
+                // headerSub 本身是 MATCH_PARENT 宽，它的中心就是屏幕中心 ——
+                // 用它会「只往上缩」。版本号文字在左边缘，取文字中心。
+                float verX = a[0] + dp(36);
                 float verY = a[1] + (headerSub == null ? 0 : headerSub.getHeight() / 2f);
                 float curX = b[0] + card[0].getWidth() / 2f;
                 float curY = b[1] + card[0].getHeight() / 2f;
@@ -2169,7 +2180,7 @@ public class LauncherActivity extends Activity {
                 int[] a = new int[2], b = new int[2];
                 if (headerSub != null) headerSub.getLocationOnScreen(a);
                 card[0].getLocationOnScreen(b);
-                float verX = a[0] + (headerSub == null ? 0 : headerSub.getWidth() / 2f);
+                float verX = a[0] + dp(36);
                 float verY = a[1] + (headerSub == null ? 0 : headerSub.getHeight() / 2f);
                 float curX = b[0] + card[0].getWidth() / 2f;
                 float curY = b[1] + card[0].getHeight() / 2f;
