@@ -125,5 +125,24 @@ MIUIOP(10017): ignore     ← 关
 长按图标的快捷方式改指向 `WidgetAddActivity`（全透明中转页），
 有权限时不再出现「闪主界面 → 进设置页 → 弹回桌面」的三段跳。
 
+### 2026-11-18 第三轮：**请求必须等 onResume**（这是「有权限也弹引导」的真因）
+
+```
+PIN request failed: java.lang.IllegalStateException:
+    Calling application must have a foreground activity or a foreground service
+```
+
+从桌面快捷方式冷启动时，`WidgetAddActivity` 在 `onCreate` 里就调
+`requestPinAppWidget` —— 那一刻本页还没 resume，系统判定 App 不在前台，直接拒绝。
+所以同一套代码会「有时能加、有时只弹引导」，取决于 App 当时在不在前台。
+
+**规矩：`requestPinAppWidget` 只能在 Activity 已经 resume 之后调**
+（`onResume` + 下一帧 `post`）。设置页那条路一直没问题，就是因为它 600ms 后才发。
+
+透明页还踩了第二个坑：在那上面弹 `Dialog` 会变成僵尸窗口
+（实测输入焦点为空、按钮点不动、切走再回来还挂在那儿）。
+所以 `WidgetAddActivity` 现在**不弹任何对话框**，判定失败就启动小组件设置页
+（`EXTRA_SHOW_GUIDE`），由正常页面弹引导。
+
 补充结论：**不要试图让系统那条「添加小部件」出现**。它由桌面的在线清单决定，
 第三方应用没有任何 manifest/资源能挤进去；自己声明快捷方式是唯一可控路径。
