@@ -14,13 +14,21 @@ import android.util.Log;
 import java.util.Locale;
 
 /**
- * 取件提醒（4.0.x）
+ * 取件提醒（4.0.x，v4.2.1 改为精确闹钟）
  *
  * <p>每天在用户设定的时间检查一次：本地取件库里还有没取的件，就提醒一次；
  * 没有待取件就安静跳过——提醒只在真的有事时才出现，不制造噪音。
  *
- * <p>调度用 {@code setInexactRepeating}：提醒不需要精确到分钟，
- * inexact 省电得多，也不会因为 doze 对 exact 闹钟的限制而失效。
+ * <p><b>为什么从 setInexactRepeating 改成 setExactAndAllowWhileIdle</b>：
+ * inexact 闹钟由系统按「省电窗口」批量合并，Android 文档原话是
+ * 「the OS will shift the alarm's delivery to a later time」；再叠加 HyperOS
+ * 自己的后台管控，实测偏差可以从几分钟到几十分钟 —— 这就是用户反馈的
+ * 「选了 9:00，实际 9:1x 才响」。改成一次性精确闹钟 + 响过之后自己排下一天，
+ * 时间点才是用户选的那个。
+ *
+ * <p>Android 12 起精确闹钟需要 {@code SCHEDULE_EXACT_ALARM} 权限；
+ * 没给就退回 {@code setAndAllowWhileIdle}（仍然不准，但比不响好），
+ * 设置页会给一条「去开启」的入口。
  *
  * <p>重启后需要重新注册（AlarmManager 的闹钟不跨重启），
  * 由 {@link BootReceiver} 在 BOOT_COMPLETED 时补一次。
@@ -86,15 +94,55 @@ public final class Reminder {
         return ReminderSchedule.nextTriggerAt(hour, minute, nowMillis);
     }
 
+    /**
+     * 本机是否允许精确闹钟（Android 12+ 需要用户授权「闹钟和提醒」）。
+     *
+     * <p>12 以下没有这个限制，直接算允许 —— 调用方不用自己判断版本。
+     */
+    public static boolean exactAllowed(Context ctx) {
+        if (Build.VERSION.SDK_INT < 31) return true;
+        try {
+            AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+            return am != null && am.canScheduleExactAlarms();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 跳到系统「闹钟和提醒」授权页（Android 12+）。
+     *
+     * @return true = 已跳转；false = 这个 ROM 没有这个页面，调用方自己给提示
+     */
+    public static boolean requestExactPermission(Context ctx) {
+        if (Build.VERSION.SDK_INT < 31) return false;
+        try {
+            Intent i = new Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    android.net.Uri.parse("package:" + ctx.getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public static void schedule(Context ctx) {
         try {
             AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
             if (am == null) return;
             PendingIntent pi = firePendingIntent(ctx);
             am.cancel(pi);
-            am.setInexactRepeating(AlarmManager.RTC_WAKEUP, nextTriggerAt(ctx),
-                    AlarmManager.INTERVAL_DAY, pi);
-            Log.i(TAG, "REMINDER scheduled daily at " + timeLabel(ctx));
+            long at = nextTriggerAt(ctx);
+            if (exactAllowed(ctx)) {
+                // 一次性精确闹钟：响过之后由 fire() 自己排下一天（见 fire 里的 schedule）
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+                Log.i(TAG, "REMINDER scheduled EXACT at " + timeLabel(ctx));
+            } else {
+                // 没给精确闹钟权限：至少保证会响，并在设置页提示用户去开
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+                Log.w(TAG, "REMINDER scheduled INEXACT（未授予精确闹钟）at " + timeLabel(ctx));
+            }
         } catch (Throwable t) {
             Log.w(TAG, "REMINDER schedule failed: " + t);
         }
@@ -130,11 +178,16 @@ public final class Reminder {
                 int pending = countPending(app);
                 if (pending <= 0) {
                     Log.i(TAG, "REMINDER fire: 没有待取件，静默跳过");
-                    return;
+                } else {
+                    notifyPending(app, pending);
                 }
-                notifyPending(app, pending);
             } catch (Throwable t) {
                 Log.w(TAG, "REMINDER fire failed: " + t);
+            } finally {
+                // v4.2.1：改成一次性精确闹钟之后，必须自己排下一天，
+                // 否则明天就不响了（以前 setInexactRepeating 会自己重复）。
+                // 放在 finally 里：即使今天查库失败，也不能把明天的闹钟弄丢。
+                try { schedule(app); } catch (Throwable ignored) { }
             }
         }, "pickup-reminder").start();
     }

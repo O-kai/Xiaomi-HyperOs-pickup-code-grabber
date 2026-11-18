@@ -21,60 +21,95 @@ public class Notifier {
 
     private static final String TAG = "PICKUPDEBUG";
     private static final String CHANNEL_ID = "pickup";
+    /** 同一条短信里第 2 个及以后的码走这条静默渠道（不响铃、不震动） */
+    private static final String CHANNEL_QUIET = "pickup_quiet";
 
+    /**
+     * 收到取件码后的提醒。
+     *
+     * <p><b>v4.2.1：一个取件码一条通知。</b>以前是「全部码拼成一条」——
+     * 一条短信里有两个码时，待办里是两条，通知里却只有一条标题写着
+     * 「12-3-4567 58-2-9041」，用户以为只收到一个件。
+     *
+     * <p>拆开之后：
+     * <ul>
+     *   <li>id 按取件码 hash 取模，同一个码再来一次是「更新」而不是多一条；</li>
+     *   <li>只有第一条响铃/震动，后面的静音——一次来 5 个码不该响 5 次；</li>
+     *   <li>每条通知各自带「已取件 <这个码>」按钮，点击也只复制这一个码。</li>
+     * </ul>
+     */
     public static void notifyCodes(Context ctx, List<String> codes, String titleExtra) {
         if (codes == null || codes.isEmpty()) return;
         try {
             if (Build.VERSION.SDK_INT >= 26) {
-                NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "取件码通知",
-                        NotificationManager.IMPORTANCE_HIGH);
-                ch.setDescription("收到快递取件码时提醒");
-                ctx.getSystemService(NotificationManager.class).createNotificationChannel(ch);
-            }
-
-            String codesJoined = String.join(" ", codes);
-            String title = codesJoined;
-            String text = titleExtra == null || titleExtra.isEmpty()
-                    ? "点击复制并查看待办" : titleExtra + " · 点击复制";
-
-            Intent open = new Intent(ctx, NotificationActionActivity.class);
-            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            open.putExtra("copy", codesJoined);
-            PendingIntent pi = PendingIntent.getActivity(ctx, 0, open,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-            Notification.Builder b = (Build.VERSION.SDK_INT >= 26)
-                    ? new Notification.Builder(ctx, CHANNEL_ID)
-                    : new Notification.Builder(ctx);
-            b.setSmallIcon(ctx.getApplicationInfo().icon);
-            b.setContentTitle(title);
-            b.setContentText(text);
-            b.setStyle(new Notification.BigTextStyle().bigText(text));
-            b.setContentIntent(pi);
-            b.setAutoCancel(true);
-
-            // 动作按钮：已取件（Activity 通道，可唤醒冻结进程）/ 查看待办（逐码添加）
-            int req = 100;
-            for (String c : codes) {
-                Intent done = new Intent(ctx, NotificationActionActivity.class);
-                done.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                done.putExtra("done", c);
-                PendingIntent pd = PendingIntent.getActivity(ctx, req++, done,
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                b.addAction(new Notification.Action.Builder(
-                        android.R.drawable.ic_menu_agenda, "已取件 " + c, pd).build());
-            }
-            Intent notesIntent = ctx.getPackageManager().getLaunchIntentForPackage(NotesBackend.targetPkg(ctx));
-            if (notesIntent != null) {
-                PendingIntent pn = PendingIntent.getActivity(ctx, 300, notesIntent,
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                b.addAction(new Notification.Action.Builder(
-                        android.R.drawable.ic_menu_agenda, "查看待办", pn).build());
+                NotificationManager nm0 = ctx.getSystemService(NotificationManager.class);
+                if (nm0 != null) {
+                    NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "取件码通知",
+                            NotificationManager.IMPORTANCE_HIGH);
+                    ch.setDescription("收到快递取件码时提醒");
+                    nm0.createNotificationChannel(ch);
+                    // 同一条短信里的第 2、3 个码走静默渠道：一次来三个码不该响三声，
+                    // 但每一条都要在通知栏里各占一行，别拼成一条
+                    NotificationChannel quiet = new NotificationChannel(CHANNEL_QUIET,
+                            "取件码通知（静默）", NotificationManager.IMPORTANCE_LOW);
+                    quiet.setDescription("同一条短信里的其余取件码，只显示不响铃");
+                    quiet.setSound(null, null);
+                    quiet.enableVibration(false);
+                    nm0.createNotificationChannel(quiet);
+                }
             }
 
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-            nm.notify(1001, b.build());
-            Log.i(TAG, "NOTIFY: " + title);
+            if (nm == null) return;
+
+            for (int i = 0; i < codes.size(); i++) {
+                String code = codes.get(i);
+                if (code == null || code.trim().isEmpty()) continue;
+
+                String text = titleExtra == null || titleExtra.isEmpty()
+                        ? "点击复制并查看待办" : titleExtra + " · 点击复制";
+                String channel = i == 0 ? CHANNEL_ID : CHANNEL_QUIET;
+
+                Intent open = new Intent(ctx, NotificationActionActivity.class);
+                open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                open.putExtra("copy", code);
+                PendingIntent pi = PendingIntent.getActivity(ctx, 1000 + i, open,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+                Notification.Builder b = (Build.VERSION.SDK_INT >= 26)
+                        ? new Notification.Builder(ctx, channel)
+                        : new Notification.Builder(ctx);
+                b.setSmallIcon(ctx.getApplicationInfo().icon);
+                b.setContentTitle(code);
+                b.setContentText(text);
+                b.setStyle(new Notification.BigTextStyle().bigText(text));
+                b.setContentIntent(pi);
+                b.setAutoCancel(true);
+                b.setWhen(System.currentTimeMillis());
+
+                // 动作按钮：已取件（Activity 通道，可唤醒冻结进程）/ 查看待办
+                Intent done = new Intent(ctx, NotificationActionActivity.class);
+                done.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                done.putExtra("done", code);
+                PendingIntent pd = PendingIntent.getActivity(ctx, 1100 + i, done,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                b.addAction(new Notification.Action.Builder(
+                        android.R.drawable.ic_menu_agenda, "已取件", pd).build());
+
+                Intent notesIntent = ctx.getPackageManager().getLaunchIntentForPackage(NotesBackend.targetPkg(ctx));
+                if (notesIntent != null) {
+                    PendingIntent pn = PendingIntent.getActivity(ctx, 1200 + i, notesIntent,
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                    b.addAction(new Notification.Action.Builder(
+                            android.R.drawable.ic_menu_agenda, "查看待办", pn).build());
+                }
+
+                // id 跟着取件码走（不用序号）：同一个码重复通知是更新同一条，
+                // 不会因为两次短信条数不同而互相覆盖错位
+                int id = 2000 + (Math.abs(code.hashCode()) % 900);
+                nm.notify(id, b.build());
+                Log.i(TAG, "NOTIFY #" + id + ": " + code);
+            }
         } catch (Throwable t) {
             Log.e(TAG, "notify err: " + t);
         }

@@ -1445,8 +1445,12 @@ public class WidgetSettingsActivity extends Activity {
         row.addView(code);
 
         // 以前这里写死白色：浅色主题下地点直接看不见（真机上发现）
-        TextView place = UiKit.text(this, placeText, 11f * k,
+        // v4.2.1：已取件的地点也要划掉——真实组件里就是「码 + 地址」整段划掉
+        // （PickupWidgetProvider 那边早就这么做了），预览只划了码，两边对不上。
+        TextView place = UiKit.text(this, "", 11f * k,
                 previewRowColor(index, picked ? 0x80 : 0xB3));
+        place.setText(picked
+                ? PickupWidgetProvider.strikeText(placeText) : placeText);
         place.setMaxLines(1);
         LinearLayout.LayoutParams plp2 = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);

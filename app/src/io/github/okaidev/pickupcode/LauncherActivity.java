@@ -3565,6 +3565,10 @@ public class LauncherActivity extends Activity {
         // 或某次刷新回调丢了，组件就会停在旧快照上（真机上出现过：库里已删的码
         // 还挂在组件第一行）。这条刷新很便宜，相当于给组件一个自愈机会。
         PickupWidgetProvider.refreshAsync(this);
+        // v4.2.1：提醒开着就顺手重排一次。用户可能刚从系统设置里
+        // 打开了「闹钟和提醒」权限——不重排的话，闹钟还停在原来那个不精确的那一支。
+        // 同一时刻重排是幂等的，不会把时间推后。
+        if (Reminder.isEnabled(this)) Reminder.schedule(this);
         maybeGuideMissingScope();
         refreshPickupCard();
         refreshHealth();
@@ -3753,30 +3757,90 @@ public class LauncherActivity extends Activity {
         return base + extra;
     }
 
-    /** 取件提醒：点开设置面板（时间 + 立即测试一次） */
+    /**
+     * 取件提醒设置面板（v4.2.1 重做 UI）。
+     *
+     * <p>以前是系统 {@code AlertDialog} 甩三段纯文本 + 「选择时间 / 立即测试一次 / 取消」，
+     * 和 App 里其它设置（圆角卡片 + 图标行 + 底部主按钮）完全两个风格。
+     * 现在和其它弹窗共用 UiKit.dialog + UiKit.row：
+     * 说明一行灰字，下面三行图标行（开关 / 时间 / 测试），
+     * 精确闹钟没授权时再多一行橙色的「去开启」。
+     */
     private void pickReminderTime() {
-        String msg = (Reminder.isEnabled(this) ? "已开启：每天 " + Reminder.timeLabel(this)
-                : "已关闭") + "\n到点后会检查本地取件库，"
-                + "还有没取的件才提醒，没有就保持安静。";
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("取件提醒")
-                .setMessage(msg)
-                .setPositiveButton("选择时间", (d, w) -> showReminderTimePicker())
-                .setNeutralButton("立即测试一次", (d, w) -> testReminderNow())
-                .setNegativeButton("取消", null)
-                .show();
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        // 跳系统授权页前要先关掉这个面板：不关的话，用户授权回来看到的还是
+        // 打开时那份快照（「精确提醒未开启」还挂在那儿），像是没生效
+        final android.app.Dialog[] holder = new android.app.Dialog[1];
+
+        TextView desc = UiKit.text(this,
+                "每天到点检查本地取件库：还有没取的件才提醒，没有就保持安静。",
+                12.5f, UiKit.INK3);
+        desc.setLineSpacing(dp(4), 1f);
+        wrap.addView(desc);
+        wrap.addView(UiKit.spacer(this, 14));
+
+        UiKit.Switch sw = new UiKit.Switch(this, P, Reminder.isEnabled(this));
+        sw.setOnToggle(on -> {
+            Reminder.setEnabled(this, on);
+            refreshReminderRow();
+        });
+        wrap.addView(UiKit.row(this, P, R.drawable.ic_bell, "每日提醒",
+                Reminder.isEnabled(this) ? "到点检查还有多少件没取" : "已关闭", sw));
+
+        wrap.addView(UiKit.divider(this, P));
+        LinearLayout timeRow = UiKit.row(this, P, R.drawable.ic_clock, "提醒时间",
+                "每天 " + Reminder.timeLabel(this), UiKit.chevron(this, P));
+        timeRow.setOnClickListener(v -> showReminderTimePicker(timeRow));
+        wrap.addView(timeRow);
+
+        wrap.addView(UiKit.divider(this, P));
+        wrap.addView(toolRow(R.drawable.ic_rocket, "立即测试一次",
+                "马上发一条，用来确认通知渠道是否正常", v -> testReminderNow()));
+
+        // 精确闹钟没授权：这是「提醒晚几分钟」的第二个原因，给一个能直接点的入口
+        if (!Reminder.exactAllowed(this)) {
+            wrap.addView(UiKit.divider(this, P));
+            wrap.addView(toolRow(R.drawable.ic_alert, "精确提醒未开启",
+                    "点此允许「闹钟和提醒」，否则系统会把闹钟推迟几分钟到几十分钟",
+                    v -> {
+                        if (holder[0] != null) holder[0].dismiss();
+                        if (!Reminder.requestExactPermission(this)) {
+                            Toast.makeText(this,
+                                    "这个系统没有该设置页，请到 设置 → 应用 → 特殊权限 里允许「闹钟和提醒」",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    }));
+        }
+
+        holder[0] = UiKit.dialog(this, P, R.drawable.ic_bell, "取件提醒", null, wrap, 0,
+                UiKit.primary("完成", null));
     }
 
-    /** 时间选择器 */
-    private void showReminderTimePicker() {
+    /** 时间选择器（选完同时刷新面板里的副标题与设置页那一行） */
+    private void showReminderTimePicker(LinearLayout rowForSub) {
         android.app.TimePickerDialog dlg = new android.app.TimePickerDialog(this,
                 (view, hourOfDay, minute) -> {
                     Reminder.setTime(this, hourOfDay, minute);
                     refreshReminderRow();
+                    setRowSubtitle(rowForSub, "每天 " + Reminder.timeLabel(this));
                     Toast.makeText(this, "提醒时间已设为每天 " + Reminder.timeLabel(this),
                             Toast.LENGTH_SHORT).show();
-                }, Reminder.hour(this), Reminder.minute(this), android.text.format.DateFormat.is24HourFormat(this));
+                }, Reminder.hour(this), Reminder.minute(this),
+                android.text.format.DateFormat.is24HourFormat(this));
         dlg.show();
+    }
+
+    /** 改 UiKit.row 的副标题（row = [图标, 竖排(标题, 副标题), 右侧附件]） */
+    private void setRowSubtitle(LinearLayout row, String sub) {
+        if (row == null) return;
+        try {
+            LinearLayout col = (LinearLayout) row.getChildAt(1);
+            if (col != null && col.getChildCount() >= 2
+                    && col.getChildAt(1) instanceof TextView) {
+                ((TextView) col.getChildAt(1)).setText(sub);
+            }
+        } catch (Throwable ignored) { }
     }
 
     /** 立即触发一次提醒：用来确认通知渠道与权限都正常 */

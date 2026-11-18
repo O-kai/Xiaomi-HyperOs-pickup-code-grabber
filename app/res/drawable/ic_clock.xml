@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  取件提醒：时钟（v4.2.1）
+  与其余图标同一套规格：纯白填充 + evenOdd 镂空，圆环靠内外两圆相减得到。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,2.4a9.6,9.6 0 1,0 0,19.2a9.6,9.6 0 1,0 0,-19.2z M12,4.4a7.6,7.6 0 1,1 0,15.2a7.6,7.6 0 1,1 0,-15.2z M11.2,7h1.6v5.6l3.6,2.1l-0.8,1.4l-4.4,-2.6z" />
+</vector>

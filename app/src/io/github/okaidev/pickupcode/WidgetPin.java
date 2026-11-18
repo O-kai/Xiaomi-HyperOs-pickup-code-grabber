@@ -38,6 +38,15 @@ public final class WidgetPin {
     /** 小组件设置页的参数：进来后立刻发起一次「放到桌面」请求 */
     public static final String EXTRA_AUTO_PIN = "auto_pin";
 
+    /**
+     * MIUI 的「应用权限」页。
+     *
+     * <p>真机实测：`am start -a miui.intent.action.APP_PERM_EDITOR --es extra_pkgname <pkg>`
+     * 直达「取件码助手」的权限列表 →「其他权限」→「设置相关」里就有「桌面快捷方式」。
+     * 比让用户自己从设置里翻快得多。
+     */
+    private static final String ACTION_MIUI_PERM_EDITOR = "miui.intent.action.APP_PERM_EDITOR";
+
     /** 等系统「已固定」回调的上限（毫秒）。HyperOS 静默失败时不会有任何回调 */
     private static final long PIN_TIMEOUT_MS = 2500L;
 
@@ -159,24 +168,75 @@ public final class WidgetPin {
      *
      * <p>别再写「长按空白 → 小部件」这种通用说法 —— HyperOS 上标准安卓小部件
      * 藏在「小部件中心 → 搜索 → 安卓小部件」里，不点进去根本看不到本 App。
+     *
+     * <p>「桌面快捷方式」是这一整套里最关键的一道开关：真机实测，关着时
+     * requestPinAppWidget 会返回 true 却什么都不发生（桌面 AddItemActivity
+     * 立刻自己结束）。打开后同样的调用会正常弹出系统确认框。
      */
     private static void showGuide(Activity a, String reason) {
         UiKit.Palette p = UiKit.palette(a);
         String steps = (reason == null ? "" : reason + "。\n\n")
                 + "手动添加步骤：\n"
-                + "第 1 步：设置 → 应用设置 → 应用管理 → 取件码助手 → 权限管理 →\n"
-                + "　　　　打开「桌面快捷方式」\n"
+                + "第 1 步：点下面的按钮直达权限页 →「其他权限」→「桌面快捷方式」→ 打开\n"
                 + "　　　　（HyperOS 默认关闭；关着时系统会静默丢弃添加请求）\n"
                 + "第 2 步：回到桌面，双指捏合 → 点「添加小部件」\n"
                 + "第 3 步：点右上角搜索，输入「安卓小部件」；或下拉到列表底部点它 →\n"
                 + "　　　　找到「取件码助手」，长按拖到桌面\n\n"
                 + "负一屏只接受小米官方小部件，安卓小部件放不进去（系统限制）；\n"
                 + "放到桌面第 1 页最接近。";
-        boolean picker = hasWidgetPicker(a);
+
+        boolean perm = canOpenPermissionEditor(a);
+        boolean picker = !perm && hasWidgetPicker(a);
+        String primaryLabel = perm ? "去打开「桌面快捷方式」"
+                : (picker ? "打开小部件列表" : "立即重试");
         UiKit.dialog(a, p, R.drawable.ic_grid, "添加到桌面", steps, null,
-                UiKit.primary(picker ? "打开小部件列表" : "立即重试", () -> {
-                    if (!openWidgetPicker(a)) quickPin(a);
+                UiKit.primary(primaryLabel, () -> {
+                    if (perm) {
+                        if (!openPermissionEditor(a)) openAppDetails(a);
+                    } else if (!openWidgetPicker(a)) {
+                        quickPin(a);
+                    }
                 }),
                 UiKit.ghost("知道了", null));
+    }
+
+    /**
+     * 打开 MIUI 的「应用权限」页（真机实测可直达本 App 的权限列表）。
+     *
+     * @return true = 已跳转
+     */
+    private static boolean openPermissionEditor(Activity a) {
+        try {
+            Intent it = new Intent(ACTION_MIUI_PERM_EDITOR)
+                    .putExtra("extra_pkgname", a.getPackageName())
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (it.resolveActivity(a.getPackageManager()) == null) return false;
+            a.startActivity(it);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static boolean canOpenPermissionEditor(Activity a) {
+        try {
+            Intent it = new Intent(ACTION_MIUI_PERM_EDITOR);
+            return it.resolveActivity(a.getPackageManager()) != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 兜底：系统「应用信息」页（任何 ROM 都有） */
+    private static boolean openAppDetails(Activity a) {
+        try {
+            Intent it = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:" + a.getPackageName()))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            a.startActivity(it);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 }
