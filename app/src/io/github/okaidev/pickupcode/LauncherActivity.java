@@ -2053,102 +2053,142 @@ public class LauncherActivity extends Activity {
      *             两种都：点任意处关闭，点 QQ 群那一行复制群号。
      */
     private void showWhatsNew(boolean auto) {
-        int code = AppVersion.code(this);
-        ReleaseNotes.Entry current = ReleaseNotes.current(code);
-        String cur = current != null ? current.version : AppVersion.label(this);
-
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.VERTICAL);
 
-        // ---- 当前版本 ----
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView v = UiKit.text(this, cur, 13.5f, UiKit.INK);
-        v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        head.addView(v);
-        TextView badge = UiKit.text(this, "当前版本", 11f, P.accentInk);
-        badge.setPadding(dp(8), dp(2), dp(8), dp(2));
-        badge.setBackground(UiKit.bg(P.accentSoft, this, 9));
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        blp.setMargins(dp(8), 0, 0, 0);
-        head.addView(badge, blp);
-        wrap.addView(head);
-
-        String[] bullets = current == null ? null : current.bullets;
-        if (bullets != null) {
-            for (String n : bullets) {
-                TextView t = UiKit.text(this, "· " + n, 13f, UiKit.INK2);
-                t.setLineSpacing(dp(4), 1f);
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                lp.setMargins(0, dp(8), 0, 0);
-                wrap.addView(t, lp);
-            }
-        }
-
-        // ---- 历史版本：一句话一条，最多 5 条，更早的折叠成一句 ----
-        int currentCode = current == null ? 0 : current.code;
-        java.util.List<ReleaseNotes.Entry> history = ReleaseNotes.history(currentCode);
-        if (!history.isEmpty()) {
-            wrap.addView(UiKit.divider(this, P));
-            TextView t = UiKit.text(this, "历史版本", 12f, UiKit.INK3);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, dp(12), 0, dp(4));
-            t.setLayoutParams(lp);
-            wrap.addView(t);
-        }
-        for (ReleaseNotes.Entry h : history) {
-            TextView t = UiKit.text(this, h.version + "　" + h.headline, 12.5f, UiKit.INK3);
-            t.setLineSpacing(dp(3), 1f);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, dp(6), 0, 0);
-            t.setLayoutParams(lp);
-            wrap.addView(t);
-        }
-        int older = ReleaseNotes.olderCount(currentCode);
-        if (older > 0) {
-            TextView t = UiKit.text(this, "更早的 " + older + " 个版本：规则与稳定性持续改进",
-                    11.5f, UiKit.INK3);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, dp(8), 0, 0);
-            t.setLayoutParams(lp);
-            wrap.addView(t);
-        }
-
-        // ---- QQ 群 ----
-        wrap.addView(UiKit.divider(this, P));
+        // QQ 群放在第一眼就能看见的位置 —— 不再埋在历史版本下面。
         LinearLayout qq = UiKit.row(this, P, R.drawable.ic_phone, "开发者 QQ 群",
-                "901543676 · 进群备注「取件码助手」", copyPill());
+                ReleaseNotes.QQ_GROUP + " · 进群备注「取件码助手」", copyPill());
         qq.setOnClickListener(v2 -> copyQqGroup());
         wrap.addView(qq);
+
+        wrap.addView(UiKit.divider(this, P));
+
+        // 只放当前版本要点、一屏显示完、不滚动。
+        // 标题一行、说明紧接着下一行，全部左对齐 —— 不做左右两列（对不齐、显得乱）。
+        for (String[] h : ReleaseNotes.HIGHLIGHTS) {
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+
+            TextView key = UiKit.text(this, h[0], 15f, P.accentInk);
+            key.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+            item.addView(key);
+
+            TextView detail = UiKit.text(this, h[1], 12.5f, UiKit.INK2);
+            detail.setLineSpacing(dp(3), 1f);
+            detail.setPadding(dp(14), dp(3), 0, 0);
+            item.addView(detail);
+
+            LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            ilp.setMargins(0, dp(11), 0, 0);
+            wrap.addView(item, ilp);
+        }
 
         final android.app.Dialog[] holder = new android.app.Dialog[1];
         holder[0] = UiKit.dialog(this, P, R.drawable.ic_sparkle,
                 auto ? "本次更新" : "更新日志",
-                // 版本号在内容第一行已经有了，这里只放提示，别重复一遍
-                "点首屏版本号可随时回看", wrap, auto ? 0 : 62);
-        // 点任意处关闭：
-        // 1) 卡片内部 —— 给内容根加监听（QQ 群那一行有自己的监听，不会误关）
-        // 2) 卡片外面 —— UiKit.dialog 的窗口是「刚好包住卡片」的，外面的点击根本
-        //    进不到这个窗口（会直接漏给下面的页面，出现「点空白反而切了 Tab」）。
-        //    所以这里把窗口撑成全屏，未被子 View 消费的点击都算「点空白」，直接关。
-        wrap.setOnClickListener(v2 -> {
-            if (holder[0] != null) holder[0].dismiss();
-        });
-        if (holder[0] != null) {
-            android.view.Window w = holder[0].getWindow();
+                ReleaseNotes.CURRENT_VERSION + " · 点首屏版本号可随时回看",
+                wrap, 0);
+        final android.app.Dialog dlg = holder[0];
+
+        if (dlg != null) {
+            android.view.Window w = dlg.getWindow();
             if (w != null) {
                 w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT);
                 w.setGravity(Gravity.CENTER);
+                // contentView 默认贴在 decor 顶部；把整张卡片放到真正的屏幕中央
+                android.view.View decor = w.getDecorView();
+                android.view.View content = decor.findViewById(android.R.id.content);
+                if (content instanceof ViewGroup) {
+                    ViewGroup cg = (ViewGroup) content;
+                    if (cg.getChildCount() > 0) {
+                        android.view.View child = cg.getChildAt(0);
+                        ViewGroup.LayoutParams clp = child.getLayoutParams();
+                        // UiKit.dialog 的外层容器高度是 MATCH_PARENT，
+                        // 改 layoutParams.gravity 没用 —— 要改容器自身的 gravity。
+                        if (child instanceof LinearLayout) {
+                            ((LinearLayout) child).setGravity(Gravity.CENTER_VERTICAL);
+                        }
+                        if (clp instanceof android.widget.FrameLayout.LayoutParams) {
+                            ((android.widget.FrameLayout.LayoutParams) clp).gravity = Gravity.CENTER;
+                            child.setLayoutParams(clp);
+                        }
+                    }
+                }
+            }
+
+            // 从首页版本号那里展开；关闭时收回到版本号。
+            // 注意：必须缩放【整张白色卡片】，不能只缩放内容 ——
+            // 只缩内容的话卡片不动，看着就不像从版本号长出来。
+            final android.view.View[] card = { null };
+            if (w != null) {
+                android.view.View content = w.getDecorView().findViewById(android.R.id.content);
+                if (content instanceof ViewGroup) {
+                    ViewGroup outer = (ViewGroup) content;
+                    if (outer.getChildCount() > 0 && outer.getChildAt(0) instanceof ViewGroup) {
+                        ViewGroup shell = (ViewGroup) outer.getChildAt(0);
+                        if (shell.getChildCount() > 0) card[0] = shell.getChildAt(0);
+                    }
+                }
+            }
+
+            Runnable playOpen = () -> {
+                if (!dlg.isShowing() || card[0] == null) return;
+                int[] a = new int[2], b = new int[2];
+                if (headerSub != null) headerSub.getLocationOnScreen(a);
+                card[0].getLocationOnScreen(b);
+                float verX = a[0] + (headerSub == null ? 0 : headerSub.getWidth() / 2f);
+                float verY = a[1] + (headerSub == null ? 0 : headerSub.getHeight() / 2f);
+                float curX = b[0] + card[0].getWidth() / 2f;
+                float curY = b[1] + card[0].getHeight() / 2f;
+                card[0].setPivotX(card[0].getWidth() / 2f);
+                card[0].setPivotY(card[0].getHeight() / 2f);
+                card[0].setScaleX(0.06f);
+                card[0].setScaleY(0.06f);
+                card[0].setAlpha(0f);
+                card[0].setTranslationX(verX - curX);
+                card[0].setTranslationY(verY - curY);
+                card[0].animate().scaleX(1f).scaleY(1f).alpha(1f)
+                        .translationX(0f).translationY(0f)
+                        .setDuration(280)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator(1.3f))
+                        .start();
+            };
+            if (card[0] != null) card[0].post(playOpen);
+
+            final boolean[] closing = { false };
+            Runnable closeWithAnim = () -> {
+                if (closing[0]) return;
+                closing[0] = true;
+                if (card[0] == null) {
+                    if (dlg.isShowing()) dlg.dismiss();
+                    return;
+                }
+                int[] a = new int[2], b = new int[2];
+                if (headerSub != null) headerSub.getLocationOnScreen(a);
+                card[0].getLocationOnScreen(b);
+                float verX = a[0] + (headerSub == null ? 0 : headerSub.getWidth() / 2f);
+                float verY = a[1] + (headerSub == null ? 0 : headerSub.getHeight() / 2f);
+                float curX = b[0] + card[0].getWidth() / 2f;
+                float curY = b[1] + card[0].getHeight() / 2f;
+                card[0].animate().scaleX(0.06f).scaleY(0.06f).alpha(0f)
+                        .translationX(verX - curX).translationY(verY - curY)
+                        .setDuration(200)
+                        .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                        .withEndAction(() -> {
+                            if (dlg.isShowing()) dlg.dismiss();
+                        }).start();
+            };
+
+            // 点内容任意处关闭（QQ 群那一行有自己的监听，不会误关）
+            wrap.setOnClickListener(v2 -> closeWithAnim.run());
+            // 卡片外面：把窗口撑成全屏，未被子 View 消费的点击都算「点空白」
+            if (w != null) {
                 w.getDecorView().setOnTouchListener((vv, ev) -> {
                     if (ev.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
-                        holder[0].dismiss();
+                        closeWithAnim.run();
                         return true;
                     }
                     return false;
