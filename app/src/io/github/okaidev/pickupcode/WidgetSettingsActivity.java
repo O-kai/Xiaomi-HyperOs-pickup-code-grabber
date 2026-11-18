@@ -264,6 +264,11 @@ public class WidgetSettingsActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // v4.2.1：用户刚从「权限管理 → 桌面快捷方式」回来 —— 直接重试一次添加，
+        // 不用他自己再点一遍按钮。只有「是引导弹窗把他送过去的」才会置这个标记。
+        if (WidgetPin.consumePermissionRetry()) {
+            rootView.postDelayed(() -> WidgetPin.quickPin(this), 400);
+        }
         // 刚从「无障碍设置」回来、服务已经开了：自动补一次重新校准，
         // 用户不用再自己找「重新校准」按钮。
         if (recalibrateOnResume && a11yEnabled()) {

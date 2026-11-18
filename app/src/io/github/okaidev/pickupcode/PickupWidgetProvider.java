@@ -414,20 +414,18 @@ public class PickupWidgetProvider extends AppWidgetProvider {
     }
 
     /**
-     * 删除线（v4.1.0）。
+     * 删除线（v4.1.0，v4.2.1 改成「只有一条线」）。
      *
-     * <p>试过用组合字符 U+0336 逐字叠加做「双横线」，结果在中文上翻车：
-     * 中文字体没有对应的组合字形，地址整段变成豆腐块，取件码也被压成一条糊线。
-     * 所以回到 Html 的 {@code <s>}：单线，但长度天然跟着文字走，
-     * 取件码和地址都能用，跨进程也稳定。
+     * <p>中文不能用组合字符 U+0336（中文字体没有这个组合字形，会变豆腐块），
+     * 所以走系统内置 span。**只用 StrikethroughSpan，不要加 UnderlineSpan**：
+     * 两个 span 叠在一起是「字中一条 + 字底一条」，看起来像下划线，
+     * 且和取件码那边（就一条线）不一致。统一成单条删除线。
      */
     static CharSequence strikeText(String text) {
         if (text == null || text.isEmpty()) return text;
 
         // 取件码是纯 ASCII：用组合字符 U+0336 叠两次，得到**双横线**，
         // 而且线长天然跟着字数走，不会划过头。
-        // 中文不能这么叠（中文字体没有这个组合字形，会变成豆腐块），
-        // 含中文的地点退回 Html 的 <s> —— 单线，但至少是干净的。
         boolean ascii = true;
         for (int i = 0; i < text.length(); i++) {
             if (text.charAt(i) >= 128) { ascii = false; break; }
@@ -439,13 +437,9 @@ public class PickupWidgetProvider extends AppWidgetProvider {
             }
             return sb.toString();
         }
-        // 中文：组合字符会让字形变豆腐块，改用两个系统内置 span 叠出两条线 ——
-        // 删除线在字中间、下划线在字底，视觉上也是「划掉了」，而且跨进程安全
-        // （自定义 Span 到了桌面进程会认不出来）。
+        // 中文：一个删除线 span 就够，跨进程安全（自定义 Span 到桌面进程会认不出来）
         SpannableString sp = new SpannableString(text);
         sp.setSpan(new android.text.style.StrikethroughSpan(), 0, text.length(),
-                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        sp.setSpan(new android.text.style.UnderlineSpan(), 0, text.length(),
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         return sp;
     }

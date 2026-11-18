@@ -3778,17 +3778,20 @@ public class LauncherActivity extends Activity {
                 12.5f, UiKit.INK3);
         desc.setLineSpacing(dp(4), 1f);
         wrap.addView(desc);
+        // v4.2.1：开关只留外面那一个（用户原话：外面有开关、里面也有开关，去掉里面的）。
+        // 但关着的时候点进来，这里得说清楚「改了时间也不会响」。
+        if (!Reminder.isEnabled(this)) {
+            TextView off = UiKit.text(this,
+                    "提醒现在是关闭的 —— 打开设置页「取件提醒」那一行的开关才会生效。",
+                    12.5f, UiKit.WARN);
+            off.setLineSpacing(dp(4), 1f);
+            LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            olp.setMargins(0, dp(8), 0, 0);
+            wrap.addView(off, olp);
+        }
         wrap.addView(UiKit.spacer(this, 14));
 
-        UiKit.Switch sw = new UiKit.Switch(this, P, Reminder.isEnabled(this));
-        sw.setOnToggle(on -> {
-            Reminder.setEnabled(this, on);
-            refreshReminderRow();
-        });
-        wrap.addView(UiKit.row(this, P, R.drawable.ic_bell, "每日提醒",
-                Reminder.isEnabled(this) ? "到点检查还有多少件没取" : "已关闭", sw));
-
-        wrap.addView(UiKit.divider(this, P));
         LinearLayout timeRow = UiKit.row(this, P, R.drawable.ic_clock, "提醒时间",
                 "每天 " + Reminder.timeLabel(this), UiKit.chevron(this, P));
         timeRow.setOnClickListener(v -> showReminderTimePicker(timeRow));
@@ -3817,18 +3820,55 @@ public class LauncherActivity extends Activity {
                 UiKit.primary("完成", null));
     }
 
-    /** 时间选择器（选完同时刷新面板里的副标题与设置页那一行） */
+    /**
+     * 时间选择器（v4.2.1 换成自绘滚轮）。
+     *
+     * <p>原来的 {@code TimePickerDialog} 是 Android 4.x 的转盘 + 输入框，
+     * 和这个 App 的圆角卡片完全两个年代。现在里面是两列滚轮（时 / 分）：
+     * 中间一条高亮带、选中项最大最实、上下渐隐，松手吸附，点一下直接跳过去。
+     */
     private void showReminderTimePicker(LinearLayout rowForSub) {
-        android.app.TimePickerDialog dlg = new android.app.TimePickerDialog(this,
-                (view, hourOfDay, minute) -> {
-                    Reminder.setTime(this, hourOfDay, minute);
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER);
+        box.setBackground(UiKit.bg(P.chipBg, this, 18));
+        box.setPadding(0, dp(4), 0, dp(4));
+
+        final WheelPicker hourWheel = new WheelPicker(this, 0, 23);
+        hourWheel.setColors(P.accentInk, P.muteInk);
+        hourWheel.setValue(Reminder.hour(this));
+
+        final WheelPicker minWheel = new WheelPicker(this, 0, 59);
+        minWheel.setColors(P.accentInk, P.muteInk);
+        minWheel.setValue(Reminder.minute(this));
+
+        // 高亮带：浅色主题用淡黑，深色主题用淡白，否则有一边看不见
+        int bandColor = UiKit.isDark(this) ? 0x2EFFFFFF : 0x14000000;
+        hourWheel.setBandColor(bandColor);
+        minWheel.setBandColor(bandColor);
+
+        TextView colon = UiKit.text(this, ":", 22f, P.muteInk);
+        colon.setPadding(dp(2), 0, dp(2), 0);
+
+        box.addView(hourWheel, new LinearLayout.LayoutParams(
+                dp(82), ViewGroup.LayoutParams.WRAP_CONTENT));
+        box.addView(colon);
+        box.addView(minWheel, new LinearLayout.LayoutParams(
+                dp(82), ViewGroup.LayoutParams.WRAP_CONTENT));
+        wrap.addView(box);
+
+        UiKit.dialog(this, P, R.drawable.ic_clock, "提醒时间", null, wrap, 0,
+                UiKit.primary("保存", () -> {
+                    Reminder.setTime(this, hourWheel.getValue(), minWheel.getValue());
                     refreshReminderRow();
                     setRowSubtitle(rowForSub, "每天 " + Reminder.timeLabel(this));
                     Toast.makeText(this, "提醒时间已设为每天 " + Reminder.timeLabel(this),
                             Toast.LENGTH_SHORT).show();
-                }, Reminder.hour(this), Reminder.minute(this),
-                android.text.format.DateFormat.is24HourFormat(this));
-        dlg.show();
+                }),
+                UiKit.ghost("取消", null));
     }
 
     /** 改 UiKit.row 的副标题（row = [图标, 竖排(标题, 副标题), 右侧附件]） */

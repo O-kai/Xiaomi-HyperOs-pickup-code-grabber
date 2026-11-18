@@ -47,8 +47,16 @@ public final class WidgetPin {
      */
     private static final String ACTION_MIUI_PERM_EDITOR = "miui.intent.action.APP_PERM_EDITOR";
 
-    /** 等系统「已固定」回调的上限（毫秒）。HyperOS 静默失败时不会有任何回调 */
-    private static final long PIN_TIMEOUT_MS = 2500L;
+    /**
+     * 等系统「已固定」回调的上限。
+     *
+     * <p>v4.2.1 从「一次性 2.5 秒判定」改成「每 500ms 探一次、最多 8 次（4 秒）」：
+     * 一次性判定太急 —— 真机上系统确认框有时 3 秒后才出来，
+     * 那时我们早就把「没权限，去打开桌面快捷方式」的引导弹出来盖在上面了，
+     * 用户看到的就是「明明有权限，却只让我去开权限」。
+     */
+    private static final int PIN_POLL_MS = 500;
+    private static final int PIN_POLLS = 8;
 
     /**
      * 桌面可能的小部件列表页（尽力而为：命中就用，没命中就退回文字步骤）。
@@ -65,6 +73,14 @@ public final class WidgetPin {
     private static volatile boolean pinned;
     /** 每次请求递增，用来判断回调是不是这一次的 */
     private static volatile long requestSeq;
+    /**
+     * 「刚从权限页回来就自动再试一次」的标记。
+     *
+     * <p>置位的唯一时机是引导弹窗把用户送去「桌面快捷方式」页；
+     * 由 {@code WidgetSettingsActivity.onResume} 取走（取一次就清）。
+     * 不加这个的话，用户授权回来还得自己再点一遍按钮。
+     */
+    private static volatile boolean retryAfterPermission;
 
     private WidgetPin() {
     }
@@ -89,6 +105,7 @@ public final class WidgetPin {
 
         final long seq = ++requestSeq;
         pinned = false;
+        final int before = countWidgets(a);
         try {
             Intent cb = new Intent(a, WidgetPinReceiver.class)
                     .setAction(WidgetPinReceiver.ACTION_PINNED);
@@ -100,17 +117,45 @@ public final class WidgetPin {
             return;
         }
 
+        Toast.makeText(a, "正在请求系统放到桌面…", Toast.LENGTH_SHORT).show();
+        watchPin(a, seq, before, 0);
+    }
+
+    /**
+     * 盯着这次请求的结果（v4.2.1）。
+     *
+     * <p>三种「成功/正在成功」的信号，命中任一条就闭嘴、不再打扰用户：
+     * <ol>
+     *   <li>收到系统「已固定」回调；</li>
+     *   <li>桌面上真的多了一个本 App 的组件（部分 ROM 不回回调，但组件确实加上了）；</li>
+     *   <li>本页失去焦点 —— 说明系统界面（确认框 / 桌面）已经接管，用户在操作了。</li>
+     * </ol>
+     * 只有「4 秒里一直握着焦点、一个组件也没多出来」才判定为被系统吞掉，
+     * 这时才弹「去打开桌面快捷方式」的引导。
+     */
+    private static void watchPin(Activity a, long seq, int before, int step) {
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (pinned || seq != requestSeq) return;              // 加上了 / 又有新请求
+            if (pinned || seq != requestSeq) return;      // 已经加上了 / 又发起了新请求
             if (a.isFinishing() || a.isDestroyed()) return;
-            // 系统要弹确认框时本页会先失去焦点 —— 那属于「用户正在操作」，别抢镜头。
-            // HyperOS 静默吞掉请求时，焦点一直在本页。
-            if (!a.hasWindowFocus()) return;
+            if (countWidgets(a) > before) return;         // 桌面上真的多了一个
+            if (!a.hasWindowFocus()) return;              // 系统界面接管了，别插嘴
+            if (step < PIN_POLLS) {
+                watchPin(a, seq, before, step + 1);
+                return;
+            }
             if (openWidgetPicker(a)) return;
             showGuide(a, "系统没有响应这次添加");
-        }, PIN_TIMEOUT_MS);
+        }, PIN_POLL_MS);
+    }
 
-        Toast.makeText(a, "正在请求系统放到桌面…", Toast.LENGTH_SHORT).show();
+    /** 本 App 当前有几个组件实例（用来判断「这次到底加上没有」） */
+    private static int countWidgets(android.content.Context ctx) {
+        try {
+            return AppWidgetManager.getInstance(ctx).getAppWidgetIds(
+                    new ComponentName(ctx, PickupWidgetProvider.class)).length;
+        } catch (Throwable t) {
+            return 0;
+        }
     }
 
     /** 系统回调：组件已经落到桌面 */
@@ -212,10 +257,18 @@ public final class WidgetPin {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             if (it.resolveActivity(a.getPackageManager()) == null) return false;
             a.startActivity(it);
+            retryAfterPermission = true;   // 用户回来时自动再试一次
             return true;
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /** 取走「授权回来要自动重试」的标记（取一次即清） */
+    public static boolean consumePermissionRetry() {
+        boolean r = retryAfterPermission;
+        retryAfterPermission = false;
+        return r;
     }
 
     private static boolean canOpenPermissionEditor(Activity a) {
