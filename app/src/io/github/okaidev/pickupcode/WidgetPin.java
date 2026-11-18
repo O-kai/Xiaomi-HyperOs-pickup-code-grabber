@@ -7,6 +7,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.widget.Toast;
 
 /**
@@ -32,6 +33,8 @@ import android.widget.Toast;
  */
 public final class WidgetPin {
 
+    private static final String TAG = "PICKUPDEBUG";
+
     /** 长按图标那条快捷方式带过来的 action */
     public static final String ACTION_ADD_WIDGET = "io.github.okaidev.pickupcode.action.ADD_WIDGET";
 
@@ -48,15 +51,24 @@ public final class WidgetPin {
     private static final String ACTION_MIUI_PERM_EDITOR = "miui.intent.action.APP_PERM_EDITOR";
 
     /**
-     * 等系统「已固定」回调的上限。
+     * 请求发出去之后，等「系统是否接管」的观察窗口。
      *
-     * <p>v4.2.1 从「一次性 2.5 秒判定」改成「每 500ms 探一次、最多 8 次（4 秒）」：
-     * 一次性判定太急 —— 真机上系统确认框有时 3 秒后才出来，
-     * 那时我们早就把「没权限，去打开桌面快捷方式」的引导弹出来盖在上面了，
-     * 用户看到的就是「明明有权限，却只让我去开权限」。
+     * <p>2026-11-18 真机实测（K90 Pro Max / HyperOS）：
+     * <ul>
+     *   <li>有「桌面快捷方式」权限：{@code requestPinAppWidget} 6ms 返回，
+     *       <b>100ms 后本页就已经失焦</b>（系统把桌面和确认框推到了前台）；</li>
+     *   <li>没权限：同样的调用 9ms 返回，之后焦点一直不变，组件数也不变。</li>
+     * </ul>
+     * 所以这个窗口只是「给系统一个抢焦点的机会」，600ms 已经是 6 倍余量，
+     * 不需要几秒。窗口内命中任一成功信号就立刻收手，不弹任何东西。
+     *
+     * <p>为什么不能「先查权限再决定」：MIUI 的「桌面快捷方式」是自家权限
+     * （真机确认它是 {@code MIUIOP(10017)}，既不是标准 runtime 权限、
+     * 也不在 AppOps 的公开操作表里），第三方 App 没有任何公开接口能读到它。
+     * 系统只把这个状态暴露在「行为」上：给不给弹确认框。
      */
-    private static final int PIN_POLL_MS = 500;
-    private static final int PIN_POLLS = 8;
+    private static final int PIN_POLL_MS = 100;
+    private static final int PIN_POLLS = 6;
 
     /**
      * 桌面可能的小部件列表页（尽力而为：命中就用，没命中就退回文字步骤）。
@@ -93,13 +105,23 @@ public final class WidgetPin {
      * <p>由「添加到桌面」按钮和长按图标那条快捷方式调用。
      */
     public static void quickPin(Activity a) {
+        quickPin(a, null);
+    }
+
+    /**
+     * @param whenDone 有结果（成功 / 引导已弹出）之后要做的事。
+     *                 设置页传 null；长按图标的透明中转页传 {@code finish}，
+     *                 这样「加上了」就无声退出，「没权限」就弹完引导再退出。
+     */
+    public static void quickPin(Activity a, Runnable whenDone) {
         if (a == null) return;
         AppWidgetManager mgr = AppWidgetManager.getInstance(a);
         ComponentName provider = new ComponentName(a, PickupWidgetProvider.class);
 
         if (!mgr.isRequestPinAppWidgetSupported()) {
             // 明确不支持（个别 ROM / 桌面），别装作成功
-            if (!openWidgetPicker(a)) showGuide(a, "这个系统不支持一键添加");
+            if (!openWidgetPicker(a)) showGuide(a, "这个系统不支持一键添加", whenDone);
+            else if (whenDone != null) whenDone.run();
             return;
         }
 
@@ -113,12 +135,12 @@ public final class WidgetPin {
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             mgr.requestPinAppWidget(provider, null, pi);
         } catch (Throwable t) {
-            showGuide(a, "发起添加请求失败");
+            showGuide(a, "发起添加请求失败", whenDone);
             return;
         }
 
         Toast.makeText(a, "正在请求系统放到桌面…", Toast.LENGTH_SHORT).show();
-        watchPin(a, seq, before, 0);
+        watchPin(a, seq, before, 0, whenDone);
     }
 
     /**
@@ -133,19 +155,39 @@ public final class WidgetPin {
      * 只有「4 秒里一直握着焦点、一个组件也没多出来」才判定为被系统吞掉，
      * 这时才弹「去打开桌面快捷方式」的引导。
      */
-    private static void watchPin(Activity a, long seq, int before, int step) {
+    private static void watchPin(Activity a, long seq, int before, int step, Runnable whenDone) {
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (pinned || seq != requestSeq) return;      // 已经加上了 / 又发起了新请求
-            if (a.isFinishing() || a.isDestroyed()) return;
-            if (countWidgets(a) > before) return;         // 桌面上真的多了一个
-            if (!a.hasWindowFocus()) return;              // 系统界面接管了，别插嘴
-            if (step < PIN_POLLS) {
-                watchPin(a, seq, before, step + 1);
+            if (pinned || seq != requestSeq) {               // 已经加上了 / 又发起了新请求
+                done(whenDone);
                 return;
             }
-            if (openWidgetPicker(a)) return;
-            showGuide(a, "系统没有响应这次添加");
+            if (a.isFinishing() || a.isDestroyed()) {
+                done(whenDone);
+                return;
+            }
+            if (countWidgets(a) > before) {                  // 桌面上真的多了一个
+                done(whenDone);
+                return;
+            }
+            if (!a.hasWindowFocus()) {                       // 系统界面接管了，别插嘴
+                done(whenDone);
+                return;
+            }
+            if (step < PIN_POLLS) {
+                watchPin(a, seq, before, step + 1, whenDone);
+                return;
+            }
+            // 600ms 里既没新增组件、本页又一直握着焦点 → 系统把请求吞了
+            if (openWidgetPicker(a)) {
+                done(whenDone);
+                return;
+            }
+            showGuide(a, "系统没有响应这次添加", whenDone);
         }, PIN_POLL_MS);
+    }
+
+    private static void done(Runnable whenDone) {
+        if (whenDone != null) whenDone.run();
     }
 
     /** 本 App 当前有几个组件实例（用来判断「这次到底加上没有」） */
@@ -165,16 +207,6 @@ public final class WidgetPin {
             PickupWidgetProvider.refreshAsync(ctx);
         } catch (Throwable ignored) { }
         Toast.makeText(ctx, "已添加到桌面", Toast.LENGTH_SHORT).show();
-    }
-
-    /**
-     * 旧的入口（「重新添加小组件」按钮）：只给引导，不直接发请求。
-     *
-     * <p>这个场景是「桌面上那个坏了，先删再加」，用户本来就要去桌面操作；
-     * 直接发 pin 请求反而可能在他还没移除旧组件时弹一次添加。
-     */
-    public static void prompt(Activity a) {
-        showGuide(a, null);
     }
 
     // ==================== 内部 ====================
@@ -218,7 +250,7 @@ public final class WidgetPin {
      * requestPinAppWidget 会返回 true 却什么都不发生（桌面 AddItemActivity
      * 立刻自己结束）。打开后同样的调用会正常弹出系统确认框。
      */
-    private static void showGuide(Activity a, String reason) {
+    private static void showGuide(Activity a, String reason, Runnable onDismiss) {
         UiKit.Palette p = UiKit.palette(a);
         String steps = (reason == null ? "" : reason + "。\n\n")
                 + "手动添加步骤：\n"
@@ -234,7 +266,7 @@ public final class WidgetPin {
         boolean picker = !perm && hasWidgetPicker(a);
         String primaryLabel = perm ? "去打开「桌面快捷方式」"
                 : (picker ? "打开小部件列表" : "立即重试");
-        UiKit.dialog(a, p, R.drawable.ic_grid, "添加到桌面", steps, null,
+        android.app.Dialog dlg = UiKit.dialog(a, p, R.drawable.ic_grid, "添加到桌面", steps, null,
                 UiKit.primary(primaryLabel, () -> {
                     if (perm) {
                         if (!openPermissionEditor(a)) openAppDetails(a);
@@ -243,6 +275,7 @@ public final class WidgetPin {
                     }
                 }),
                 UiKit.ghost("知道了", null));
+        if (onDismiss != null) dlg.setOnDismissListener(x -> onDismiss.run());
     }
 
     /**

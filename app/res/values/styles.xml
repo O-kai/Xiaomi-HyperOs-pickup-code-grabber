@@ -45,4 +45,19 @@
         <item name="android:backgroundDimAmount">0.0</item>
     </style>
 
+    <!--
+      v4.2.1：长按图标「添加小部件」的中转页（WidgetAddActivity）。
+      全透明 + 无动画：点完直接发 pin 请求，有权限时用户只会看到桌面上的系统确认框，
+      看不到任何中间界面（以前要闪一下主界面再进设置页）。
+      不用 Theme.NoDisplay：那种主题没有窗口，弹不出「去打开桌面快捷方式」的引导。
+    -->
+    <style name="AppTheme.Transparent" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
 </resources>

@@ -144,6 +144,20 @@
             android:exported="false"
             android:theme="@style/AppTheme.NoActionBar" />
 
+        <!--
+          v4.2.1：长按图标「添加小部件」的中转页（全透明、无动画）。
+          快捷方式只能指向**已导出**的 Activity；这里指它而不是主界面，
+          是为了不在添加过程中闪一下 App。它自己不发任何数据，只调
+          AppWidgetManager.requestPinAppWidget（只对本 App 的组件生效）。
+        -->
+        <activity
+            android:name=".WidgetAddActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/AppTheme.Transparent" />
+
         <!-- 4.0 桌面小组件 -->
         <receiver
             android:name=".PickupWidgetProvider"

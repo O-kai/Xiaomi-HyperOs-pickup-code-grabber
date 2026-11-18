@@ -191,7 +191,9 @@ public class WidgetSettingsActivity extends Activity {
         readd.setTypeface(null, Typeface.BOLD);
         readd.setPadding(0, dp(12), 0, dp(12));
         readd.setBackground(UiKit.bg(P.chipBg, this, 12));
-        readd.setOnClickListener(v -> WidgetPin.prompt(this));
+        // v4.2.1：和预览下面的「添加到桌面」走同一条路 —— 先真的请求系统添加，
+        // 没有权限才给引导。以前这里只弹引导，用户明明有权限也被挡在门外。
+        readd.setOnClickListener(v -> WidgetPin.quickPin(this));
         LinearLayout.LayoutParams rlp2 = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rlp2.setMargins(0, dp(10), 0, 0);

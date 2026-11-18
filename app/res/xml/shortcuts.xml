@@ -9,9 +9,10 @@
   「扫一扫 / 我的二维码」是同一个机制，长按图标就在同一张菜单里。
 
   目标必须写死包名：res/xml 不参与 manifest 的 ${applicationId} 替换。
-  这里指向**已导出**的 LauncherActivity 再转交给小组件页，
-  比直接指向内部 Activity 稳（部分 ROM 的桌面用自己身份启动快捷方式，
-  非导出的 Activity 会被拒）。
+  v4.2.1 起指向 **WidgetAddActivity**（全透明中转页，已导出）：
+  点完直接把「添加到桌面」请求发给系统，有权限时只会看到桌面上的确认框，
+  不再出现「闪一下主界面 → 进设置页 → 再弹回桌面」三次跳转。
+  仍必须指向已导出的 Activity —— 部分 ROM 的桌面用自己身份启动快捷方式。
 -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -25,7 +26,7 @@
         <intent
             android:action="io.github.okaidev.pickupcode.action.ADD_WIDGET"
             android:targetPackage="io.github.okaidev.pickupcode"
-            android:targetClass="io.github.okaidev.pickupcode.LauncherActivity" />
+            android:targetClass="io.github.okaidev.pickupcode.WidgetAddActivity" />
     </shortcut>
 
 </shortcuts>
