@@ -308,7 +308,9 @@ public class LauncherActivity extends Activity {
             if (currentTab == 3) showVersionDialog();
         };
         headerTitle.setOnClickListener(verEntry);
-        headerSub.setOnClickListener(verEntry);
+        // v4.2.1：版本号那一行点开「更新日志」（用户要的隐藏入口）。
+        // 标题/整行仍走 verEntry —— 那三页的标题写着功能名，点它弹版本号是意外行为。
+        headerSub.setOnClickListener(v -> showWhatsNew(false));
         header.setOnClickListener(verEntry);
         page.addView(header);
 
@@ -1910,10 +1912,12 @@ public class LauncherActivity extends Activity {
         box.addView(UiKit.groupLabel(this, P, "基础设置"));
         LinearLayout perCard = UiKit.card(this, P);
 
-        // 4.0：界面模式切换（简洁 / 进阶），放在基础设置第一位
-        TextView modeValue = UiKit.value(this, P, "进阶");
+        // 4.0：界面模式切换（简洁 / 进阶），放在基础设置第一位。
+        // v4.2.1：右侧原来是一个「进阶」文字 + 箭头，看不出这两个是能互相切的状态。
+        // 改成两段式开关（和「写入格式」那条同一套样式）：两个选项都在，
+        // 当前那个填色，另一个点一下就切过去 —— 不再需要先点进弹窗才发现能换。
         LinearLayout modeRow = UiKit.row(this, P, R.drawable.ic_grid, "界面模式",
-                "简洁一页看完，进阶分四页", modeValue);
+                "简洁一页看完，进阶分四页", buildModeSegments());
         modeRow.setOnClickListener(v -> showModeSwitchDialog());
         perCard.addView(modeRow);
         perCard.addView(UiKit.divider(this, P));
@@ -2029,6 +2033,18 @@ public class LauncherActivity extends Activity {
      * 同版本不再打扰；装回旧版本也不会重复弹（码不一样就会弹一次，
      * 这反而符合直觉——版本确实变了）。
      */
+    /**
+     * 历史版本（新的在上，每条一句话）。当前版本会自动跳过，不会和上面的要点重复。
+     * 发版时：把上一版的要点从 {@link #WHATS_NEW} 里挑一句挪到这里。
+     */
+    private static final String[][] VERSION_HISTORY = {
+            {"V4.1.0", "荣耀 MagicOS 适配：补齐第三家 ROM 的待办写入（社区 PR）"},
+            {"V4.0.6", "去重只认取件码；直写开关热生效；不再动不动让人重启"},
+            {"V4.0.5", "一条短信里的多个取件码；规则集 v10"},
+            {"V4.0.3", "升级提示、清理与卸载、配置可读性"},
+            {"V4.0.0", "本地取件库 + 桌面小组件 + 简洁 / 进阶双模式 + 深色主题"},
+    };
+
     private static final String[] WHATS_NEW = {
             "取件提醒准时了：改用系统精确闹钟，不再被省电策略推迟几分钟到几十分钟",
             "一条短信里有多个取件码时，通知也按取件码分成多条，不再拼成一条",
@@ -2046,37 +2062,139 @@ public class LauncherActivity extends Activity {
         int now = AppVersion.code(this);
         if (seen == now) return;
         sp.edit().putInt("seen_version_code", now).apply();
-        showWhatsNew();
+        showWhatsNew(true);
     }
 
-    /** 更新说明弹窗：点任意处关闭；点 QQ 群那一行复制群号 */
-    private void showWhatsNew() {
+    /**
+     * 更新说明 / 更新日志（v4.2.1）。
+     *
+     * @param auto true = 版本变化后自动弹的那次（标题「本次更新」）；
+     *             false = 点首页版本号打开（标题「更新日志」，含历史版本概览）。
+     *             两种都：点任意处关闭，点 QQ 群那一行复制群号。
+     */
+    private void showWhatsNew(boolean auto) {
+        String cur = AppVersion.label(this);   // 例如 V4.1.0
+
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.VERTICAL);
+
+        // ---- 当前版本 ----
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView v = UiKit.text(this, cur, 13.5f, UiKit.INK);
+        v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        head.addView(v);
+        TextView badge = UiKit.text(this, "当前版本", 11f, P.accentInk);
+        badge.setPadding(dp(8), dp(2), dp(8), dp(2));
+        badge.setBackground(UiKit.bg(P.accentSoft, this, 9));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.setMargins(dp(8), 0, 0, 0);
+        head.addView(badge, blp);
+        wrap.addView(head);
 
         for (String n : WHATS_NEW) {
             TextView t = UiKit.text(this, "· " + n, 13f, UiKit.INK2);
             t.setLineSpacing(dp(4), 1f);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, 0, 0, dp(9));
+            lp.setMargins(0, dp(8), 0, 0);
             wrap.addView(t, lp);
         }
 
+        // ---- 历史版本：一句话一条，当前版本跳过 ----
+        boolean anyHistory = false;
+        for (String[] h : VERSION_HISTORY) {
+            if (h[0].equalsIgnoreCase(cur)) continue;   // 当前版本已经在上面讲过
+            if (!anyHistory) {
+                wrap.addView(UiKit.divider(this, P));
+                TextView t = UiKit.text(this, "历史版本", 12f, UiKit.INK3);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.setMargins(0, dp(12), 0, dp(4));
+                wrap.addView(t, lp);
+                anyHistory = true;
+            }
+            TextView t = UiKit.text(this, h[0] + "　" + h[1], 12.5f, UiKit.INK3);
+            t.setLineSpacing(dp(3), 1f);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(0, dp(6), 0, 0);
+            wrap.addView(t, lp);
+        }
+
+        // ---- QQ 群 ----
         wrap.addView(UiKit.divider(this, P));
         LinearLayout qq = UiKit.row(this, P, R.drawable.ic_phone, "开发者 QQ 群",
                 "901543676 · 进群备注「取件码助手」", copyPill());
-        qq.setOnClickListener(v -> copyQqGroup());
+        qq.setOnClickListener(v2 -> copyQqGroup());
         wrap.addView(qq);
 
         final android.app.Dialog[] holder = new android.app.Dialog[1];
-        holder[0] = UiKit.dialog(this, P, R.drawable.ic_sparkle, "本次更新",
-                AppVersion.label(this), wrap, 0);
-        // 点内容里任意地方关闭（QQ 群那一行自己有监听，不会误关）
-        wrap.setOnClickListener(v -> {
+        holder[0] = UiKit.dialog(this, P, R.drawable.ic_sparkle,
+                auto ? "本次更新" : "更新日志",
+                // 版本号在内容第一行已经有了，这里只放提示，别重复一遍
+                "点首屏版本号可随时回看", wrap, auto ? 0 : 62);
+        // 点任意处关闭：
+        // 1) 卡片内部 —— 给内容根加监听（QQ 群那一行有自己的监听，不会误关）
+        // 2) 卡片外面 —— UiKit.dialog 的窗口是「刚好包住卡片」的，外面的点击根本
+        //    进不到这个窗口（会直接漏给下面的页面，出现「点空白反而切了 Tab」）。
+        //    所以这里把窗口撑成全屏，未被子 View 消费的点击都算「点空白」，直接关。
+        wrap.setOnClickListener(v2 -> {
             if (holder[0] != null) holder[0].dismiss();
         });
-        if (holder[0] != null) holder[0].setCanceledOnTouchOutside(true);
+        if (holder[0] != null) {
+            android.view.Window w = holder[0].getWindow();
+            if (w != null) {
+                w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT);
+                w.setGravity(Gravity.CENTER);
+                w.getDecorView().setOnTouchListener((vv, ev) -> {
+                    if (ev.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                        holder[0].dismiss();
+                        return true;
+                    }
+                    return false;
+                });
+            }
+        }
+    }
+
+    /**
+     * 「界面模式」用的两段开关（v4.2.1）。
+     *
+     * <p>设置页和简洁模式的「更多选项」共用同一个控件——两处长得一样、行为一样，
+     * 用户在哪边看到的都是「简洁 | 进阶」两个选项，点一下就能换。
+     * 点当前那个不切换，改成弹说明（否则点了没反应像坏了）。
+     */
+    private View buildModeSegments() {
+        LinearLayout seg = new LinearLayout(this);
+        seg.setOrientation(LinearLayout.HORIZONTAL);
+        seg.setBackground(UiKit.bg(P.track, this, 13));
+        seg.setPadding(dp(3), dp(3), dp(3), dp(3));
+        String[] labels = {"简洁", "进阶"};
+        for (int i = 0; i < 2; i++) {
+            final boolean wantSimple = (i == 0);
+            boolean sel = wantSimple == simpleMode;
+            TextView b = UiKit.text(this, labels[i], 12.5f, sel ? P.onAccent : UiKit.INK2);
+            b.setGravity(Gravity.CENTER);
+            b.setTypeface(null, sel ? Typeface.BOLD : Typeface.NORMAL);
+            b.setPadding(dp(13), dp(6), dp(13), dp(6));
+            b.setBackground(sel ? UiKit.bg(P.accent, this, 10) : UiKit.bg(0, this, 10));
+            b.setOnClickListener(v -> {
+                if (wantSimple == simpleMode) {
+                    showModeSwitchDialog();
+                    return;
+                }
+                UiMode.set(this, wantSimple ? UiMode.SIMPLE : UiMode.ADVANCED);
+                Toast.makeText(this, wantSimple ? "已切到简洁模式" : "已切到进阶模式",
+                        Toast.LENGTH_SHORT).show();
+                recreate();
+            });
+            seg.addView(b);
+        }
+        return seg;
     }
 
     /** 右侧的小按钮（v4.2.1）：说清楚「点一下会复制」，比箭头明确 */
@@ -2564,8 +2682,12 @@ public class LauncherActivity extends Activity {
         wrap.addView(toolRow(R.drawable.ic_info, "关于模块",
                 appVersionLabel() + " · 作者 欧锴（O-kai）", v -> showAboutDialog()));
         wrap.addView(UiKit.divider(this, P));
-        wrap.addView(toolRow(R.drawable.ic_grid, "进阶模式",
-                "更多规则、来源与设置", v -> showModeSwitchDialog()));
+        // v4.2.1：和设置页的「界面模式」完全对称——标题、副标题、右侧两段开关都一样，
+        // 点这一行仍然弹切换说明。
+        LinearLayout modeRow2 = UiKit.row(this, P, R.drawable.ic_grid, "界面模式",
+                "简洁一页看完，进阶分四页", buildModeSegments());
+        modeRow2.setOnClickListener(v -> showModeSwitchDialog());
+        wrap.addView(modeRow2);
 
         UiKit.dialog(this, P, R.drawable.ic_grid, "更多选项", null, wrap, 0);
     }
