@@ -110,6 +110,8 @@ public class LauncherActivity extends Activity {
 
     /** 4.0：简洁模式——单页（首页内容 + 反馈），不建另外三个 Tab。 */
     private boolean simpleMode = false;
+    /** 更新说明只在本次进程里试探一次 */
+    private boolean whatsNewChecked;
     /** 底栏渐隐遮罩（简洁模式无底栏，需要一起隐藏）。 */
     private View navScrim;
     /**
@@ -368,6 +370,7 @@ public class LauncherActivity extends Activity {
         refreshHealth();
         refreshUserRuleCard();
         renderNotiSwitchUi();
+
     }
 
     /**
@@ -539,6 +542,19 @@ public class LauncherActivity extends Activity {
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         outState.putInt("tab", currentTab);
+    }
+
+    /** 窗口拿到焦点时再弹（这时弹窗才能稳定挂上去） */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // v4.2.1：新安装 / 更新后第一次打开，弹一次更新说明。
+        // 必须等窗口真的有焦点再弹——在 onCreate 里 post 一个延时，
+        // 冷启动时偶尔会挂到一个还没就绪的窗口上，弹窗直接不见。
+        if (hasFocus && uiReady && !whatsNewChecked) {
+            whatsNewChecked = true;
+            maybeShowWhatsNew();
+        }
     }
 
     /** 切换 Tab：换内容 + 重建底栏选中态 + 更新头部标题 */
@@ -1881,6 +1897,14 @@ public class LauncherActivity extends Activity {
         LinearLayout donateCard = UiKit.card(this, P);
         donateCard.addView(toolRow(R.drawable.ic_heart, "打赏作者", "纯自愿，不影响任何功能",
                 v -> startActivity(new Intent(this, DonateActivity.class))));
+        // v4.2.1：开发者 QQ 群提到最上方（用户要求：放在「打赏作者」下面），
+        // 右侧不再是箭头，而是一个写着「复制」的按钮——箭头只暗示「点进去看看」，
+        // 按钮才明确告诉人「点了会复制」。
+        donateCard.addView(UiKit.divider(this, P));
+        LinearLayout qqRow = UiKit.row(this, P, R.drawable.ic_phone, "开发者 QQ 群",
+                "901543676 · 进群备注「取件码助手」", copyPill());
+        qqRow.setOnClickListener(v -> copyQqGroup());
+        donateCard.addView(qqRow);
         box.addView(donateCard, UiKit.cardLp(this, 12));
 
         box.addView(UiKit.groupLabel(this, P, "基础设置"));
@@ -1980,9 +2004,6 @@ public class LauncherActivity extends Activity {
         aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(buildMissedRow());
         aboutCard.addView(UiKit.divider(this, P));
-        aboutCard.addView(toolRow(R.drawable.ic_phone, "开发者 QQ 群",
-                "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
-        aboutCard.addView(UiKit.divider(this, P));
         aboutCard.addView(toolRow(R.drawable.ic_globe, "开发者酷安主页",
                 "在酷安留言找作者", v -> openUrl(COOLAPK_URL)));
         aboutCard.addView(UiKit.divider(this, P));
@@ -1999,6 +2020,74 @@ public class LauncherActivity extends Activity {
         box.addView(aboutCard, UiKit.cardLp(this, 0f));
 
         return sv;
+    }
+
+    /**
+     * 本次更新说明（每次发版改这个数组）。
+     *
+     * <p>只在「新安装」和「更新后第一次打开」弹一次：按 versionCode 记，
+     * 同版本不再打扰；装回旧版本也不会重复弹（码不一样就会弹一次，
+     * 这反而符合直觉——版本确实变了）。
+     */
+    private static final String[] WHATS_NEW = {
+            "取件提醒准时了：改用系统精确闹钟，不再被省电策略推迟几分钟到几十分钟",
+            "一条短信里有多个取件码时，通知也按取件码分成多条，不再拼成一条",
+            "「添加小组件」两个入口合并：有权限直接回桌面添加，没权限才提示去开启",
+            "长按图标的「添加小部件」不再闪一下主界面，直接落到桌面",
+            "已取件的地址也会一起划掉，和取件码保持一致",
+            "提醒时间改成滚轮选择，点起来更快",
+    };
+
+    private void maybeShowWhatsNew() {
+        if (isFinishing() || isDestroyed()) return;
+        android.content.SharedPreferences sp =
+                getSharedPreferences("pickup_whats_new", MODE_PRIVATE);
+        int seen = sp.getInt("seen_version_code", 0);
+        int now = AppVersion.code(this);
+        if (seen == now) return;
+        sp.edit().putInt("seen_version_code", now).apply();
+        showWhatsNew();
+    }
+
+    /** 更新说明弹窗：点任意处关闭；点 QQ 群那一行复制群号 */
+    private void showWhatsNew() {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        for (String n : WHATS_NEW) {
+            TextView t = UiKit.text(this, "· " + n, 13f, UiKit.INK2);
+            t.setLineSpacing(dp(4), 1f);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(0, 0, 0, dp(9));
+            wrap.addView(t, lp);
+        }
+
+        wrap.addView(UiKit.divider(this, P));
+        LinearLayout qq = UiKit.row(this, P, R.drawable.ic_phone, "开发者 QQ 群",
+                "901543676 · 进群备注「取件码助手」", copyPill());
+        qq.setOnClickListener(v -> copyQqGroup());
+        wrap.addView(qq);
+
+        final android.app.Dialog[] holder = new android.app.Dialog[1];
+        holder[0] = UiKit.dialog(this, P, R.drawable.ic_sparkle, "本次更新",
+                AppVersion.label(this), wrap, 0);
+        // 点内容里任意地方关闭（QQ 群那一行自己有监听，不会误关）
+        wrap.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].dismiss();
+        });
+        if (holder[0] != null) holder[0].setCanceledOnTouchOutside(true);
+    }
+
+    /** 右侧的小按钮（v4.2.1）：说清楚「点一下会复制」，比箭头明确 */
+    private View copyPill() {
+        TextView t = UiKit.text(this, "复制", 12f, P.onAccent);
+        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(14), dp(6), dp(14), dp(6));
+        t.setBackground(UiKit.bg(P.accent, this, 20));
+        t.setOnClickListener(v -> copyQqGroup());
+        return t;
     }
 
     /** 「外观」行的副标题：主题 + 当前配色 */
@@ -2464,8 +2553,10 @@ public class LauncherActivity extends Activity {
         wrap.addView(UiKit.divider(this, P));
         wrap.addView(buildMissedRow());
         wrap.addView(UiKit.divider(this, P));
-        wrap.addView(toolRow(R.drawable.ic_phone, "开发者 QQ 群",
-                "901543676 · 进群备注「取件码助手」", v -> copyQqGroup()));
+        LinearLayout qqRow2 = UiKit.row(this, P, R.drawable.ic_phone, "开发者 QQ 群",
+                "901543676 · 进群备注「取件码助手」", copyPill());
+        qqRow2.setOnClickListener(v -> copyQqGroup());
+        wrap.addView(qqRow2);
         wrap.addView(UiKit.divider(this, P));
         wrap.addView(toolRow(R.drawable.ic_globe, "开发者酷安主页",
                 "在酷安留言找作者", v -> openUrl(COOLAPK_URL)));

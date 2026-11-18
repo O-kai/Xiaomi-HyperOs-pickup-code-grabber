@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.Toast;
 import android.widget.RemoteViews;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -38,6 +39,9 @@ public class WidgetDiagActivity extends Activity {
     private static final String TAG = "PICKUPDEBUG";
 
     private LinearLayout resultBox;
+    /** 三项检查的结论（复制诊断信息时要用） */
+    private String rLayout = "", rAction = "", rBanned = "";
+    private boolean diagOk = true;
     /** ScrollView 里的内容盒（真实渲染预览要挂在这里） */
     private LinearLayout contentBox;
 
@@ -65,6 +69,18 @@ public class WidgetDiagActivity extends Activity {
         root.addView(sv, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
+
+        // v4.2.1：这一页只干一件事 —— 出问题时给出能直接发给作者的证据。
+        // 说明压到一句：跑一遍 → 复制 → 发群。
+        TextView intro = UiKit.text(this,
+                "桌面上组件显示错乱、点了没反应时，先在这里跑一遍，"
+                        + "再点「复制诊断信息」，把结果发到 QQ 群 901543676。",
+                12.5f, P.muteInk);
+        intro.setLineSpacing(dp(3), 1f);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ilp.setMargins(dp(4), dp(4), dp(4), dp(10));
+        box.addView(intro, ilp);
 
         resultBox = UiKit.card(this, P);
         resultBox.setPadding(dp(16), dp(14), dp(16), dp(16));
@@ -104,8 +120,9 @@ public class WidgetDiagActivity extends Activity {
             layoutErr = t;
             Log.e(TAG, "自检: 裸布局 apply 失败", t);
         }
+        rLayout = layoutErr == null ? "正常" : rootMessage(layoutErr);
         addResult(P, "布局能否加载", layoutErr == null,
-                layoutErr == null ? "组件骨架正常" : rootMessage(layoutErr));
+                layoutErr == null ? "组件骨架正常" : rLayout);
 
         // ---- 检查 2：完整内容（含全部 action）能否应用 ----
         Throwable actionErr = null;
@@ -118,16 +135,18 @@ public class WidgetDiagActivity extends Activity {
             actionErr = t;
             Log.e(TAG, "自检: 完整 build apply 失败", t);
         }
+        rAction = actionErr == null ? "正常" : rootMessage(actionErr);
         addResult(P, "内容与交互能否应用", actionErr == null,
-                actionErr == null ? actionMsg : rootMessage(actionErr));
+                actionErr == null ? actionMsg : rAction);
 
         // ---- 检查 3：布局里是否混进了 RemoteViews 不允许的 View 类 ----
         String banned = findBannedClasses();
-        addResult(P, "是否含不允许的控件", banned == null,
-                banned == null ? "全部在系统白名单内" : banned);
+        rBanned = banned == null ? "全部在系统白名单内" : banned;
+        addResult(P, "是否含不允许的控件", banned == null, rBanned);
 
         // ---- 结论 ----
         boolean allOk = layoutErr == null && actionErr == null && banned == null;
+        diagOk = allOk;
         TextView verdict = UiKit.text(this,
                 allOk ? "✓ 小组件本身没有问题"
                         : "✗ 发现问题，见上方明细",
@@ -138,15 +157,27 @@ public class WidgetDiagActivity extends Activity {
 
         TextView hint = UiKit.text(this,
                 allOk
-                        ? "如果桌面上仍然显示异常，那是桌面还留着旧组件的视图——"
-                        + "长按组件 → 移除 → 再添加一次即可。"
-                        : "把上面的明细发给开发者，可以直接定位到具体是哪一处不兼容。",
+                        ? "自检正常，但桌面上还是不对 → 那是桌面留着旧组件的视图："
+                        + "长按组件「移除」，再重新添加一次。"
+                        : "自检失败 → 点下面的按钮复制结果，发到 QQ 群 901543676，"
+                        + "这份结果能直接定位到是哪一处不兼容。",
                 12f, P.muteInk);
         hint.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hlp.setMargins(0, dp(8), 0, 0);
         resultBox.addView(hint, hlp);
+
+        TextView copy = UiKit.text(this, "复制诊断信息", 13.5f, P.onAccent);
+        copy.setGravity(Gravity.CENTER);
+        copy.setTypeface(null, Typeface.BOLD);
+        copy.setPadding(0, dp(12), 0, dp(12));
+        copy.setBackground(UiKit.bg(P.accent, this, 14));
+        copy.setOnClickListener(v -> copyDiag(P));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.setMargins(0, dp(14), 0, 0);
+        resultBox.addView(copy, clp);
 
         // ---- 真实渲染预览 ----
         // v4.0.2 第三轮：RemoteViews.recreateView()（API 31+）能在普通 Activity 里
@@ -184,11 +215,9 @@ public class WidgetDiagActivity extends Activity {
             Log.w(TAG, "live preview failed: " + t);
         }
 
-        // 说明
+        // 说明（一句话即可：这里看到的就是桌面上的样子）
         TextView note = UiKit.text(this,
-                "每一行固定 40dp，一个一个往下排：内容少时下面留白，不会把行拉高；"
-                        + "组件更高时则多显示几行。放不下的整行直接不显示，"
-                        + "不会只显示半个取件码。",
+                "上面就是组件在桌面上的实际样子；放不下的整行不显示，不会露出半个取件码。",
                 12f, P.muteInk);
         note.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(
@@ -205,6 +234,26 @@ public class WidgetDiagActivity extends Activity {
         box.addView(note, noteLp);
         contentBox.addView(box, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
+    /** 把三项结论 + 环境信息拼成一段可直接发群里的文本 */
+    private void copyDiag(UiKit.Palette P) {
+        String txt = "取件码助手 " + AppVersion.label(this) + " · 小组件自检\n"
+                + "设备：" + android.os.Build.BRAND + " " + android.os.Build.MODEL
+                + " / Android " + android.os.Build.VERSION.RELEASE + "\n"
+                + "结果：" + (diagOk ? "自检正常" : "发现问题") + "\n"
+                + "1. 布局能否加载：" + rLayout + "\n"
+                + "2. 内容与交互：" + rAction + "\n"
+                + "3. 控件白名单：" + rBanned;
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(
+                    android.content.ClipData.newPlainText("小组件自检", txt));
+            Toast.makeText(this, "已复制，直接粘贴到 QQ 群即可", Toast.LENGTH_LONG).show();
+        } catch (Throwable t) {
+            Toast.makeText(this, "复制失败：" + t, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void addResult(UiKit.Palette P, String title, boolean ok, String detail) {

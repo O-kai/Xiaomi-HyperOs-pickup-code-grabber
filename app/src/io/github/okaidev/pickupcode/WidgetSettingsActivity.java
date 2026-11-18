@@ -79,6 +79,14 @@ public class WidgetSettingsActivity extends Activity {
     private WidgetPlacement placement;
     /** 预览内容相对真实组件的缩放系数 */
     private float previewScale = 1f;
+    /**
+     * 预览里「行」的缩放（v4.2.1）。
+     *
+     * <p>预览固定画三条示例（2 待取 + 1 已取），但组件高度只够两行时，
+     * 三条会顶出卡片底边（真机上第三条被裁掉一半）。所以按「可用高度 ÷ 3 行」
+     * 反推一个行高比例，行高和字号一起缩，三条稳稳塞进去。
+     */
+    private float previewRowScale = 1f;
     /** 「重新对齐」进行中：连点会连开抓取页，用标志位挡住 */
     private boolean realigning = false;
     /** 桌面上到底有没有组件。示例预览要覆盖待取 + 已取，和真实组件分开算。 */
@@ -213,6 +221,21 @@ public class WidgetSettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         nlp.setMargins(dp(4), dp(12), dp(4), 0);
         box.addView(note, nlp);
+
+        // v4.2.1：自检入口（用户要求加回）。
+        // 页面本身已经精简成「跑一遍 → 复制结果 → 发群」，
+        // 这里只放一个不打扰的次级按钮。
+        TextView diag = UiKit.text(this, "小组件自检", 13.5f, P.accentInk);
+        diag.setGravity(Gravity.CENTER);
+        diag.setTypeface(null, Typeface.BOLD);
+        diag.setPadding(0, dp(12), 0, dp(12));
+        diag.setBackground(UiKit.bg(P.chipBg, this, 12));
+        diag.setOnClickListener(v -> startActivity(
+                new android.content.Intent(this, WidgetDiagActivity.class)));
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.setMargins(0, dp(10), 0, 0);
+        box.addView(diag, dlp);
 
         setContentView(root);
         rebuildSegments();
@@ -1155,6 +1178,11 @@ public class WidgetSettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         previewBox = content;
         previewScale = k;
+        // 三条示例要能塞进卡片：按「可用高度 ÷ 3 行」反推行高比例
+        int rowAvail = cardH - padPx * 2 - (int) (dp(34) * k);   // 减去内边距和标题行
+        float kRows = rowAvail > 0
+                ? rowAvail / (3f * dp(WidgetPrefs.ROW_DP)) : k;
+        previewRowScale = Math.max(k * 0.6f, Math.min(k, kRows));
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -1388,7 +1416,7 @@ public class WidgetSettingsActivity extends Activity {
         // 行高与真实布局的下限一致（真实布局按权重均分，实际会略大于 40dp）。
         // v4.1.0：再乘预览缩放系数——预览比真实组件小时，行高和字号要同步缩，
         // 否则会出现「字小了、行没小」的错位。
-        float k = previewScale;
+        float k = previewRowScale;
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 Math.max(dp(18), (int) (dp(WidgetPrefs.ROW_DP) * k)));
@@ -1553,31 +1581,18 @@ public class WidgetSettingsActivity extends Activity {
             previewRows.addView(sum, slp);
             return;
         }
-        // 预览的条数跟着组件实际能放几行走：4×2 的组件在桌面上就是 2 条，
-        // 这里塞 3 条会顶到卡片底边（真机上出现过第三行贴边）。
-        // spanY 是组件占的行数，读不到时按 3 条估。
-        int maxRows = previewOnDesktop && placement != null && placement.spanY > 0
-                ? placement.spanY : 3;
-        // v4.2.1：全部信息模式必须给「已取」留一格。
-        // 它是用户唯一能看到「划掉之后长什么样」的样例；行数被组件高度压到 2 行时
-        // 全给待取占满，标题写着「1 已取」下面却一条没有，看起来就像数据丢了。
-        int pendingSlots = showAll
-                ? Math.max(1, Math.min(2, maxRows - 1))
-                : Math.min(2, maxRows);
+        // 固定三条示例：两个待取 + 一个已取（用户 2026-11-19 明确要求）。
+        // 预览的作用是让人看清三种状态长什么样，不是 1:1 复刻当前组件高度——
+        // 到底能放几行，说明文字里已经讲了「把组件拉大就能看到更多」。
+        // 所以这里不再按 spanY 砍行数（砍过之后「已取」被挤掉，看着像数据丢了）。
         int shown = 0;
-        if (shown < pendingSlots) { addPreviewRow(shown, false, "12-3-4567", "菜鸟驿站 · 1 号柜"); shown++; }
-        if (shown < pendingSlots) { addPreviewRow(shown, false, "58-2-9041", "顺丰速运 · 望江路驿站"); shown++; }
-        int pickedShown = 0;
-        if (showAll && shown < maxRows) {
+        addPreviewRow(shown++, false, "12-3-4567", "菜鸟驿站 · 1 号柜");
+        addPreviewRow(shown++, false, "58-2-9041", "顺丰速运 · 望江路驿站");
+        if (showAll) {
             // 全部信息模式：已取的也画出来（划掉 + 变灰 + 无 ✓）
-            addPreviewRow(shown, true, "09-8-7654", "中通快递 · 已取");
-            shown++;
-            pickedShown = 1;
+            addPreviewRow(shown++, true, "09-8-7654", "中通快递 · 已取");
         }
-        // 标题按「实际画出来的条数」写，别再写死 2/1
-        previewCount.setText(showAll
-                ? (shown - pickedShown) + " 待取" + (pickedShown > 0 ? " · " + pickedShown + " 已取" : "")
-                : shown + " 个待取");
+        previewCount.setText(showAll ? "2 待取 · 1 已取" : "2 个待取");
         // 字号缩放（预览里的行是新建的，所以要在这里统一设）
         for (int i = 0; i < previewRows.getChildCount(); i++) {
             View row = previewRows.getChildAt(i);
@@ -1585,8 +1600,8 @@ public class WidgetSettingsActivity extends Activity {
             LinearLayout r = (LinearLayout) row;
             TextView c = (TextView) r.getChildAt(0);
             TextView p = (TextView) r.getChildAt(1);
-            c.setTextSize(17f * scale * previewScale);
-            p.setTextSize(11f * scale * previewScale);
+            c.setTextSize(17f * scale * previewRowScale);
+            p.setTextSize(11f * scale * previewRowScale);
         }
     }
 
