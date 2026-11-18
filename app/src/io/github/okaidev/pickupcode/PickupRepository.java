@@ -146,10 +146,22 @@ public final class PickupRepository {
             // 带上地点就会被判成两条，列表里并排出现两个相同的码。
             PickupRecord active = dao.findPendingByCode(normalizedCode);
             if (active != null) {
-                // 后到的来源若给出更完整的地点，补进去；已有真地点就不覆盖
-                if (DEFAULT_UNKNOWN.equals(active.place) && !DEFAULT_UNKNOWN.equals(placeVal)) {
-                    dao.updatePlace(active.id, placeVal);
-                }
+                // v13：同码合并——后到的非空内容覆盖前面的，空值保留原样。
+                //
+                // 原来只在「已有地点是 —」时补地点，来源完全不更新。结果同一个包裹
+                // 短信和通知各写一次时，谁先到谁的内容就固定了：先短信（来源=菜鸟驿站、
+                // 地点=—）后通知（来源=淘宝通知、地点=菜鸟驿站）就永远缺地点。
+                // 现在 source / place 都按 mergeField 的规则合并。
+                dao.updateSourceAndPlace(active.id,
+                        mergeField(active.source, sourceVal),
+                        mergeField(active.place, placeVal));
+                // v4.2.1：同码聚合时把这条消息的原文也留下来，
+                // 否则「完整信息」里只能看到最后一条，前面的证据就丢了。
+                try {
+                    dao.updateRawSources(active.id, RawSources.append(
+                            active.rawSources, RawSources.typeOf(sender),
+                            sender, body, now));
+                } catch (Throwable ignored) { }
                 dao.touch(active.id, now);
                 touched++;
                 continue;
@@ -166,6 +178,11 @@ public final class PickupRepository {
             record.eventHash = eventHash;
             record.syncState = "PENDING";
             record.isTest = isTest ? 1 : 0;
+            // v4.2.1：留下来源原文（「完整信息」展开/全文复制用）
+            try {
+                record.rawSources = RawSources.append(
+                        "", RawSources.typeOf(sender), sender, body, now);
+            } catch (Throwable ignored) { }
             long id = dao.insert(record);
             if (id > 0) {
                 inserted++;
@@ -674,6 +691,30 @@ public final class PickupRepository {
 
     private static String emptyToUnknown(String s) {
         return s == null || s.trim().isEmpty() ? DEFAULT_UNKNOWN : s.trim();
+    }
+
+    /**
+     * 同码合并规则（v13）：后到的非空内容覆盖前面的，内容为空则保留原状态。
+     *
+     * <p>同一个包裹往往先来短信、后来 App 通知（或反过来），两边各带一部分信息：
+     * 先到的短信可能只有来源没有地点，后到的通知给了地点；或者先到的通知只有
+     * 地点，后到的短信给了更准的来源。按字段独立合并，谁的这一格有值谁说话。
+     *
+     * <p>空值统一是 {@link #DEFAULT_UNKNOWN}（「—」），因此：
+     * <ul>
+     *   <li>existing=「菜鸟驿站」、incoming=「—」→ 保留「菜鸟驿站」</li>
+     *   <li>existing=「—」、incoming=「淘宝通知」→ 更新为「淘宝通知」</li>
+     *   <li>两边都有值 → 后到的覆盖（incoming 胜出）</li>
+     * </ul>
+     *
+     * <p>写成 public static 是为了能脱离 Room 做离线回归——DAO 只负责把算好的值落库。
+     */
+    public static String mergeField(String existing, String incoming) {
+        if (incoming == null || incoming.trim().isEmpty()
+                || DEFAULT_UNKNOWN.equals(incoming.trim())) {
+            return existing == null || existing.trim().isEmpty() ? DEFAULT_UNKNOWN : existing;
+        }
+        return incoming.trim();
     }
 
     private static String sha256(String input) {

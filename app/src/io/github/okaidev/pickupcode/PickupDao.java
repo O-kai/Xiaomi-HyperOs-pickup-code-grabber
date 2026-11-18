@@ -26,6 +26,23 @@ public interface PickupDao {
     @Query("UPDATE pickup_records SET place = :place WHERE id = :id")
     void updatePlace(long id, String place);
 
+    /**
+     * v13：同码合并——把调用方算好的最终值写回去。
+     * 「后到非空覆盖、空保留」的决策在 {@link PickupRepository#mergeField} 里做，
+     * 这样规则能脱离 Room 离线测试；这里只负责落库。
+     */
+    @Query("UPDATE pickup_records SET source = :source, place = :place WHERE id = :id")
+    void updateSourceAndPlace(long id, String source, String place);
+
+    /**
+     * v4.2.1：同码合并时把新的来源原文追加进去。
+     *
+     * <p>调用方已把旧 JSON 读出来拼好，这里只做一次整列写入——
+     * SQL 里拼 JSON 既难读又容易把引号写坏。
+     */
+    @Query("UPDATE pickup_records SET raw_sources = :json WHERE id = :id")
+    void updateRawSources(long id, String json);
+
     @Query("UPDATE pickup_records SET last_seen_at = :ts WHERE id = :id")
     void touch(long id, long ts);
 

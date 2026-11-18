@@ -19,9 +19,14 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * 4.0 本地取件记录页：待取件 + 历史，支持筛选、搜索与数据管理。
@@ -48,8 +53,18 @@ public class PickupListActivity extends Activity {
     private EditText searchBox;
     private TextView countView;
 
+    private static final String PREFS_LIST = "pickup_list_prefs";
+    private static final String KEY_SORT = "sort_mode";
+    /** 0 = 时间倒序；1 = 地址聚合 */
+    private static final int SORT_TIME = 0, SORT_PLACE = 1;
+
     private int filterIndex = 0;
+    private int sortMode = SORT_TIME;
     private String keyword = "";
+
+    /** 当前展开的那一条（一次只允许展开一条） */
+    private LinearLayout expandedView;
+    private LinearLayout sortRow;
 
     private final RecordManager records = new RecordManager(this);
 
@@ -59,6 +74,7 @@ public class PickupListActivity extends Activity {
         UiKit.applyTheme(this);
         super.onCreate(savedInstanceState);
         p = UiKit.palette(this);
+        sortMode = getSharedPreferences(PREFS_LIST, MODE_PRIVATE).getInt(KEY_SORT, SORT_TIME);
 
         records.setOnChanged(this::refresh);
 
@@ -95,10 +111,23 @@ public class PickupListActivity extends Activity {
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
             @Override public void afterTextChanged(Editable s) {
                 keyword = s.toString().trim();
+                collapseExpanded();          // 搜索词变了：展开态清掉，避免高度错位
                 refresh();
             }
         });
         toolbar.addView(searchBox);
+
+        // v4.2.1：排序开关就放在搜索框下面 —— 搜索是高频动作，不收进「管理」。
+        sortRow = new LinearLayout(this);
+        sortRow.setOrientation(LinearLayout.HORIZONTAL);
+        sortRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams srp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        srp.setMargins(0, dp(8), 0, 0);
+        sortRow.setLayoutParams(srp);
+        toolbar.addView(sortRow);
+        rebuildSort();
+
         root.addView(toolbar);
 
         ScrollView scroll = new ScrollView(this);
@@ -135,8 +164,11 @@ public class PickupListActivity extends Activity {
         countView = UiKit.text(this, "", 12, UiKit.INK3);
         header.addView(countView);
 
+        // v4.2.1：位置不动，裸文字换成胶囊按钮，一眼看得出可点
         TextView manage = UiKit.text(this, "管理", 13, p.accentInk);
-        manage.setPadding(dp(12), dp(8), 0, dp(8));
+        manage.setGravity(Gravity.CENTER);
+        manage.setPadding(dp(14), dp(7), dp(14), dp(7));
+        manage.setBackground(UiKit.bg(p.chipBg, this, 10));
         manage.setOnClickListener(v -> records.showManageDialog());
         header.addView(manage);
 
@@ -158,6 +190,7 @@ public class PickupListActivity extends Activity {
             seg.setOnClickListener(v -> {
                 if (filterIndex == idx) return;
                 filterIndex = idx;
+                collapseExpanded();          // 切页签：展开态清掉
                 rebuildFilters();
                 refresh();
             });
@@ -166,6 +199,37 @@ public class PickupListActivity extends Activity {
             lp.setMargins(idx == 0 ? 0 : dp(8), 0, 0, 0);
             seg.setLayoutParams(lp);
             filterRow.addView(seg);
+        }
+    }
+
+    /** 排序方式分段：时间倒序 / 地址聚合 */
+    private void rebuildSort() {
+        if (sortRow == null) return;
+        sortRow.removeAllViews();
+        String[] labels = { "时间倒序", "地址聚合" };
+        for (int i = 0; i < 2; i++) {
+            final int mode = i;
+            boolean on = mode == sortMode;
+            TextView seg = UiKit.text(this, labels[i], 12.5f,
+                    on ? p.onAccent : UiKit.INK2);
+            seg.setGravity(Gravity.CENTER);
+            seg.setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
+            seg.setPadding(0, dp(8), 0, dp(8));
+            seg.setBackground(UiKit.bg(on ? p.accent : p.chipBg, this, 11));
+            seg.setOnClickListener(v -> {
+                if (sortMode == mode) return;
+                sortMode = mode;
+                getSharedPreferences(PREFS_LIST, MODE_PRIVATE).edit()
+                        .putInt(KEY_SORT, sortMode).apply();
+                collapseExpanded();          // 切排序：展开态清掉
+                rebuildSort();
+                refresh();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.setMargins(mode == 0 ? 0 : dp(8), 0, 0, 0);
+            seg.setLayoutParams(lp);
+            sortRow.addView(seg);
         }
     }
 
@@ -228,9 +292,143 @@ public class PickupListActivity extends Activity {
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT));
         }
-        for (PickupRecord record : list) {
-            listBox.addView(card(record));
+        for (Object node : buildNodes(list)) {
+            if (node instanceof Group) {
+                listBox.addView(groupHeader((Group) node));
+            } else if (node instanceof String) {
+                listBox.addView(sectionLabel((String) node));
+            } else if (node instanceof PickupRecord) {
+                listBox.addView(card((PickupRecord) node));
+            }
         }
+    }
+
+    // ==================== 排序 / 分组（v4.2.1） ====================
+
+    /** 一个地点分组：key 是归一化后的完整地点，newest 决定整组的压栈位置 */
+    private static final class Group {
+        final String key;
+        final long newest;
+        final List<PickupRecord> items;
+
+        Group(String key, List<PickupRecord> items) {
+            this.key = key;
+            this.items = items;
+            this.newest = items.isEmpty() ? 0L : items.get(0).receivedAt;
+        }
+    }
+
+    private static final Comparator<PickupRecord> BY_TIME_DESC =
+            (a, b) -> Long.compare(b.receivedAt, a.receivedAt);
+
+    /**
+     * 把查询结果排成「分组头 / 小标题 / 记录」的线性序列。
+     *
+     * <p>规则（用户 2026-11-19 确认）：
+     * <ul>
+     *   <li>时间倒序：一条线，按 received_at 倒排；</li>
+     *   <li>地址聚合：按完整地点分组，组内倒排，组间按各组最新一条倒排
+     *       —— 新消息来，整组压栈顶；</li>
+     *   <li>「全部」页：未取段可切两种，已取段固定时间倒序、不参与分组；</li>
+     *   <li>「待取」「已取」页：整页都可切两种；</li>
+     *   <li>未识别地点也是一个正常分组，按自己的时间参与压栈，不固定沉底。</li>
+     * </ul>
+     */
+    private List<Object> buildNodes(List<PickupRecord> list) {
+        List<Object> out = new ArrayList<>();
+        if (list == null || list.isEmpty()) return out;
+
+        if (filterIndex == 0) {
+            List<PickupRecord> pending = new ArrayList<>();
+            List<PickupRecord> picked = new ArrayList<>();
+            for (PickupRecord r : list) {
+                if (r == null) continue;
+                if (r.isPending()) pending.add(r); else picked.add(r);
+            }
+            appendSorted(out, pending, sortMode == 1);
+            if (!picked.isEmpty()) {
+                out.add("已取件 · " + picked.size() + " 条 · 时间倒序");
+                appendSorted(out, picked, false);
+            }
+        } else {
+            appendSorted(out, list, sortMode == 1);
+        }
+        return out;
+    }
+
+    private void appendSorted(List<Object> out, List<PickupRecord> list, boolean byPlace) {
+        if (list == null || list.isEmpty()) return;
+        if (!byPlace) {
+            List<PickupRecord> copy = new ArrayList<>(list);
+            Collections.sort(copy, BY_TIME_DESC);
+            out.addAll(copy);
+            return;
+        }
+        Map<String, List<PickupRecord>> buckets = new LinkedHashMap<>();
+        for (PickupRecord r : list) {
+            if (r == null) continue;
+            String key = placeKey(r.place);
+            List<PickupRecord> bucket = buckets.get(key);
+            if (bucket == null) {
+                bucket = new ArrayList<>();
+                buckets.put(key, bucket);
+            }
+            bucket.add(r);
+        }
+        List<Group> groups = new ArrayList<>();
+        for (Map.Entry<String, List<PickupRecord>> e : buckets.entrySet()) {
+            Collections.sort(e.getValue(), BY_TIME_DESC);
+            groups.add(new Group(e.getKey(), e.getValue()));
+        }
+        // 组间按「各组最新一条」倒排 —— 这就是用户说的堆栈：新消息到，整组压顶
+        Collections.sort(groups, (a, b) -> {
+            int c = Long.compare(b.newest, a.newest);
+            return c != 0 ? c : a.key.compareTo(b.key);
+        });
+        for (Group g : groups) {
+            out.add(g);
+            out.addAll(g.items);
+        }
+    }
+
+    /** 分组键 = 完整地点文字，只统一空白；识别不出归到「未识别地点」 */
+    private static String placeKey(String place) {
+        if (place == null) return "未识别地点";
+        StringBuilder sb = new StringBuilder();
+        boolean pendingSpace = false;
+        for (int i = 0; i < place.length(); i++) {
+            char c = place.charAt(i);
+            if (Character.isWhitespace(c) || c == 0x3000) {
+                pendingSpace = true;
+            } else {
+                if (pendingSpace && sb.length() > 0) sb.append(' ');
+                pendingSpace = false;
+                sb.append(c);
+            }
+        }
+        String s = sb.toString();
+        if (s.isEmpty() || "—".equals(s) || "-".equals(s)
+                || "未知".equals(s) || "unknown".equalsIgnoreCase(s)) return "未识别地点";
+        return s;
+    }
+
+    private View groupHeader(Group g) {
+        TextView t = UiKit.text(this, g.key + " · " + g.items.size() + " 件 · " + format(g.newest),
+                12.5f, p.accentInk);
+        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        t.setPadding(dp(10), dp(8), dp(10), dp(8));
+        t.setBackground(UiKit.bg(p.chipBg, this, 9));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(4), 0, dp(2));
+        t.setLayoutParams(lp);
+        return t;
+    }
+
+    private View sectionLabel(String text) {
+        TextView t = UiKit.text(this, text, 12f, UiKit.INK3);
+        t.setPadding(dp(2), dp(14), dp(2), dp(6));
+        return t;
     }
 
     /**
@@ -346,9 +544,20 @@ public class PickupListActivity extends Activity {
         metaView.setPadding(0, dp(4), 0, dp(10));
         col.addView(metaView);
 
+        // v4.2.1：来源原文详情（默认收起，点「完整信息」就地展开）
+        final LinearLayout detail = new LinearLayout(this);
+        detail.setOrientation(LinearLayout.VERTICAL);
+        detail.setVisibility(View.GONE);
+        // 吞掉详情区里的点击，别冒泡到卡片的「复制取件码」
+        detail.setOnClickListener(v -> { });
+
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.END);
+
+        TextView full = action("完整信息");
+        full.setOnClickListener(v -> toggleExpanded(record, detail));
+        actions.addView(full);
 
         TextView copy = action("复制");
         copy.setOnClickListener(v -> copy(record.code));
@@ -373,9 +582,92 @@ public class PickupListActivity extends Activity {
         actions.addView(del);
 
         col.addView(actions);
+        col.addView(detail);
 
         card.setOnClickListener(v -> copy(record.code));
         return card;
+    }
+
+    // ==================== 完整信息：展开 / 收起 / 全文复制 ====================
+
+    /** 切页签、切排序、改搜索词时调用：一次只允许一条展开 */
+    private void collapseExpanded() {
+        if (expandedView != null) {
+            expandedView.removeAllViews();
+            expandedView.setVisibility(View.GONE);
+            expandedView = null;
+        }
+    }
+
+    private void toggleExpanded(PickupRecord record, LinearLayout detail) {
+        if (expandedView == detail) {
+            collapseExpanded();
+            return;
+        }
+        collapseExpanded();
+        buildDetail(detail, record);
+        detail.setVisibility(View.VISIBLE);
+        expandedView = detail;
+    }
+
+    /** 详情区只画来源原文 —— 解析好的码/地点由原来的「复制」按钮负责 */
+    private void buildDetail(LinearLayout box, PickupRecord record) {
+        box.removeAllViews();
+        box.setPadding(0, dp(8), 0, dp(2));
+
+        List<RawSources.Item> items = RawSources.parse(record.rawSources);
+        TextView head = UiKit.text(this,
+                items.isEmpty() ? "这条记录没有留下原文" : "来源 " + items.size() + " 条",
+                12f, UiKit.INK3);
+        head.setPadding(0, 0, 0, dp(6));
+        box.addView(head);
+
+        for (RawSources.Item it : items) {
+            TextView src = UiKit.text(this, it.label(), 12f, p.accentInk);
+            src.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            src.setPadding(0, dp(6), 0, dp(2));
+            box.addView(src);
+
+            TextView raw = UiKit.text(this, empty(it.text) ? "（空）" : it.text,
+                    12.5f, UiKit.INK2);
+            raw.setLineSpacing(dp(2), 1f);
+            raw.setBackground(UiKit.bg(p.cardSoft, this, 9));
+            raw.setPadding(dp(10), dp(8), dp(10), dp(8));
+            box.addView(raw);
+        }
+
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setGravity(Gravity.END);
+        btns.setPadding(0, dp(10), 0, 0);
+
+        TextView close = action("收起");
+        close.setOnClickListener(v -> collapseExpanded());
+        close.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        close.setTextColor(UiKit.INK3);
+        btns.addView(close);
+
+        TextView all = action("全文复制");
+        all.setOnClickListener(v -> copyRaw(record));
+        btns.addView(all);
+        box.addView(btns);
+    }
+
+    /** 全文复制：只复制来源信息，不重复解析后的码/地点 */
+    private void copyRaw(PickupRecord record) {
+        String text = RawSources.fullText(record.rawSources);
+        if (text.isEmpty()) {
+            Toast.makeText(this, "这条记录没有可复制的原文", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText("pickup-raw", text));
+            Toast.makeText(this, "已复制 " + RawSources.parse(record.rawSources).size()
+                    + " 条来源原文", Toast.LENGTH_SHORT).show();
+        } catch (Throwable t) {
+            Toast.makeText(this, "复制失败", Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** 恢复为待取（v4.0.1）：点错了「已取件」能反悔。 */

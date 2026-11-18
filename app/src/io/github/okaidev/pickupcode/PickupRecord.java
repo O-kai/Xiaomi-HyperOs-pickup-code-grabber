@@ -67,6 +67,14 @@ public class PickupRecord {
     @ColumnInfo(name = "is_test")
     public int isTest;
 
+    /**
+     * v4.2.1：来源原文（JSON 数组，见 {@link RawSources}）。
+     *
+     * <p>旧库里这一列是 Migration 补的空串，展开时显示「这条记录没有留下原文」。
+     */
+    @ColumnInfo(name = "raw_sources")
+    public String rawSources = "";
+
     public boolean isPending() {
         return STATUS_PENDING.equals(status);
     }
