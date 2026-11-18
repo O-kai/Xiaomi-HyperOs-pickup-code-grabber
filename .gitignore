@@ -64,3 +64,4 @@ tools/_del.py
 # 留在本地自己复制用，不往 GitHub 上推。
 docs/COOLAPK-发布用-*.txt
 docs/COOLAPK-[0-9]*.md
+docs/COOLAPK-*-评论回复.md
