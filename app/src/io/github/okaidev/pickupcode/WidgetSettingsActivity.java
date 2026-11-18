@@ -185,83 +185,33 @@ public class WidgetSettingsActivity extends Activity {
         }
         box.addView(buildSettingsCard(), UiKit.cardLp(this, 10));
 
-        // v4.0.2：加「重新添加」入口。
+        // v4.2.1：添加入口 + 一句场景说明（用户原话：把中间那些废话全删掉）。
         //
-        // 真机结论（K90 Pro Max / HyperOS 4.0）：App 更新后，
-        // 桌面【不会重建】已有小组件的视图树——新的 initialLayout 不会生效，
-        // 表现为「行距被压扁、标题不见」这种明显错乱。
-        // 系统层面没有让 App 主动重建的 API，只能让用户重新添加一次。
-        // 所以这里给一个明确入口，别让用户自己猜「怎么桌面变乱了」。
-        TextView readd = UiKit.text(this, "重新添加小组件", 13.5f, P.accentInk);
+        // 真机结论（K90 Pro Max / HyperOS 4.0）：Android 桌面在 App 更新后
+        // 【不会重建】已有小组件的视图树——只在首次添加时 inflate 一次 initialLayout，
+        // 之后的 updateAppWidget 只是往那棵旧树上套数据。布局或逻辑一变，
+        // 桌面上那个组件就停在旧版本（连按钮行为也是旧的）。
+        // 系统没有让 App 主动重建的 API，只能移除后重新添加。
+        TextView readd = UiKit.text(this, "添加小组件", 13.5f, P.accentInk);
         readd.setGravity(Gravity.CENTER);
         readd.setTypeface(null, Typeface.BOLD);
         readd.setPadding(0, dp(12), 0, dp(12));
         readd.setBackground(UiKit.bg(P.chipBg, this, 12));
-        // v4.2.1：和预览下面的「添加到桌面」走同一条路 —— 先真的请求系统添加，
-        // 没有权限才给引导。以前这里只弹引导，用户明明有权限也被挡在门外。
         readd.setOnClickListener(v -> WidgetPin.quickPin(this));
         LinearLayout.LayoutParams rlp2 = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rlp2.setMargins(0, dp(10), 0, 0);
         box.addView(readd, rlp2);
 
-        // v4.0.3：若桌面上已有小组件实例，提醒移除重加。
-        //
-        // 真机踩过的坑：Android 桌面在 App 更新后【不会重建】已有小组件的视图树——
-        // 它只在首次添加时 inflate 一次 initialLayout，之后的 updateAppWidget
-        // 只是往那棵已存在的视图树上套新数据。布局结构一旦变了，桌面上的组件
-        // 就会显示成错乱的样子（码和地点分行、底部有残留文字）。
-        // 系统层面没有让 App 主动重建的 API，只能移除后重新添加。
-        //
-        // 所以这里主动检测并提示，别让用户对着一个坏掉的组件猜原因。
-        try {
-            int[] ids = android.appwidget.AppWidgetManager.getInstance(this)
-                    .getAppWidgetIds(new android.content.ComponentName(this,
-                            PickupWidgetProvider.class));
-            if (ids != null && ids.length > 0) {
-                TextView warn = UiKit.text(this,
-                        "桌面上已有 " + ids.length + " 个小组件。"
-                                + "App 更新后桌面不会重建旧组件的视图，显示异常时"
-                                + "请先长按组件「移除」，再重新添加一次。",
-                        12f, P.heroWarnInk);
-                warn.setLineSpacing(dp(2), 1f);
-                warn.setBackground(UiKit.bg(P.heroWarn, this, 12));
-                warn.setPadding(dp(12), dp(10), dp(12), dp(10));
-                LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                wlp.setMargins(0, dp(10), 0, 0);
-                box.addView(warn, wlp);
-            }
-        } catch (Throwable ignored) { }
-
-        // v4.0.3：小组件自检。
-        //
-        // 桌面加小组件失败时，系统日志里【什么都不会有】——失败发生在桌面进程
-        // inflate RemoteViews 的阶段，异常不会回传给 App。自检页在 App 进程内
-        // 复现同一次 inflate，当场就能看出是哪一处不兼容。
-        TextView diag = UiKit.text(this, "小组件自检", 13.5f, P.accentInk);
-        diag.setGravity(Gravity.CENTER);
-        diag.setTypeface(null, Typeface.BOLD);
-        diag.setPadding(0, dp(12), 0, dp(12));
-        diag.setBackground(UiKit.bg(P.chipBg, this, 12));
-        diag.setOnClickListener(v -> startActivity(
-                new android.content.Intent(this, WidgetDiagActivity.class)));
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        dlp.setMargins(0, dp(8), 0, 0);
-        box.addView(diag, dlp);
-
         TextView note = UiKit.text(this,
-                "显示条数由组件高度决定——把组件拉大就能看到更多；"
-                        + "点取件码复制，点右侧 ✓ 标记已取；点顶部标题进入取件记录页。\n\n"
-                        + "提示：App 更新后，桌面上已有的组件不会自动套用新样式"
-                        + "（Android 桌面不重建已有小组件的视图树），"
-                        + "显示错乱时请先「移除」旧的，再点上面的「重新添加小组件」。",
+                "桌面还没有组件：点上面的「添加小组件」。\n"
+                        + "桌面上已经有了：更新 App 不会重建旧组件的界面和功能，"
+                        + "显示错乱或按钮失灵时，先长按组件「移除」，再点「添加小组件」加一个新的。",
                 12f, P.muteInk);
-        note.setLineSpacing(dp(2), 1f);
+        note.setLineSpacing(dp(3), 1f);
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        nlp.setMargins(dp(4), dp(14), dp(4), 0);
+        nlp.setMargins(dp(4), dp(12), dp(4), 0);
         box.addView(note, nlp);
 
         setContentView(root);
@@ -1587,7 +1537,6 @@ public class WidgetSettingsActivity extends Activity {
         previewTitle.setTextColor(previewRowColor(0, 0xFF));
         previewCount.setTextColor(previewRowColor(0, 0xB3));
         previewTitle.setText(showAll ? "取件记录" : "待取件");
-        previewCount.setText(showAll ? "2 待取 · 1 已取" : "2 个待取");
 
         previewRows.removeAllViews();
         // v4.0.2 第四轮：隐私模式（关掉「显示取件码」）与真实组件保持一致——
@@ -1609,13 +1558,26 @@ public class WidgetSettingsActivity extends Activity {
         // spanY 是组件占的行数，读不到时按 3 条估。
         int maxRows = previewOnDesktop && placement != null && placement.spanY > 0
                 ? placement.spanY : 3;
+        // v4.2.1：全部信息模式必须给「已取」留一格。
+        // 它是用户唯一能看到「划掉之后长什么样」的样例；行数被组件高度压到 2 行时
+        // 全给待取占满，标题写着「1 已取」下面却一条没有，看起来就像数据丢了。
+        int pendingSlots = showAll
+                ? Math.max(1, Math.min(2, maxRows - 1))
+                : Math.min(2, maxRows);
         int shown = 0;
-        if (shown < maxRows) { addPreviewRow(shown, false, "12-3-4567", "菜鸟驿站 · 1 号柜"); shown++; }
-        if (shown < maxRows) { addPreviewRow(shown, false, "58-2-9041", "顺丰速运 · 望江路驿站"); shown++; }
+        if (shown < pendingSlots) { addPreviewRow(shown, false, "12-3-4567", "菜鸟驿站 · 1 号柜"); shown++; }
+        if (shown < pendingSlots) { addPreviewRow(shown, false, "58-2-9041", "顺丰速运 · 望江路驿站"); shown++; }
+        int pickedShown = 0;
         if (showAll && shown < maxRows) {
             // 全部信息模式：已取的也画出来（划掉 + 变灰 + 无 ✓）
             addPreviewRow(shown, true, "09-8-7654", "中通快递 · 已取");
+            shown++;
+            pickedShown = 1;
         }
+        // 标题按「实际画出来的条数」写，别再写死 2/1
+        previewCount.setText(showAll
+                ? (shown - pickedShown) + " 待取" + (pickedShown > 0 ? " · " + pickedShown + " 已取" : "")
+                : shown + " 个待取");
         // 字号缩放（预览里的行是新建的，所以要在这里统一设）
         for (int i = 0; i < previewRows.getChildCount(); i++) {
             View row = previewRows.getChildAt(i);
