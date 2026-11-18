@@ -59,20 +59,8 @@ public class NotiHook {
      * 包名 → 展示名（供设置页「多平台」弹窗列出支持的应用）
      * v6.1：新增。未收录的包名直接显示包名本身，不会漏。
      */
-    public static final java.util.Map<String, String> PKG_LABELS;
-    static {
-        java.util.Map<String, String> m = new java.util.LinkedHashMap<>();
-        m.put("com.cainiao.wireless", "菜鸟");
-        m.put("com.cainiao.guoguo", "菜鸟裹裹");
-        m.put("com.jingdong.app.mall", "京东");
-        m.put("com.taobao.taobao", "淘宝");
-        m.put("com.xunmeng.pinduoduo", "拼多多");
-        m.put("com.sf.cdsibm", "顺丰速运");
-        m.put("com.fcbox.hiveconsumer", "丰巢");
-        m.put("com.xiaomi.mi_connect_service", "设备互联");
-        m.put("com.ss.android.ugc.aweme", "抖音");
-        PKG_LABELS = java.util.Collections.unmodifiableMap(m);
-    }
+    /** v13：唯一事实源搬到了无 Xposed 依赖的 {@link AppLabels}，离线测试也能用 */
+    public static final java.util.Map<String, String> PKG_LABELS = AppLabels.PKG_LABELS;
 
     /** 当前生效的通知白名单快照（内置 + 用户追加） */
     public static java.util.List<String> currentPkgs() {

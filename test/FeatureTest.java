@@ -1,3 +1,4 @@
+import io.github.okaidev.pickupcode.AppLabels;
 import io.github.okaidev.pickupcode.NotesFormat;
 import io.github.okaidev.pickupcode.PaletteMath;
 import io.github.okaidev.pickupcode.PureColor;
@@ -35,6 +36,7 @@ public class FeatureTest {
         paletteContrastTests();
         reminderTests();
         importerTests();
+        notiSourceTests();
         System.out.println("--------------------------------");
         System.out.println("FeatureTest: PASS=" + pass + " FAIL=" + fail);
         if (fail > 0) System.exit(1);
@@ -205,5 +207,24 @@ public class FeatureTest {
         // 【】里的驿站名
         check("【】来源解析", "菜鸟驿站".equals(NotesFormat.sourceOf("【菜鸟驿站】取件码 6-6-6662")), "");
         check("无【】时来源为空", "".equals(NotesFormat.sourceOf("取件码 6-6-6662")), "");
+    }
+
+    // ============ 通知来源统一「xx通知」（v13） ============
+
+    static void notiSourceTests() {
+        check("淘宝通知",
+                "淘宝通知".equals(AppLabels.notiSource("com.taobao.taobao")), "");
+        check("菜鸟通知",
+                "菜鸟通知".equals(AppLabels.notiSource("com.cainiao.wireless")), "");
+        check("京东通知",
+                "京东通知".equals(AppLabels.notiSource("com.jingdong.app.mall")), "");
+        check("丰巢通知",
+                "丰巢通知".equals(AppLabels.notiSource("com.fcbox.hiveconsumer")), "");
+        check("未收录包名退到末段",
+                "app通知".equals(AppLabels.notiSource("com.some.unknown.app")), "");
+        check("空包名",
+                "—".equals(AppLabels.notiSource("")), "");
+        check("null 包名",
+                "—".equals(AppLabels.notiSource(null)), "");
     }
 }

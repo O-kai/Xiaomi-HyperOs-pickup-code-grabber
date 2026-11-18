@@ -1,5 +1,6 @@
 import io.github.okaidev.pickupcode.PickupExport;
 import io.github.okaidev.pickupcode.PickupRecord;
+import io.github.okaidev.pickupcode.PickupRepository;
 import io.github.okaidev.pickupcode.PickupRow;
 import io.github.okaidev.pickupcode.Retention;
 import io.github.okaidev.pickupcode.RuleIntegrity;
@@ -34,6 +35,7 @@ public class DataTest {
         exportTests();
         importTests();
         integrityTests();
+        mergeFieldTests();
         System.out.println("--------------------------------");
         System.out.println("DataTest: PASS=" + pass + " FAIL=" + fail);
         if (fail > 0) System.exit(1);
@@ -247,5 +249,49 @@ public class DataTest {
                 "abc123".equals(RuleIntegrity.parseHashFile("ABC123")), "");
         check("摘要文件解析（空）",
                 "".equals(RuleIntegrity.parseHashFile("   ")), "");
+    }
+
+    // ==================== 同码合并（v13） ====================
+
+    /**
+     * 同一个取件码的短信与 App 通知，按字段「后到的非空覆盖、空则保留」。
+     * 这几条就是真实场景：先短信（有来源没地点）、后淘宝通知（有地点、来源改写通知）。
+     */
+    static void mergeFieldTests() {
+        String U = "—";
+
+        check("合并：旧有新空 → 保留旧的（来源）",
+                "菜鸟驿站".equals(PickupRepository.mergeField("菜鸟驿站", U)), "");
+        check("合并：旧有新空 → 保留旧的（地点）",
+                "幸福小区南门".equals(PickupRepository.mergeField("幸福小区南门", U)), "");
+        check("合并：旧空有新 → 取新的（通知来源）",
+                "淘宝通知".equals(PickupRepository.mergeField(U, "淘宝通知")), "");
+        check("合并：旧空有新 → 取新的（地点）",
+                "菜鸟驿站".equals(PickupRepository.mergeField(U, "菜鸟驿站")), "");
+        check("合并：两边都有 → 后到的覆盖",
+                "淘宝通知".equals(PickupRepository.mergeField("菜鸟驿站", "淘宝通知")), "");
+        check("合并：null 当空（旧值 null）",
+                U.equals(PickupRepository.mergeField(null, U)), "");
+        check("合并：null 当空（新值 null）",
+                "菜鸟驿站".equals(PickupRepository.mergeField("菜鸟驿站", null)), "");
+        check("合并：空白字符串当空",
+                "菜鸟驿站".equals(PickupRepository.mergeField("菜鸟驿站", "   ")), "");
+        check("合并：新值去空格",
+                "淘宝通知".equals(PickupRepository.mergeField(U, "  淘宝通知  ")), "");
+
+        // 端到端：先短信后通知，两个字段各自补齐；再反过来也不丢数据
+        String s1 = PickupRepository.mergeField(U, "菜鸟驿站");   // 短信：来源=菜鸟驿站，地点空
+        String p1 = PickupRepository.mergeField(U, U);
+        String s2 = PickupRepository.mergeField(s1, "淘宝通知");  // 通知：来源=淘宝通知，地点=菜鸟驿站
+        String p2 = PickupRepository.mergeField(p1, "菜鸟驿站");
+        check("场景：短信→通知，来源后到覆盖、地点补齐",
+                "淘宝通知".equals(s2) && "菜鸟驿站".equals(p2), s2 + " / " + p2);
+
+        String s3 = PickupRepository.mergeField(U, "淘宝通知");  // 通知先到
+        String p3 = PickupRepository.mergeField(U, "菜鸟驿站");
+        String s4 = PickupRepository.mergeField(s3, U);          // 短信后到但没给来源
+        String p4 = PickupRepository.mergeField(p3, "幸福小区南门");
+        check("场景：通知→短信，空来源保留、地点后到覆盖",
+                "淘宝通知".equals(s4) && "幸福小区南门".equals(p4), s4 + " / " + p4);
     }
 }

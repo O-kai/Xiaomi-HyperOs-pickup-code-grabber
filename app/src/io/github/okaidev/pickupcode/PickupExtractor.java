@@ -76,6 +76,16 @@ public class PickupExtractor {
             {"【菜鸟驿站】您的韵达81913包裹已到派出所南隔壁快递站，请19:00前取", "-"},
             // 反例：单段「字母-数字」在快递语境里也可能是订单号，无取件语义不能抓
             {"【淘宝】您的快递订单 A-1023 已发货，韵达81913，请注意查收", "-"},
+            // ===== v13 新增：App 通知顶着「纯状态通知」标题但确实带码 =====
+            // 强锚点例外——不能因为标题里有「订单物流」就把真取件码整条否决
+            {"【订单物流】您购买的宝贝已送达菜鸟驿站，包裹待签收【取件码-1-9-7026】，手机号已加密，享号码保护服务，点击查看详情>>", "1-9-7026"},
+            // 反例：同样标题但没有合法码——强锚点例外不能把它们放进来
+            {"【订单物流】您购买的宝贝物流状态已更新，包裹到达新站点，点击查看>>", "-"},
+            {"【订单物流】您今天共有1个在途快递哦，点击查看详情>", "-"},
+            // 反例：真机错题本里三条非快递通知（只有泛词「快递/包裹」，不该进错题本）
+            {"客户拒收的快递没拦截住，出库后客户要拒收只能申请退货退款，没有运费险客户只能付运费>>", "-"},
+            {"您今天共有7个在途快递哦", "-"},
+            {"您购买的宝贝物流状态已更新，包裹到达新站点，点击查看>>", "-"},
     };
 
     /** 初始化规则引擎：优先读持久化目录最新规则，失败则回退 assets 或编译内默认 */
@@ -295,8 +305,10 @@ public class PickupExtractor {
         ExtractorRules r = activeRules;
         if (r == null || r.patternFeature == null || r.patternAnyToken == null) return false;
         // v9：纯状态通知（电商「商品待取件提醒 / 订单发货通知 / 商品派送通知」）
-        // 含特征词却不给凭据，整条不是取件短信
-        if (r.patternNotifyOnly != null && r.patternNotifyOnly.matcher(body).find()) return false;
+        // 含特征词却不给凭据，整条不是取件短信。
+        // v13：有强锚点（取件码+合法码形）时不否决——淘宝「【订单物流】…
+        // 包裹待签收【取件码-1-9-7026】…」这类真通知也顶着「订单物流」标题。
+        if (isNotifyOnly(r, body)) return false;
         if (!r.patternFeature.matcher(body).find()) return false;
         return r.patternAnyToken.matcher(body).find();
     }
@@ -320,7 +332,8 @@ public class PickupExtractor {
         if (r == null || r.patternFeature == null) return false;
         // v9：纯状态通知整条否决。这一层是错题本的入口——
         // 不拦的话「拼多多：今日共2个快递待取」这类会天天进来当「疑似漏抓」。
-        if (r.patternNotifyOnly != null && r.patternNotifyOnly.matcher(body).find()) return false;
+        // v13：强锚点例外（见 isNotifyOnly），避免把带码的淘宝物流通知判成错题。
+        if (isNotifyOnly(r, body)) return false;
         return r.patternFeature.matcher(body).find();
     }
 
@@ -366,7 +379,7 @@ public class PickupExtractor {
             Matcher m = r.patternPlace.matcher(body);
             while (m.find()) {
                 String cand = m.group(1);
-                if (cand != null && cand.length() >= 2 && plausiblePlaceName(cand)) {
+                if (cand != null && cand.length() >= 2 && plausiblePlaceName(r, cand)) {
                     return cand;
                 }
             }
@@ -376,7 +389,7 @@ public class PickupExtractor {
             Matcher m2 = r.patternPlaceFallback.matcher(body);
             while (m2.find()) {
                 String cand = m2.group(1);
-                if (cand != null && plausiblePlaceName(cand)) {
+                if (cand != null && plausiblePlaceName(r, cand)) {
                     return cand;
                 }
             }
@@ -396,7 +409,7 @@ public class PickupExtractor {
                 String tail = body.substring(lastEnd)
                         .replaceFirst("^[，,。；;、\\s】》」）)\\]】]+", "").trim();
                 if (tail.length() >= 2 && tail.length() <= 40
-                        && plausiblePlaceName(tail) && looksLikePlace(r, tail)) {
+                        && plausiblePlaceName(r, tail) && looksLikePlace(r, tail)) {
                     return tail;
                 }
             }
@@ -418,17 +431,36 @@ public class PickupExtractor {
      * 取件码才是这条链路的主体，地点只是附加信息——宁可空着，
      * 也不能把一句描述当成门店名写进待办。
      */
-    private static boolean plausiblePlaceName(String s) {
+    private static boolean plausiblePlaceName(ExtractorRules r, String s) {
         if (s == null) return false;
         String t = s.trim();
         if (t.length() < 2 || t.length() > 40) return false;
-        if (containsAny(t, "包裹", "快件", "您的", "取件码", "取货码")) return false;
-        if (t.startsWith("请")) return false;
+        // v13：否决词、噪声前缀、尾部动词、泛称词全部由 rules.json 驱动，
+        // 以后补词改规则就行，不用发版。
+        if (r != null && containsAny(t, r.placeRejectWords)) return false;
+        if (r != null && r.placeNoisePrefixes != null) {
+            for (String p : r.placeNoisePrefixes) {
+                if (p != null && !p.isEmpty() && t.startsWith(p)) return false;
+            }
+        }
         // 剥掉尾部动词：「店领取」→「店」、「货架取」→「货架」
-        String core = t.replaceAll("[领取出拿收寄]+$", "");
+        String core = t;
+        if (r != null && r.patternPlaceTailVerb != null) {
+            core = r.patternPlaceTailVerb.matcher(t).replaceAll("");
+        }
         if (core.length() < 2) return false;
         // 剥完只剩泛称（店/站/柜/点/驿站…）不算地点
-        return !core.matches("店|站|柜|点|门店|驿站|站点|快递|快递点|快递站|服务点");
+        if (r != null && r.placeGenericWords != null && r.placeGenericWords.contains(core)) return false;
+        return true;
+    }
+
+    /** List 版（v13：词表来自规则，不再是可变参数） */
+    private static boolean containsAny(String s, java.util.List<String> words) {
+        if (s == null || words == null) return false;
+        for (String w : words) {
+            if (w != null && !w.isEmpty() && s.contains(w)) return true;
+        }
+        return false;
     }
 
     /** 尾段是否像地点：含地点特征后缀词，且不含明显非地点噪声 */
@@ -436,19 +468,12 @@ public class PickupExtractor {
         if (r == null || r.placeSuffixes == null) return false;
         // v6.1：隐私保护类文案常含「服务」「中心」等后缀词，极易被误判为地点。
         // 实测「手机号已加密，享号码保护服务，点击查看详情」整段被判成地点。
-        // 这里先做噪声否决，再走后缀词判定。
-        if (containsAny(tail, "号码保护", "已加密", "加密", "点击查看", "详情",
-                "退订", "回复", "客服", "咨询", "如有疑问", "谢谢")) {
-            return false;
-        }
+        // v13：原来的两段否决词（隐私保护 + 营销催单）合并成一张规则表
+        // placeTailNoiseWords，先否决再判后缀——两段本来就都是直接 return false，
+        // 合并只是让它们可以随规则热更新，行为不变。
+        if (containsAny(tail, r.placeTailNoiseWords)) return false;
         for (String suf : r.placeSuffixes) {
-            if (!suf.isEmpty() && tail.contains(suf)) {
-                // 排除含营销/催单噪声的尾段
-                if (containsAny(tail, "红包", "免单", "券", "详情页", "客服")) {
-                    return false;
-                }
-                return true;
-            }
+            if (!suf.isEmpty() && tail.contains(suf)) return true;
         }
         return false;
     }
@@ -501,7 +526,8 @@ public class PickupExtractor {
         // ===== Tier0-A：快递特征门禁 =====
         // v9：先过「纯状态通知」否决——这类消息含特征词但没有凭据，
         // 直接调 extract()（链路测试/体检）时也必须拦下。
-        if (r.patternNotifyOnly != null && r.patternNotifyOnly.matcher(body).find()) {
+        // v13：强锚点例外（见 isNotifyOnly）——有「取件码+合法码」的淘宝物流通知要放行。
+        if (isNotifyOnly(r, body)) {
             return new ArrayList<>(result);
         }
         if (r.patternFeature == null || !r.patternFeature.matcher(body).find()) {
@@ -680,6 +706,49 @@ public class PickupExtractor {
         if (tok == null || tok.isEmpty() || tok.length() > 20 || r == null) return false;
         if (r.patternDashShape != null && r.patternDashShape.matcher(tok).matches()) return true;
         if (r.patternAlnumShape != null && r.patternAlnumShape.matcher(tok).matches()) return true;
+        return false;
+    }
+
+    /**
+     * 纯状态通知整条否决（v9 引入，v13 加强锚点例外）。
+     *
+     * <p>v9 的初衷：电商会推「订单物流／商品已签收／订单已送达」这类消息，
+     * 含「包裹／驿站／取件」等特征词却根本不给凭据，整条不该当取件短信。
+     *
+     * <p>v13 发现的漏洞：淘宝的真取件通知也顶着「【订单物流】」标题——
+     * 「【订单物流】您购买的宝贝已送达菜鸟驿站，包裹待签收【取件码-1-9-7026】，…」
+     * 这条被词表一票否决，TierA 明明已经抓到了 `1-9-7026` 却永远走不到。
+     *
+     * <p>修法和 v3.1.0 处理 negativeKeywords 的思路一致：<b>强锚点优先</b>。
+     * 只要正文里出现「取件码/取货码/… + 形状合法的码」，就不视作纯状态通知。
+     * 实测 6 条 v11 反例（订单物流无码 / 商品待取件提醒 / 订单已送达…）都没有强锚点，
+     * 仍然照旧拦截。
+     */
+    private static boolean isNotifyOnly(ExtractorRules r, String body) {
+        if (r == null || body == null || r.patternNotifyOnly == null) return false;
+        if (!r.patternNotifyOnly.matcher(body).find()) return false;
+        // 强锚点：关键词锚定或「凭/出示」后面跟一个形状合法的码
+        if (r.patternKeyword != null) {
+            Matcher a = r.patternKeyword.matcher(body);
+            while (a.find()) {
+                if (isAnchorCluster(r, a.group(1))) return false;
+            }
+        }
+        if (r.patternBy != null) {
+            Matcher b = r.patternBy.matcher(body);
+            while (b.find()) {
+                if (isAnchorCluster(r, b.group(1))) return false;
+            }
+        }
+        return true;
+    }
+
+    /** 捕获组里可能是码簇（「1-3-1257, 2-4-0274」），拆开后任一段合法即算强锚点 */
+    private static boolean isAnchorCluster(ExtractorRules r, String cluster) {
+        if (cluster == null) return false;
+        for (String tok : cluster.split("[,，、;；\\s]+")) {
+            if (validCode(r, tok)) return true;
+        }
         return false;
     }
 

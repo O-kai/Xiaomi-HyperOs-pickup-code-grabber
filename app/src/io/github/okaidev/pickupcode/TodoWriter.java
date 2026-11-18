@@ -494,6 +494,12 @@ public class TodoWriter {
      *  策略2（回退）：无括号时按正文关键字判定 */
     public static String resolveSource(String sender, String body) {
         String t = (body == null ? "" : body);
+        // v13：通知通道优先按包名判定，且必须放在括号品牌之前。
+        // 淘宝通知正文以「【订单物流】」开头——那不是品牌名，是通知标题；
+        // 若先走括号策略就会把来源写成「订单物流」，而不是用户要的「淘宝通知」。
+        if (sender != null && sender.startsWith("通知:")) {
+            return AppLabels.notiSource(sender.substring(3));
+        }
         // 策略1a：全角【】品牌名（限 12 字以内防误吃正文括号）
         String brand = bracketBrand(t, '【', '】');
         if (brand != null) return brand;
@@ -513,14 +519,6 @@ public class TodoWriter {
         if (t.contains("邮政") || t.contains("EMS")) return "中国邮政";
         if (t.contains("丰巢") || t.contains("柜")) return "丰巢快递柜";
         if (t.contains("菜鸟") || t.contains("驿站")) return "菜鸟驿站";
-        // v2.9.5：通知通道传回的 sender 形如「通知:com.cainiao.wireless」，
-        // 直接展示很丑——清洗成可读来源，仍无法识别时统一显示「—」
-        if (sender != null && sender.startsWith("通知:")) {
-            String pkg = sender.substring(3);
-            int dot = pkg.lastIndexOf('.');
-            String guess = dot >= 0 ? pkg.substring(dot + 1) : pkg;
-            return guess.isEmpty() ? "—" : guess;
-        }
         // v6.1：识别不出来源时不再回显发送方号码。
         // 号码（1069888877 之类）对用户没有任何意义，写进待办只是噪音；
         // 按「识别不到就不显示」的原则统一显示「—」。

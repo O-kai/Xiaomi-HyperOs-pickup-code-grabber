@@ -39,6 +39,27 @@ public class ExtractorRules {
     public List<String> placePrefixes = new ArrayList<>();
     public List<String> placeSuffixes = new ArrayList<>();
     /**
+     * 地点成色否决词（v13 规则集新增）：捕获到的"地点"里出现这些词，说明它是半句话而不是门店名。
+     *
+     * <p>实测反例：「取货码Z-99001，您的包裹已到店」会被夹取成「您的包裹已到店」——
+     * 含「包裹」「您的」的绝不可能是门店名。
+     *
+     * <p>为什么放进规则而不是写死在代码里：这类词是真实反馈驱动的，会持续补充。
+     * 写死在代码里每加一个词都要发版；放进规则后改 JSON 就能热更新。
+     */
+    public List<String> placeRejectWords = new ArrayList<>();
+    /** 地点成色：以这些字开头的不是地点（「请到店领取」的「请到店」） */
+    public List<String> placeNoisePrefixes = new ArrayList<>();
+    /** 地点成色：捕获结果末尾的动词，判否前先剥掉（「店领取」→「店」） */
+    public List<String> placeTailVerbs = new ArrayList<>();
+    /** 地点成色：剥掉尾部动词后只剩这些泛称，就不是地点（「店」「站」「柜」） */
+    public List<String> placeGenericWords = new ArrayList<>();
+    /**
+     * 尾段噪声词（v13 从 {@code looksLikePlace} 里搬出来）：
+     * 含地点后缀词但同时也含这些词，说明是隐私/营销文案而不是地址。
+     */
+    public List<String> placeTailNoiseWords = new ArrayList<>();
+    /**
      * 强负向词：命中即判「非取件短信」——但仅在【无强锚点】时生效
      * （强锚点 = 出现取件码/取货码… 或 凭/出示+合法码形）。
      * 这样「超时收0.50元3.00元封顶」（柜机超时收费说明）不会误杀真正的取件短信。
@@ -99,6 +120,8 @@ public class ExtractorRules {
     public transient Pattern patternMaskedPhone;
     /** v4：「码…到/至…取」夹取型（地点+动作双确认） */
     public transient Pattern patternCodeToTake;
+    /** v13：地点尾部动词（`[领取…]+$`），null 表示不剥离 */
+    public transient Pattern patternPlaceTailVerb;
 
     /**
      * 内置默认规则集。
@@ -125,6 +148,11 @@ public class ExtractorRules {
         r.byLookaheadWords = asList(GeneratedRules.BY_LOOKAHEAD_WORDS);
         r.placePrefixes = asList(GeneratedRules.PLACE_PREFIXES);
         r.placeSuffixes = asList(GeneratedRules.PLACE_SUFFIXES);
+        r.placeRejectWords = asList(GeneratedRules.PLACE_REJECT_WORDS);
+        r.placeNoisePrefixes = asList(GeneratedRules.PLACE_NOISE_PREFIXES);
+        r.placeTailVerbs = asList(GeneratedRules.PLACE_TAIL_VERBS);
+        r.placeGenericWords = asList(GeneratedRules.PLACE_GENERIC_WORDS);
+        r.placeTailNoiseWords = asList(GeneratedRules.PLACE_TAIL_NOISE_WORDS);
         r.negativeKeywords = asList(GeneratedRules.NEGATIVE_KEYWORDS);
         r.excludeTailWords = asList(GeneratedRules.EXCLUDE_TAIL_WORDS);
         r.excludeTailPhrases = asList(GeneratedRules.EXCLUDE_TAIL_PHRASES);
@@ -191,6 +219,20 @@ public class ExtractorRules {
         r.extraFeatureWords = jsonArrayToList(obj.optJSONArray("extraFeatureWords"));
         r.notifyOnlyPhrases = jsonArrayToList(obj.optJSONArray("notifyOnlyPhrases"));
 
+        // ===== v13 新增字段：地点成色词表，缺失时回落到内置默认 =====
+        // 老规则（v12 及以前）没有这几个字段，必须能安全加载——回落到编译内置的那份，
+        // 行为与加字段之前完全一致。
+        List<String> placeReject = jsonArrayToList(obj.optJSONArray("placeRejectWords"));
+        r.placeRejectWords = placeReject.isEmpty() ? fallback.placeRejectWords : placeReject;
+        List<String> placeNoisePre = jsonArrayToList(obj.optJSONArray("placeNoisePrefixes"));
+        r.placeNoisePrefixes = placeNoisePre.isEmpty() ? fallback.placeNoisePrefixes : placeNoisePre;
+        List<String> placeTailVerb = jsonArrayToList(obj.optJSONArray("placeTailVerbs"));
+        r.placeTailVerbs = placeTailVerb.isEmpty() ? fallback.placeTailVerbs : placeTailVerb;
+        List<String> placeGeneric = jsonArrayToList(obj.optJSONArray("placeGenericWords"));
+        r.placeGenericWords = placeGeneric.isEmpty() ? fallback.placeGenericWords : placeGeneric;
+        List<String> placeTailNoise = jsonArrayToList(obj.optJSONArray("placeTailNoiseWords"));
+        r.placeTailNoiseWords = placeTailNoise.isEmpty() ? fallback.placeTailNoiseWords : placeTailNoise;
+
         r.compile();
         return r;
     }
@@ -212,6 +254,11 @@ public class ExtractorRules {
 
             obj.put("placePrefixes", listToJsonArray(placePrefixes));
             obj.put("placeSuffixes", listToJsonArray(placeSuffixes));
+            obj.put("placeRejectWords", listToJsonArray(placeRejectWords));
+            obj.put("placeNoisePrefixes", listToJsonArray(placeNoisePrefixes));
+            obj.put("placeTailVerbs", listToJsonArray(placeTailVerbs));
+            obj.put("placeGenericWords", listToJsonArray(placeGenericWords));
+            obj.put("placeTailNoiseWords", listToJsonArray(placeTailNoiseWords));
             obj.put("negativeKeywords", listToJsonArray(negativeKeywords));
             obj.put("excludeTailWords", listToJsonArray(excludeTailWords));
             obj.put("excludeTailPhrases", listToJsonArray(excludeTailPhrases));
@@ -307,6 +354,24 @@ public class ExtractorRules {
         String pPlaceSuffix = "(?:" + preOr + ")([\\u4e00-\\u9fa5A-Za-z0-9]{2,30}?(?:" + sufOr + "))";
         patternPlace = Pattern.compile(pPlaceSqueeze);
         patternPlaceFallback = Pattern.compile(pPlaceSuffix);
+
+        // v13：地点尾部动词的正则（「店领取」→「店」）。
+        // 空表时置 null 表示不剥离——绝不能编译出 "[]+$" 这种非法或放行一切的正则。
+        if (placeTailVerbs != null && !placeTailVerbs.isEmpty()) {
+            StringBuilder cls = new StringBuilder();
+            for (String v : placeTailVerbs) {
+                if (v == null || v.isEmpty()) continue;
+                for (char c : v.toCharArray()) {
+                    // 转义字符类里的元字符，避免规则写坏导致整份规则加载失败
+                    if ("\\]^-".indexOf(c) >= 0) cls.append('\\');
+                    cls.append(c);
+                }
+            }
+            patternPlaceTailVerb = (cls.length() == 0)
+                    ? null : Pattern.compile("[" + cls + "]+$");
+        } else {
+            patternPlaceTailVerb = null;
+        }
 
         if (negativeKeywords != null && !negativeKeywords.isEmpty()) {
             patternNegative = Pattern.compile(String.join("|", negativeKeywords));
