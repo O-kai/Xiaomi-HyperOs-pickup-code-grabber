@@ -58,3 +58,9 @@ tools/device-probe/shots/
 tools/device-probe/_probe_q.sql
 
 tools/_del.py
+
+# ---------- 酷安文案（本地用，不入库） ----------
+# 酷安文案是发完就没意义的临时物料（链接、关键词会随版本变），
+# 留在本地自己复制用，不往 GitHub 上推。
+docs/COOLAPK-发布用-*.txt
+docs/COOLAPK-[0-9]*.md
