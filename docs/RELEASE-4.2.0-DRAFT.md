@@ -55,7 +55,9 @@
 
 - **仓库**：`Xposed-Modules-Repo/io.github.okaidev.pickupcode`
 - **模块名**：取件码助手（PickupCodeGrabber）
-- **tag**：`420-4.2.0`（`versionCode-versionName`，沿用旧规矩，不要写成 `v4.2.0`）
+- **tag**：`420-4.2.0`（`versionCode-versionName`）
+  注意：**两个仓的 tag 规矩不同** —— 主仓用 `v4.2.0`，镜像仓用 `420-4.2.0`。
+  镜像仓沿用旧规矩（`403-4.0.3`、`410-4.1.0` 都是这个格式），别写成 `v4.2.0`
 
 ### SUMMARY（模块列表页那一行）
 
