@@ -177,6 +177,12 @@ public class WidgetSettingsActivity extends Activity {
             // 不让用户先面对一块灰底发愣，也不用教他再点一次按钮。
             root.postDelayed(this::captureBackdrop, 350);
         }
+        // v4.2.1：长按快捷方式判定「没权限」时，由透明中转页把用户送到这里来弹引导。
+        // 不在透明页弹 —— 那种窗口上的 Dialog 会点不动也不消失（真机实测）。
+        if (savedInstanceState == null && getIntent() != null
+                && getIntent().getBooleanExtra(WidgetAddActivity.EXTRA_SHOW_GUIDE, false)) {
+            root.postDelayed(() -> WidgetPin.showGuideFor(this), 260);
+        }
         box.addView(buildSettingsCard(), UiKit.cardLp(this, 10));
 
         // v4.0.2：加「重新添加」入口。

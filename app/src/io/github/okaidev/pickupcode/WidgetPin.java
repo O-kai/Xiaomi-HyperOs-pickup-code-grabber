@@ -59,8 +59,8 @@ public final class WidgetPin {
      *       <b>100ms 后本页就已经失焦</b>（系统把桌面和确认框推到了前台）；</li>
      *   <li>没权限：同样的调用 9ms 返回，之后焦点一直不变，组件数也不变。</li>
      * </ul>
-     * 所以这个窗口只是「给系统一个抢焦点的机会」，600ms 已经是 6 倍余量，
-     * 不需要几秒。窗口内命中任一成功信号就立刻收手，不弹任何东西。
+     * 所以这个窗口只是「给系统一个抢焦点的机会」：400ms（实测 100ms 的 4 倍），
+     * 命中任一成功信号立刻收手，不弹任何东西。
      *
      * <p>为什么不能「先查权限再决定」：MIUI 的「桌面快捷方式」是自家权限
      * （真机确认它是 {@code MIUIOP(10017)}，既不是标准 runtime 权限、
@@ -68,7 +68,7 @@ public final class WidgetPin {
      * 系统只把这个状态暴露在「行为」上：给不给弹确认框。
      */
     private static final int PIN_POLL_MS = 100;
-    private static final int PIN_POLLS = 6;
+    private static final int PIN_POLLS = 4;
 
     /**
      * 桌面可能的小部件列表页（尽力而为：命中就用，没命中就退回文字步骤）。
@@ -105,28 +105,34 @@ public final class WidgetPin {
      * <p>由「添加到桌面」按钮和长按图标那条快捷方式调用。
      */
     public static void quickPin(Activity a) {
-        quickPin(a, null);
+        quickPin(a, null, null);
     }
 
     /**
-     * @param whenDone 有结果（成功 / 引导已弹出）之后要做的事。
-     *                 设置页传 null；长按图标的透明中转页传 {@code finish}，
-     *                 这样「加上了」就无声退出，「没权限」就弹完引导再退出。
+     * @param whenDone    有结果之后要做的事（成功，或引导已经处理完）。
+     *                    设置页传 null；长按图标的透明中转页传 {@code finish}。
+     * @param onNeedGuide 非 null 时：判定「系统没响应」**不在这里弹引导**，
+     *                    而是回调给调用方。
+     *                    透明页必须走这条 —— 那个页面没有自己的界面，
+     *                    在它上面弹 Dialog 会出现「点不动、也不会自己消失」的僵尸窗口
+     *                    （真机实测：输入焦点为空，按钮收不到点击）。
+     *                    由调用方跳到正常页面再弹。
      */
-    public static void quickPin(Activity a, Runnable whenDone) {
+    public static void quickPin(Activity a, Runnable whenDone, Runnable onNeedGuide) {
         if (a == null) return;
         AppWidgetManager mgr = AppWidgetManager.getInstance(a);
         ComponentName provider = new ComponentName(a, PickupWidgetProvider.class);
 
         if (!mgr.isRequestPinAppWidgetSupported()) {
             // 明确不支持（个别 ROM / 桌面），别装作成功
-            if (!openWidgetPicker(a)) showGuide(a, "这个系统不支持一键添加", whenDone);
+            if (!openWidgetPicker(a)) fail(a, "这个系统不支持一键添加", whenDone, onNeedGuide);
             else if (whenDone != null) whenDone.run();
             return;
         }
 
         final long seq = ++requestSeq;
         pinned = false;
+        Log.i(TAG, "PIN enter from " + a.getClass().getSimpleName() + " widgets=" + countWidgets(a));
         final int before = countWidgets(a);
         try {
             Intent cb = new Intent(a, WidgetPinReceiver.class)
@@ -134,13 +140,15 @@ public final class WidgetPin {
             PendingIntent pi = PendingIntent.getBroadcast(a, 1001, cb,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             mgr.requestPinAppWidget(provider, null, pi);
+            Log.i(TAG, "PIN requested");
         } catch (Throwable t) {
-            showGuide(a, "发起添加请求失败", whenDone);
+            Log.w(TAG, "PIN request failed: " + t);
+            fail(a, "发起添加请求失败", whenDone, onNeedGuide);
             return;
         }
 
         Toast.makeText(a, "正在请求系统放到桌面…", Toast.LENGTH_SHORT).show();
-        watchPin(a, seq, before, 0, whenDone);
+        watchPin(a, seq, before, 0, whenDone, onNeedGuide);
     }
 
     /**
@@ -155,8 +163,11 @@ public final class WidgetPin {
      * 只有「4 秒里一直握着焦点、一个组件也没多出来」才判定为被系统吞掉，
      * 这时才弹「去打开桌面快捷方式」的引导。
      */
-    private static void watchPin(Activity a, long seq, int before, int step, Runnable whenDone) {
+    private static void watchPin(Activity a, long seq, int before, int step,
+                                 Runnable whenDone, Runnable onNeedGuide) {
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            Log.i(TAG, "PIN watch step=" + step + " focus=" + a.hasWindowFocus()
+                    + " widgets=" + countWidgets(a) + " finishing=" + a.isFinishing());
             if (pinned || seq != requestSeq) {               // 已经加上了 / 又发起了新请求
                 done(whenDone);
                 return;
@@ -174,7 +185,7 @@ public final class WidgetPin {
                 return;
             }
             if (step < PIN_POLLS) {
-                watchPin(a, seq, before, step + 1, whenDone);
+                watchPin(a, seq, before, step + 1, whenDone, onNeedGuide);
                 return;
             }
             // 600ms 里既没新增组件、本页又一直握着焦点 → 系统把请求吞了
@@ -182,8 +193,22 @@ public final class WidgetPin {
                 done(whenDone);
                 return;
             }
-            showGuide(a, "系统没有响应这次添加", whenDone);
+            fail(a, "系统没有响应这次添加", whenDone, onNeedGuide);
         }, PIN_POLL_MS);
+    }
+
+    /** 判定失败：能给调用方处理就交给它，否则就地弹引导 */
+    private static void fail(Activity a, String reason, Runnable whenDone, Runnable onNeedGuide) {
+        if (onNeedGuide != null) {
+            onNeedGuide.run();
+            return;
+        }
+        showGuide(a, reason, whenDone);
+    }
+
+    /** 供正常页面（小组件设置页）主动弹一次引导用 */
+    static void showGuideFor(Activity a) {
+        showGuide(a, null, null);
     }
 
     private static void done(Runnable whenDone) {
